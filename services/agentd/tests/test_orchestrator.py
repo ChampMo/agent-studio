@@ -305,6 +305,78 @@ async def test_a_snapshot_from_a_newer_build_still_replays():
     assert replayed.members[0].name == "Mira"
 
 
+# ---- a process that dies mid-mission ------------------------------------
+
+
+async def test_a_mission_orphaned_by_a_dead_process_is_closed_at_startup(db, bus):
+    """Found live: the dev launcher restarted the backend mid-run, the task went
+    with it, and the row sat at `running` for ever.
+
+    A dead process cannot write its own terminal event, so the next one does it.
+    Every mission is promised exactly one `mission.ended`, and a row claiming to
+    be running when nothing is driving it is the timeline lying about the
+    present rather than the past."""
+    from datetime import UTC, datetime
+
+    async with db.session() as s:
+        s.add(
+            Mission(
+                id="m-orphan",
+                kind="mission",
+                team_id=None,
+                goal="interrupted",
+                status="running",
+                budget={},
+                roster_snapshot=[],
+                started_at=datetime.now(UTC),
+            )
+        )
+        await s.commit()
+
+    runner = MissionRunner(db, bus)
+    assert await runner.reap_orphans() == 1
+
+    async with db.session() as s:
+        mission = (
+            await s.execute(select(Mission).where(Mission.id == "m-orphan"))
+        ).scalar_one()
+    assert mission.status == "ended"
+    assert mission.end_reason == "crashed"
+    assert "backend stopped" in (mission.result_summary or "")
+
+    events = await bus.history("m-orphan", 0, 99)
+    ended = [e for e in events if e["draft"]["type"] == "mission.ended"]
+    assert len(ended) == 1
+    assert ended[0]["draft"]["payload"]["reason"] == "crashed"
+
+
+async def test_reaping_leaves_finished_missions_alone(db, bus):
+    from datetime import UTC, datetime
+
+    async with db.session() as s:
+        s.add(
+            Mission(
+                id="m-done",
+                kind="mission",
+                team_id=None,
+                goal="finished",
+                status="ended",
+                budget={},
+                roster_snapshot=[],
+                started_at=datetime.now(UTC),
+                end_reason="completed",
+            )
+        )
+        await s.commit()
+
+    assert await MissionRunner(db, bus).reap_orphans() == 0
+    async with db.session() as s:
+        mission = (
+            await s.execute(select(Mission).where(Mission.id == "m-done"))
+        ).scalar_one()
+    assert mission.end_reason == "completed"
+
+
 # ---- the run gate --------------------------------------------------------
 
 

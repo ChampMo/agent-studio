@@ -105,6 +105,49 @@ flake that cancelled a fraction too early. `_track()` now guarantees the termina
 from the done-callback, and the test waits on an event the provider sets rather than on a
 fixed number of loop turns — a race dressed as a delay.
 
+**M5 — the scene: done.** Isometric 2.5D room, characters at their seats, poses driven
+by `agent.status`, the current task labelled under whoever is on it. 196 pytest + 30
+vitest + 2 cargo green. Verified live: work moved from Source Scout to Clara and the
+scene followed, with the task label moving with it.
+
+### The scene is a pure derivation plus a dumb renderer
+
+`scene/bindings/sceneState.ts` turns events + the frozen roster into what to draw, and
+knows nothing about PixiJS. `scene/engine` draws what it is given and decides nothing.
+That split is what makes the M5 criterion — an unrecognised status falls back to the
+default pose without crashing — a test rather than something checked by squinting at a
+canvas. Fourteen tests cover unknown statuses, unknown avatar assets, unknown layouts,
+and a layout that gained seats.
+
+Characters are drawn from primitives, not sprites: no art exists yet, and every shape is
+driven by real data — `avatar_config` from the closed catalogue, a pose from the stream.
+Swapping in artwork later replaces `ActorView.redraw`, not the data path. Nothing on
+screen is untrue: a name, the pose in words, and the task they are on. No bars, no
+numbers (§1.1).
+
+Seat *positions* live in `scene/engine/iso.ts` while the seat *count* stays on the
+backend. Each side owns the number it needs: the validator rejects a member in a seat
+that does not exist, and arranging desks is a rendering decision that would otherwise be
+frozen into a migration.
+
+### A mission whose process dies is not still running
+
+The dev launcher restarted the backend mid-run — a `.pyc` write tripped the watcher — and
+the mission row sat at `running` for ever, because a dead process cannot write its own
+terminal event. `reap_orphans()` now runs at startup and closes them as `crashed`. A row
+claiming to be running when nothing is driving it is the timeline lying about the
+present rather than the past.
+
+The watcher now ignores `__pycache__` and names the file that triggered a restart, so a
+restart nobody asked for is traceable instead of looking like the backend falling over.
+
+### A stable selector does not re-render
+
+`useMissionStore((s) => s.nameOf)` selects a function whose identity never changes, so
+the timeline kept printing raw agent ids until something else happened to re-render it.
+It subscribes to `roster` as well now. Any selector that returns a resolver rather than
+data has this shape.
+
 **Gamification rolled back (brief §1.1, decision row 28).** `level` and `exp` are gone —
 migration `0004_drop_exp` removes the column, and a test asserts the wire form carries no
 invented score. Kept: `total_missions` (counted from runs that finished), usage and cost

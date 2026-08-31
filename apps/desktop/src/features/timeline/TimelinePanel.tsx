@@ -17,7 +17,13 @@ export function TimelinePanel() {
   const malformed = useEventStore((s) => s.malformed);
   // Names come from the mission's frozen roster, never from the agents table:
   // that is what keeps a replay showing who actually did the work (§5.1).
+  //
+  // The roster is subscribed to as well as the resolver. `nameOf` is a stable
+  // function reference, so selecting only that leaves this component rendering
+  // raw agent ids until something else happens to re-render it.
+  const roster = useMissionStore((s) => s.roster);
   const nameOf = useMissionStore((s) => s.nameOf);
+  void roster;
 
   return (
     <div className="flex h-full flex-col">

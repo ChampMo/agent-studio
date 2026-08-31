@@ -62,6 +62,31 @@ class MissionRunner:
         #: cancel the work that records the cancellation. See `_run`.
         self._finishers: dict[str, asyncio.Task] = {}
 
+    async def reap_orphans(self) -> int:
+        """Close out missions left `running` by a process that is gone.
+
+        A crash, a kill, or the dev launcher restarting the backend takes the
+        task with it, and a dead process cannot write its own terminal event.
+        The row would then claim a mission is still running when nothing is
+        driving it -- and every mission is promised exactly one `mission.ended`.
+
+        Run once at startup, before anything can read the table.
+        """
+        async with self._db.session() as s:
+            orphans = list(
+                (await s.execute(select(Mission).where(Mission.status == "running")))
+                .scalars()
+                .all()
+            )
+
+        for mission in orphans:
+            await self._finish(
+                mission.id,
+                "crashed",
+                "the backend stopped while this mission was running",
+            )
+        return len(orphans)
+
     # ---- lifecycle ----------------------------------------------------
 
     async def start_chat(

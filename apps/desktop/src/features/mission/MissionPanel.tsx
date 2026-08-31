@@ -14,6 +14,7 @@ import { useEventStore } from "../../stores/eventStore";
 import { useMissionStore } from "../../stores/missionStore";
 import { useTeamStore } from "../../stores/teamStore";
 import { Badge, Button, Field, Input } from "../../components/ui/primitives";
+import { SceneView } from "../../scene/SceneView";
 
 interface TaskRow {
   taskId: string;
@@ -146,6 +147,13 @@ export function MissionPanel() {
 
         {missionId ? (
           <>
+            {/* The scene and the list below read the same events (§2.1). If
+                they ever disagree, one of them is lying — and they cannot,
+                because both come from one derivation. */}
+            <div className="h-72 overflow-hidden rounded-lg border border-slate-800">
+              <SceneView />
+            </div>
+
             <div className="flex flex-wrap gap-2">
               {roster.map((member) => {
                 const status = statuses.get(member.agent_id) ?? "idle";

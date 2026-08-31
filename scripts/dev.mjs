@@ -170,10 +170,10 @@ function start() {
   });
 }
 
-function restart() {
+function restart(because) {
   if (!child || restarting) return;
   restarting = true;
-  console.log("[dev] backend changed — restarting");
+  console.log(`[dev] restarting backend — ${because ?? "requested"} changed`);
   child.once("exit", () => {
     restarting = false;
     start();
@@ -198,8 +198,13 @@ function cleanup(code = 0) {
 let debounce = null;
 watch(WATCH_DIR, { recursive: true }, (_e, file) => {
   if (!file || !file.endsWith(".py")) return;
+  // Bytecode and test caches are written by simply *running* the code, and a
+  // restart triggered by one kills whatever mission is in flight for no reason.
+  if (file.includes("__pycache__") || file.includes(".pytest_cache")) return;
   clearTimeout(debounce);
-  debounce = setTimeout(restart, 150);
+  // Named, so a restart nobody asked for can be traced to the file that caused
+  // it instead of looking like the backend falling over.
+  debounce = setTimeout(() => restart(file), 150);
 });
 
 process.on("SIGINT", () => cleanup(0));

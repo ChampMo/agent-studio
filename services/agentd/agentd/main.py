@@ -6,6 +6,7 @@ provider keys, so an open port on this machine is an open wallet (§9.1).
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -19,6 +20,8 @@ from .core.config import ALLOWED_ORIGINS, Settings, get_settings
 from .core.events import EventBus
 from .db.session import Database
 
+log = logging.getLogger("agentd")
+
 
 def create_app(*, settings: Settings | None = None, db: Database | None = None) -> FastAPI:
     settings = settings or get_settings()
@@ -31,7 +34,14 @@ def create_app(*, settings: Settings | None = None, db: Database | None = None) 
         app.state.settings = settings
         app.state.db = database
         app.state.bus = bus
-        app.state.runner = MissionRunner(database, bus)
+        runner = MissionRunner(database, bus)
+        app.state.runner = runner
+        # Before anything can read the table: a mission left `running` by a
+        # process that no longer exists is not running, and saying otherwise is
+        # the timeline lying about the present rather than the past.
+        reaped = await runner.reap_orphans()
+        if reaped:
+            log.warning("closed %d mission(s) orphaned by a previous process", reaped)
         try:
             yield
         finally:

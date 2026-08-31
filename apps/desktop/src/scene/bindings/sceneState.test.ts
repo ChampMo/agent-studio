@@ -1,0 +1,199 @@
+/**
+ * M5 proof: the scene degrades, it does not crash (PROJECT_BRIEF.md §12 M5, §8).
+ *
+ * The milestone's stated criterion is "an unrecognised status falls back to the
+ * default pose without crashing". That is only checkable as a test because the
+ * mapping is a pure function — the renderer draws whatever this returns, so
+ * proving this proves the criterion without a canvas.
+ */
+import { describe, expect, it } from "vitest";
+
+import { DEFAULT_POSE, poseFor, shapeFor } from "../animation/poses";
+import { seatPositions } from "../engine/iso";
+import { lookFor } from "../entities/palette";
+import { deriveSceneState } from "./sceneState";
+
+const ROSTER = [
+  {
+    agent_id: "a-lead",
+    name: "Lead",
+    seat_index: 0,
+    role_in_team: "leader",
+    model: "m1",
+    avatar_config: { body: "slim", hair: "bun", outfit: "blazer", palette: "teal" },
+  },
+  {
+    agent_id: "a-one",
+    name: "One",
+    seat_index: 1,
+    role_in_team: "member",
+    model: "m1",
+    avatar_config: { body: "sturdy", hair: "buzz", outfit: "armor", palette: "ink" },
+  },
+];
+
+let seq = 0;
+function ev(type: string, payload: Record<string, unknown>) {
+  seq += 1;
+  return {
+    event: {
+      v: 1,
+      id: `e-${seq}`,
+      missionId: "m-1",
+      seq,
+      ts: "2026-08-31T00:00:00Z",
+      draft: { type, payload },
+    } as never,
+  };
+}
+
+function derive(events: ReturnType<typeof ev>[], seats = 4) {
+  return deriveSceneState({ roster: ROSTER as never, events, seats });
+}
+
+// ---- the M5 criterion ---------------------------------------------------
+
+describe("an unrecognised status", () => {
+  it("falls back to the default pose instead of throwing", () => {
+    const state = derive([ev("agent.status", { agentId: "a-lead", status: "vibing" })]);
+    expect(state.actors[0]!.pose).toBe(DEFAULT_POSE);
+  });
+
+  it("still resolves to a drawable shape", () => {
+    // The renderer indexes the shape table directly; an unknown key here would
+    // be `undefined` and the character would not draw at all.
+    const shape = shapeFor(poseFor("teleporting"));
+    expect(shape.caption).toBeTruthy();
+    expect(Number.isFinite(shape.lean)).toBe(true);
+  });
+
+  it("does not throw for any value at all", () => {
+    for (const status of [null, undefined, 42, {}, [], "", "DANCING"]) {
+      expect(() => shapeFor(poseFor(status))).not.toThrow();
+    }
+  });
+});
+
+describe("an unknown avatar asset", () => {
+  it("resolves to a real look rather than undefined", () => {
+    // An asset added by a newer build. The catalogue is closed and validated
+    // server-side, but the scene must survive reading a mission written later.
+    const look = lookFor({ body: "gigantic", hair: "silver_mane", palette: "octarine" });
+    expect(look.palette.skin).toBeTypeOf("number");
+    expect(look.body.h).toBeGreaterThan(0);
+    expect(look.hair.top).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe("an unknown layout", () => {
+  it("still produces one position per seat", () => {
+    const positions = seatPositions("holodeck", 5);
+    expect(positions).toHaveLength(5);
+    expect(new Set(positions.map((p) => `${p.x},${p.y}`)).size).toBe(5);
+  });
+
+  it("keeps known desks in place when a layout gains seats", () => {
+    const four = seatPositions("war_room", 4);
+    const six = seatPositions("war_room", 6);
+    expect(six.slice(0, 4)).toEqual(four);
+    expect(six).toHaveLength(6);
+  });
+});
+
+// ---- what the scene shows is what happened ------------------------------
+
+describe("poses follow the event stream", () => {
+  it("uses the latest status per agent", () => {
+    const state = derive([
+      ev("agent.status", { agentId: "a-one", status: "thinking" }),
+      ev("agent.status", { agentId: "a-one", status: "working" }),
+    ]);
+    expect(state.actors.find((a) => a.agentId === "a-one")!.pose).toBe("working");
+  });
+
+  it("leaves an agent that has never reported at the default pose", () => {
+    const state = derive([ev("agent.status", { agentId: "a-lead", status: "working" })]);
+    expect(state.actors.find((a) => a.agentId === "a-one")!.pose).toBe(DEFAULT_POSE);
+  });
+
+  it("resets everyone when the mission ends", () => {
+    // The reason this rule exists: a cancelled run is closed mid-thought and
+    // never reaches `agent.status idle`. A scene waiting for one would leave a
+    // character thinking for ever.
+    const state = derive([
+      ev("agent.status", { agentId: "a-lead", status: "thinking" }),
+      ev("agent.status", { agentId: "a-one", status: "working" }),
+      ev("mission.ended", { reason: "cancelled", summary: "stopped" }),
+    ]);
+    expect(state.actors.every((a) => a.pose === DEFAULT_POSE)).toBe(true);
+    expect(state.endReason).toBe("cancelled");
+  });
+});
+
+describe("the current task", () => {
+  it("is attributed by reading the plan the leader broadcast", () => {
+    const state = derive([
+      ev("agent.message", {
+        agentId: "a-lead",
+        messageId: "plan",
+        to: { kind: "broadcast" },
+        content: "Plan:\n1. Gather sources → seat 1",
+      }),
+      ev("mission.progress", {
+        taskId: "t1",
+        label: "Gather sources",
+        state: "running",
+        done: 0,
+        total: 1,
+      }),
+    ]);
+    expect(state.actors.find((a) => a.agentId === "a-one")!.task).toBe("Gather sources");
+    expect(state.actors.find((a) => a.agentId === "a-lead")!.task).toBeNull();
+  });
+
+  it("clears when the task finishes", () => {
+    const state = derive([
+      ev("agent.message", {
+        agentId: "a-lead",
+        messageId: "plan",
+        to: { kind: "broadcast" },
+        content: "Plan:\n1. Gather sources -> seat 1",
+      }),
+      ev("mission.progress", {
+        taskId: "t1",
+        label: "Gather sources",
+        state: "running",
+        done: 0,
+        total: 1,
+      }),
+      ev("mission.progress", {
+        taskId: "t1",
+        label: "Gather sources",
+        state: "done",
+        done: 1,
+        total: 1,
+      }),
+    ]);
+    expect(state.actors.find((a) => a.agentId === "a-one")!.task).toBeNull();
+  });
+});
+
+describe("the roster the scene draws", () => {
+  it("comes from the snapshot, seats and avatars included", () => {
+    // §5.1: a replay draws who actually did the work, not who has that id today.
+    const state = derive([]);
+    expect(state.actors.map((a) => a.seatIndex)).toEqual([0, 1]);
+    expect(state.actors[0]!.isLeader).toBe(true);
+    expect(state.actors[1]!.avatar.outfit).toBe("armor");
+  });
+
+  it("never shows fewer seats than there are people", () => {
+    // A layout narrower than the team would leave someone with nowhere to sit.
+    const state = derive([], 1);
+    expect(state.seats).toBeGreaterThanOrEqual(ROSTER.length);
+  });
+
+  it("handles an empty mission without throwing", () => {
+    expect(() => deriveSceneState({ roster: [], events: [], seats: 4 })).not.toThrow();
+  });
+});

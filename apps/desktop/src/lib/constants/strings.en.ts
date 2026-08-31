@@ -19,6 +19,11 @@ export const strings = {
     settings: "Settings",
   },
 
+  scene: {
+    empty: "Send a team out and they will appear here.",
+    ended: (reason: string) => `mission ended — ${reason}`,
+  },
+
   mission: {
     title: "Mission",
     teamLabel: "Team",
