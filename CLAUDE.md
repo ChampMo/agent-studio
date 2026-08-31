@@ -41,7 +41,11 @@ adapter, per-launch token, `python -m agentd`, `scripts/dev.mjs`. 18 pytest gree
 Verified end to end: no token → 401, wrong token → 401, real token → 200, token absent
 from argv, migration creates all three tables.
 
-Next: M1.2 (provider adapters + capability probe) — see the M1 plan.
+**M1.2 — providers: done.** `LLMProvider` protocol, OpenAI-compatible (DeepSeek et al.)
+and Anthropic adapters on their own SDKs, registry, 4-step capability probe, pricing
+table. 35 pytest green, no network in any of them.
+
+Next: M1.3 (agent runtime + REST/WS routes) — see the M1 plan.
 
 ---
 
@@ -91,10 +95,12 @@ the forward-compat test points.
   will work when memory lands. Checked, not assumed.
 - **Git Bash here starts with an empty PATH.** Prefix commands with
   `export PATH="/usr/bin:/bin:/usr/local/bin:$PATH"` or use PowerShell.
-- **Never edit text files with PowerShell `Set-Content -Encoding utf8`.** On Windows
-  PowerShell 5.1 it writes a UTF-8 **BOM** and mangles non-ASCII on the way through
-  (`§` became `ยง` twice). Use the editor tooling, or Python with
-  `open(..., encoding="utf-8", newline="\n")`.
+- **Never edit text files with PowerShell `Get-Content`/`Set-Content`.** On Windows
+  PowerShell 5.1 it writes a UTF-8 **BOM** and corrupts every non-ASCII character on
+  the way through: the file's UTF-8 bytes get decoded as the locale codepage (cp874
+  here) and re-saved, so `§` became `ยง` and `—` became `โ€”`. Use the editor tooling,
+  or Python with `open(..., encoding="utf-8", newline="\n")`. To reverse an instance:
+  `ch.encode("utf-8").decode("cp874")` gives the corrupted form to search for.
 - **`alembic.ini` must be pure ASCII with no BOM.** Alembic hands it to `configparser`,
   which opens it with the *locale* encoding — cp874 on this machine — so one non-ASCII
   character makes every migration die with a `UnicodeDecodeError`. Cost an hour once;
