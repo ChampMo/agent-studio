@@ -1,7 +1,8 @@
 # PROJECT_BRIEF.md — Agent Studio
 
-**เวอร์ชัน 3** — รวมผลรีวิวรอบสอง: provider ยืนยัน DeepSeek-first, request building
-ขับด้วย capabilities, usage แยก cache read/write, token handshake ใช้ stdin (ไม่ใช่ chmod 0600)
+**เวอร์ชัน 4** — ถอย gamification ออก (ดู §1 และ §15 แถว 28) รวมผลรีวิวรอบสองไว้ครบ:
+provider DeepSeek-first, request building ขับด้วย capabilities, usage แยก cache read/write,
+token handshake ใช้ stdin
 เอกสารนี้คือ single source of truth อ่านให้จบก่อนทำอะไรทุกครั้ง
 ถ้าเจอจุดที่ขัดกันเองในเอกสารนี้ ให้หยุดแล้วถาม อย่าเดา
 
@@ -10,7 +11,7 @@
 ## 1. เราจะสร้างอะไร
 
 Desktop app สำหรับสร้างและรันระบบ multi-agent โดยมี **ธีมและ UX แบบเกม RPG**
-ผู้ใช้สร้าง agent เหมือนสร้างตัวละคร จัดเป็นทีม (party) บันทึกไว้ใช้ซ้ำได้หลายทีม
+ผู้ใช้สร้าง agent เหมือนสร้างตัวละคร จัดเป็นทีม บันทึกไว้ใช้ซ้ำได้หลายทีม
 แล้วส่งทีมออกไปทำภารกิจ ระหว่างนั้นจะเห็นตัวละครแบบ 2.5D กำลังทำงานอยู่ในฉาก
 พร้อม timeline log ที่อ่านได้จริง และผู้ใช้แทรกเข้าไปตอบคำถามหรืออนุมัติงานได้ระหว่างทาง
 
@@ -19,6 +20,23 @@ Desktop app สำหรับสร้างและรันระบบ mult
 
 **บททดสอบของทุกการตัดสินใจ:** ถ้าฟีเจอร์นี้ทำให้ timeline โกหกผู้ใช้ หรือทำให้ replay
 แสดงผลไม่ตรงกับที่เกิดขึ้นจริง แสดงว่าออกแบบผิด
+
+### 1.1 ธีมเกมอยู่ที่รูปลักษณ์ ไม่ใช่ระบบตัวเลข
+
+**เกณฑ์ตัดสินสำหรับงาน UI ทุกชิ้นต่อจากนี้:
+ทุกอย่างที่แสดงต้องเป็นความจริงเกี่ยวกับ agent ตัวนั้น ไม่ใช่คะแนนที่เราแต่งขึ้นมา**
+
+| แสดงได้ (เป็นความจริง) | ห้ามแสดง (เราแต่งขึ้น) |
+|---|---|
+| `12 missions` — นับจาก mission ที่จบจริง | level, exp, แถบความคืบหน้าไปเลเวลถัดไป |
+| `1,240 tokens · $0.004` — ค่าใช้จ่ายจริง | แถบพลัง / MP / stamina |
+| model, role, tools ที่ถืออยู่จริง | class, rarity, ค่าพลังโจมตี |
+| สถานะจาก event stream | HP bar, damage number |
+
+ธีมเกม **อยู่ตรงนี้:** portrait ใหญ่, การ์ดตัวละคร, การเลือกหน้าตา, การพิมพ์ backstory,
+ธีมสีเข้ม, และฉาก 2.5D ตอนทำงาน (M5) ที่ตัวละครสะท้อนสถานะจริงจาก event stream
+
+ตัวเลขที่แต่งขึ้นมาทำให้ UI โกหก ซึ่งเป็นความล้มเหลวแบบเดียวกับที่ §1 ห้ามไว้อยู่แล้ว
 
 ---
 
@@ -281,14 +299,14 @@ id, name, title, role, backstory, personality_traits (json),
 system_prompt, provider_id, model, sampling (json, nullable),
 tools (json array of tool ids),
 avatar_config (json: body, hair, outfit, palette),
-exp, total_missions,
+total_missions,
 created_at, updated_at, archived_at
 ```
 `sampling` เป็น json ไม่ใช่ `temperature` column ตรง ๆ เพราะบาง model ไม่รับ sampling
 parameter เลย (ดู §3.1) — provider เป็นคนตัดสินว่าจะส่งอะไรไป โดยดูจาก `capabilities`
 
-`level` **ไม่เก็บ** — compute จาก `exp` (derived data อย่าเก็บซ้ำ)
-กติกาการให้ exp เลื่อนไป M4 (M2 ยังไม่มี mission ให้จบ) M2 ปล่อยเป็น 0
+`total_missions` นับจาก mission ที่จบจริงเท่านั้น — เป็นข้อเท็จจริง ไม่ใช่คะแนน
+**ไม่มี `exp` และไม่มี `level`** (§1.1, §15 แถว 28)
 
 ### teams
 ```
@@ -476,7 +494,7 @@ type Usage = {
 - `to` เป็น object ไม่ใช่ magic string `"user"` — กัน namespace ชนกับ agentId และรองรับ broadcast
 - `usage` ใส่ในทุก event ที่เกิดจากการเรียก LLM — budget guard ต้องนับอยู่แล้ว และตารางเป็น
   append-only ถ้าไม่เก็บตอนนี้จะไม่มีข้อมูลย้อนหลังทำหน้าสรุปค่าใช้จ่ายเลย
-  ตัวนี้จะกลายเป็น MP/stamina ในระบบเกมด้วย
+  และเป็น **ค่าใช้จ่ายจริงที่ผู้ใช้ต้องเห็น** — แสดงเป็นจำนวน token กับเงิน ไม่ใช่แถบพลัง (§1.1)
 - **cache read กับ cache write คิดเงินคนละเรตและคนละทิศ** (read ถูกกว่า input, write แพงกว่า)
   ถ้ายุบเป็น `cachedInputTokens` ตัวเดียว จะคำนวณ `costUsd` ย้อนหลังไม่ได้เลย
   และตารางเป็น append-only แปลว่าแก้ทีหลังไม่ได้
@@ -652,8 +670,8 @@ vitest 1 ตัว (ข้อยกเว้นของกฎ "frontend test �
    ต้องไม่ throw และยัง render field ที่รู้จักได้
 
 ### M2 — Agent
-CRUD + AI generate profile + หน้า roster แบบการ์ดเกม
-เกณฑ์: สร้าง agent จาก prompt เดียวได้ แก้แล้วเซฟลง SQLite ได้ `exp` เป็น 0
+CRUD + AI generate profile + หน้า roster แบบการ์ดตัวละคร
+เกณฑ์: สร้าง agent จาก prompt เดียวได้ แก้แล้วเซฟลง SQLite ได้
 
 ### M3 — Teams
 สร้าง/บันทึก/แก้/ลบ/ทำสำเนา/export/import หลายทีม + validator (save=เตือน)
@@ -661,7 +679,6 @@ CRUD + AI generate profile + หน้า roster แบบการ์ดเก�
 
 ### M4 — Orchestration
 LangGraph + timeline + budget guard เต็ม + `roster_snapshot` ทำงานจริง + validator (run=บล็อก)
-+ กติกา exp
 เกณฑ์:
 - ทีม 3 คนทำงานร่วมกันจนจบ log อ่านรู้เรื่อง
 - แก้ agent หลัง mission จบ → replay ยังแสดงชื่อและ avatar ตอนนั้นถูกต้อง
@@ -722,10 +739,10 @@ approval + artifact viewer + replay จาก `mission_events`
 | 9 | cancel อยู่ milestone ไหน | **M1** ไม่ใช่ M4 | chat เป็น mission แล้ว ต้องหยุด stream ได้ตั้งแต่แรก |
 | 10 | ใครแจก seq/ts | event bus คนเดียว | agent ขนานกันใน M4 จะชนกัน นาฬิกาคนละ process เรียงผิด |
 | 11 | tool registry sync ยังไง | backend เสิร์ฟ REST | มีสัญญาที่ต้อง sync แค่ events อันเดียว |
-| 12 | level เก็บไหม | ไม่ compute จาก exp | derived data อย่าเก็บซ้ำ |
+| 12 | ~~level เก็บไหม~~ | **ยกเลิก** — ไม่มีทั้ง level และ exp | ดูแถว 28 |
 | 13 | validator กี่ตัว | ตัวเดียว คืน severity | save/run ใช้ logic ชุดเดียวกัน |
 | 14 | ใครถือ key | Python เท่านั้น ผ่าน keyring | Tauri ส่งทาง env = key อยู่ใน process environment |
-| 15 | usage tracking | ใส่ตั้งแต่ M1 | budget นับอยู่แล้ว + append-only เก็บทีหลังไม่ได้ + เป็น MP ในระบบเกม |
+| 15 | usage tracking | ใส่ตั้งแต่ M1 | budget นับอยู่แล้ว + append-only เก็บทีหลังไม่ได้ + เป็นค่าใช้จ่ายจริงที่ผู้ใช้ต้องเห็น |
 | 16 | provider ตัวไหนก่อน | **DeepSeek / OpenAI-compatible** | ราคา — แต่ผลของการเลือกไปโผล่ที่ M2 (structured output) ไม่ใช่ M1 จึงต้อง retry+validate เสมอ |
 | 17 | ยิง Anthropic ผ่าน shim ได้ไหม | **ไม่ได้** ต้องใช้ `anthropic` SDK | ทรง request/response คนละอย่าง จะเพี้ยนเงียบ ๆ |
 | 18 | `agents.temperature` | เปลี่ยนเป็น `sampling` json nullable | Sonnet 5 ถอด temperature ออกแล้ว ส่งไปได้ 400 |
@@ -738,3 +755,4 @@ approval + artifact viewer + replay จาก `mission_events`
 | 25 | forward-compat test | vitest ที่ decoder ตั้งแต่ M1 | §8 บังคับให้เป็น test และ decoder เป็น pure function ไม่ใช่ component |
 | 26 | envelope ทรงไหน | `draft` ซ้อนข้างใน ไม่ใช่ `type`+`payload` แบน | ทรงแบน (`allOf`) ทำให้ datamodel-codegen เอาชื่อคลาสไปทับ const ของ `type` → discriminator พังเงียบ ๆ ทดสอบแล้วจริง (§6.1) |
 | 27 | pin formatter ของ codegen | `--formatters black isort` | ค่า default กำลังจะเปลี่ยน ถ้าไม่ pin วันหนึ่ง `codegen:check` จะ fail พร้อมกันทุกเครื่องโดยไม่มีใครแก้ schema |
+| 28 | **ถอย gamification ออก** | ลบ level/exp ทิ้งทั้งหมด (migration 0004) เก็บ `total_missions`, usage, avatar, การ์ดตัวละคร, ธีมสีเข้ม | ธีมเกมอยู่ที่รูปลักษณ์ ไม่ใช่ระบบตัวเลข **exp เป็นคะแนนที่เราแต่งขึ้น** — มันไม่ได้บอกอะไรจริงเกี่ยวกับ agent ตัวนั้น การแสดงมันคือการทำให้ UI โกหก ซึ่ง §1 ห้ามอยู่แล้ว ส่วน `total_missions` กับ token/เงิน เป็นข้อเท็จจริงที่วัดได้ จึงเก็บไว้ **อย่าเสนอ level/exp/MP/HP กลับเข้ามาอีก — เกณฑ์อยู่ที่ §1.1** |

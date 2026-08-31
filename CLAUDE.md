@@ -58,16 +58,30 @@ onboarding gate, chat with a stop button, raw timeline. 70 pytest + 13 vitest gr
 the same UI) confirmed by screenshot: chat streams, usage reads `84 in · 23 out`, probe
 shows 4/4 with `structured: json_object`.
 
-**M2 — agents: backend and UI done, generation awaiting a live run.** `agents` table,
-CRUD with soft delete and duplicate, derived level, the closed avatar catalogue, and
-`profile_gen` with validate-and-retry. 156 pytest green. Roster cards, the creator flow
-and the avatar picker verified in the running app; the Generate button itself has not
-been fired against the real endpoint yet.
+**M2 — agents: done.** `agents` table, CRUD with soft delete and duplicate, the closed
+avatar catalogue, and `profile_gen` with validate-and-retry. Roster cards, the creator
+flow and the avatar picker verified in the app, and profile generation confirmed against
+the real endpoint.
 
 **M3 — teams: done.** `teams` / `team_members`, one validator, the builder, and
 export/import. 178 pytest green. Verified live: three teams at once sharing one agent,
 a leaderless team saved anyway but marked `canRun: false`, an export with no
 `provider_id` and nothing key-shaped, and an import producing entirely fresh ids.
+
+**Gamification rolled back (brief §1.1, decision row 28).** `level` and `exp` are gone —
+migration `0004_drop_exp` removes the column, and a test asserts the wire form carries no
+invented score. Kept: `total_missions` (counted from runs that finished), usage and cost
+(real money), `avatar_config`, character cards, the dark theme.
+
+The criterion for every UI decision from here: **everything shown must be true about that
+agent.** The game feel belongs in the presentation — portrait, card, appearance choices,
+backstory, and the 2.5D scene in M5 reflecting real event-stream state — never in numbers
+we made up. An invented score makes the UI lie, which §1 already forbids. Do not propose
+level, exp, MP or HP back in.
+
+---
+
+## Decisions made while building
 
 ### The leader rule needs both halves, in different places
 
@@ -107,12 +121,14 @@ load.
 
 ### What the model is not allowed to decide
 
-`GeneratedProfile` omits `provider_id`, `model`, `tools`, `exp` and `total_missions`, and
-a test asserts it. The model has no idea which endpoints this machine has configured, the
-tool registry is still empty so any tool it named would be fiction, and exp is earned.
+`GeneratedProfile` omits `provider_id`, `model`, `tools` and `total_missions`, and a
+test asserts it. The model has no idea which endpoints this machine has configured, the
+tool registry is still empty so any tool it named would be fiction, and `total_missions`
+is recorded from what actually happened rather than claimed.
 
-### M1.5 — Tauri shell + secret hygiene `src-tauri/` builds the window in
-`setup()` rather than declaring it in the config, because the handshake has to go in as
+### M1.5 — Tauri shell + secret hygiene
+
+`src-tauri/` builds the window in `setup()` rather than declaring it in the config, because the handshake has to go in as
 an `initialization_script` — it must run before any page script, and `eval` after load
 would be a race the frontend would have to code around.
 
@@ -144,7 +160,7 @@ one.
 
 `inputTokens` contains "token". The secret-key regex was a substring match, so the
 bus wrote `{"inputTokens": "[redacted]", "outputTokens": "[redacted]"}` into the table
-— destroying the exact numbers the cost and MP features are built on (§6.2), in a table
+— destroying the exact numbers the cost display is built on (§6.2), in a table
 that cannot be corrected. One row in the local database still carries it.
 
 `is_secret_key()` now splits camelCase and snake_case and matches whole words, with two
@@ -230,10 +246,6 @@ nothing downstream can tell they ever existed. The reproduction printed
 `api/ws.py` now registers with the bus first and accepts second. Anything published in
 between waits in the queue and is delivered after the history replay, so ordering still
 holds.
-
----
-
-## Decisions made while building
 
 Anything here that contradicts `PROJECT_BRIEF.md` means the brief was already updated to
 match — the brief wins, this is just the reasoning trail.

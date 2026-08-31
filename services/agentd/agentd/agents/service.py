@@ -11,7 +11,6 @@ from sqlalchemy import select
 from ..db.models import Agent
 from ..db.session import Database
 from .avatar import default_avatar, validate_avatar
-from .exp import progress
 
 
 class AgentNotFound(LookupError):
@@ -19,7 +18,10 @@ class AgentNotFound(LookupError):
 
 
 def to_json(agent: Agent) -> dict[str, Any]:
-    """The wire form. `level` is computed here and never stored (§5)."""
+    """The wire form.
+
+    Everything here is a fact about the agent. There is no level, no exp and no
+    progress bar: an invented score would make the card lie (§1.1)."""
     return {
         "id": agent.id,
         "name": agent.name,
@@ -33,18 +35,18 @@ def to_json(agent: Agent) -> dict[str, Any]:
         "sampling": agent.sampling,
         "tools": agent.tools,
         "avatarConfig": agent.avatar_config,
+        #: Missions that actually finished. Shown as a plain count.
         "totalMissions": agent.total_missions,
         "archivedAt": agent.archived_at.isoformat() if agent.archived_at else None,
         "createdAt": agent.created_at.isoformat(),
         "updatedAt": agent.updated_at.isoformat(),
-        **progress(agent.exp),
     }
 
 
 class AgentService:
-    #: Fields the API may write. `exp`, `total_missions` and the timestamps are
-    #: absent on purpose: they are earned or set by the system, and letting a
-    #: PATCH touch them would make the roster a place to award yourself levels.
+    #: Fields the API may write. `total_missions` and the timestamps are absent
+    #: on purpose: they are recorded by the system from what actually happened,
+    #: and a PATCH that could set them would turn a fact into a claim.
     EDITABLE = {
         "name",
         "title",
@@ -97,7 +99,6 @@ class AgentService:
             # only path to this table, and an unknown asset breaks the scene in
             # M5 wherever it came from (§11).
             avatar_config=validate_avatar(avatar),
-            exp=0,
             total_missions=0,
             created_at=now,
             updated_at=now,
@@ -158,7 +159,7 @@ class AgentService:
         This is the sanctioned way to freeze a configuration (§5): teams
         reference agents live and there is no versioning, so a user who wants
         the old behaviour kept takes a copy before editing. The copy starts at
-        zero exp — it has not done the work.
+        zero missions — it has not done the work.
         """
         source = await self.get(agent_id)
         return await self.create(

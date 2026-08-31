@@ -11,7 +11,8 @@ Which fields the model does **not** get to decide, and why:
 * `tools` — the registry is empty in M1/M2. A model asked for tools invents
   plausible names, and an agent carrying tools that do not exist is a lie the
   team validator would later have to unpick.
-* `exp` / `total_missions` — earned, never assigned (§5).
+* `total_missions` — recorded from missions that actually finished, never
+  claimed (§5).
 """
 
 from __future__ import annotations

@@ -71,8 +71,9 @@ def test_data_keys_are_not_redacted(key):
 
 
 def test_usage_numbers_survive_the_bus():
-    """The cost and MP features are built on these numbers (§6.2). Redacting
-    them was silent, permanent, and invisible until a message was sent."""
+    """These are real money the user has to be able to see (§6.2, §1.1).
+    Redacting them was silent, permanent, and invisible until a message was
+    sent."""
     payload = {
         "agentId": "a1",
         "messageId": "m1",

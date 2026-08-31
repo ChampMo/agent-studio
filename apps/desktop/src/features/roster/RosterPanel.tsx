@@ -1,9 +1,10 @@
 /**
- * The roster, as cards (PROJECT_BRIEF.md §12 M2).
+ * The roster, as character cards (PROJECT_BRIEF.md §12 M2).
  *
- * `level` is displayed but never sent: it is derived from `exp` server-side and
- * has no column (§5, decision row 12). Every card shows level 1 until M4
- * defines what earns exp — which is the honest state, not a placeholder.
+ * The game feel lives in the presentation — portrait, dark card, traits — and
+ * never in invented numbers (§1.1). Every figure here is a fact about the
+ * agent: the model it runs on, the tools it carries, how many missions it has
+ * actually finished. No level, no exp, no progress bar.
  */
 import { useEffect, useState } from "react";
 import { strings } from "../../lib/constants/strings.en";
@@ -18,10 +19,6 @@ function AgentCard({ agent }: { agent: Agent }) {
   const [prompt, setPrompt] = useState(agent.systemPrompt);
   const archived = agent.archivedAt !== null;
 
-  const pct = agent.level_span
-    ? Math.round((agent.into_level / agent.level_span) * 100)
-    : 0;
-
   return (
     <div
       className={`space-y-3 rounded-lg border p-4 ${
@@ -35,23 +32,17 @@ function AgentCard({ agent }: { agent: Agent }) {
           <div className="truncate font-medium text-slate-100">{agent.name}</div>
           <div className="truncate text-xs text-slate-400">{agent.title}</div>
         </div>
-        <Badge tone={archived ? "warn" : "neutral"}>
-          {archived ? strings.roster.archived : `Lv ${agent.level}`}
-        </Badge>
+        {archived ? (
+          <Badge tone="warn">{strings.roster.archived}</Badge>
+        ) : null}
       </div>
 
-      {/* The bar and the number come from one computation, so they cannot
-          disagree (see agents/exp.py). */}
-      <div>
-        <div className="h-1 overflow-hidden rounded bg-slate-800">
-          <div className="h-full bg-sky-600" style={{ width: `${pct}%` }} />
-        </div>
-        <div className="mt-1 flex justify-between text-[11px] text-slate-500">
-          <span>
-            {agent.exp} exp · {agent.totalMissions} {strings.roster.missions}
-          </span>
-          <span className="font-mono">{agent.model ?? "—"}</span>
-        </div>
+      {/* Facts only: what it runs on, and what it has actually done (§1.1). */}
+      <div className="flex justify-between text-[11px] text-slate-500">
+        <span>
+          {agent.totalMissions} {strings.roster.missions}
+        </span>
+        <span className="font-mono">{agent.model ?? "—"}</span>
       </div>
 
       <p className="line-clamp-3 text-xs text-slate-400">{agent.role}</p>

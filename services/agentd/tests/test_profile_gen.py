@@ -202,10 +202,11 @@ def test_the_schema_sent_to_the_provider_enumerates_the_avatar_slots():
 
 
 def test_the_generated_shape_excludes_what_the_model_must_not_choose():
-    """provider/model would be guesses about this machine; tools would be names
-    of things that do not exist; exp is earned."""
+    """provider/model would be guesses about this machine, tools would be names
+    of things that do not exist, and total_missions is recorded from what
+    actually happened rather than claimed."""
     fields = set(GeneratedProfile.model_fields)
-    assert not fields & {"provider_id", "model", "tools", "exp", "total_missions"}
+    assert not fields & {"provider_id", "model", "tools", "total_missions"}
 
 
 def test_avatar_validation_reports_every_problem_at_once():

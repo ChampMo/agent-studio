@@ -268,15 +268,11 @@ export interface Agent {
   sampling: Record<string, unknown> | null;
   tools: string[];
   avatarConfig: AvatarConfig;
+  /** Missions that actually finished. A fact, not a score (§1.1). */
   totalMissions: number;
   archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
-  /** Derived from exp by the backend; there is no level column (§5). */
-  level: number;
-  exp: number;
-  into_level: number;
-  level_span: number;
 }
 
 // ---- team types ---------------------------------------------------------

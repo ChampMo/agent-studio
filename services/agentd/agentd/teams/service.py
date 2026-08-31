@@ -331,7 +331,6 @@ class TeamService:
                         sampling=spec.get("sampling"),
                         tools=spec.get("tools") or [],
                         avatar_config=validate_avatar(spec.get("avatar_config") or {}),
-                        exp=0,
                         total_missions=0,
                         source_id=spec.get("source_id"),
                         created_at=now,

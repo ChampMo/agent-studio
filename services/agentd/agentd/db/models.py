@@ -109,9 +109,10 @@ class ProviderProfile(Base):
 class Agent(Base):
     """A character in the roster.
 
-    `level` is absent on purpose: it is a function of `exp`, and storing both
-    means storing the same fact twice and eventually disagreeing with yourself
-    (§5, decision row 12). `agents/exp.py` computes it.
+    No `exp` and no `level`: gamification was rolled back (§1.1, decision row
+    28). They were scores we invented, and a card that shows an invented number
+    is a card that lies. `total_missions` stays because it counts missions that
+    actually finished.
 
     `sampling` is JSON rather than a `temperature` column because some models
     reject sampling parameters outright — Sonnet 5 answers a `temperature` with
@@ -138,8 +139,7 @@ class Agent(Base):
     tools: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
     avatar_config: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
 
-    #: Earned, never assigned. M2 leaves both at 0; M4 defines what grants them.
-    exp: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    #: Counted from missions that actually finished. A fact, not a score.
     total_missions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     #: Set on import so a re-import can recognise what it already brought in
@@ -154,14 +154,11 @@ class Agent(Base):
         DateTime(timezone=True), nullable=True
     )
 
-    __table_args__ = (
-        CheckConstraint("exp >= 0", name="ck_agents_exp_non_negative"),
-        Index("ix_agents_archived_at", "archived_at"),
-    )
+    __table_args__ = (Index("ix_agents_archived_at", "archived_at"),)
 
 
 class Team(Base):
-    """A saved party.
+    """A saved team.
 
     Members are references, not copies: editing an agent changes every team it
     is on, and there is no versioning (§5). `duplicate` on the agent is the

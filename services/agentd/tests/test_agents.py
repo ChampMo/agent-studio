@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 
 from agentd.agents.avatar import InvalidAvatar, default_avatar
-from agentd.agents.exp import exp_for_level, level_for, progress
 from agentd.agents.service import AgentNotFound, AgentService, to_json
 
 
@@ -27,45 +26,33 @@ def fields(**over):
     }
 
 
-# ---- level is derived, never stored -------------------------------------
+# ---- what a card is allowed to show ------------------------------------
 
 
-def test_a_new_agent_is_level_one_at_zero_exp():
-    assert level_for(0) == 1
-
-
-def test_level_rises_with_exp_and_never_falls():
-    seen = [level_for(e) for e in range(0, 3000, 25)]
-    assert seen == sorted(seen)
-    assert seen[0] == 1 and seen[-1] > 1
-
-
-def test_level_and_its_inverse_agree():
-    for level in range(1, 12):
-        floor = exp_for_level(level)
-        assert level_for(floor) == level
-        assert level_for(floor - 1) == level - 1 if level > 1 else True
-
-
-def test_progress_reports_a_consistent_bar():
-    """The number and the bar are computed together so they cannot disagree."""
-    p = progress(exp_for_level(3) + 10)
-    assert p["level"] == 3
-    assert p["into_level"] == 10
-    assert 0 < p["level_span"]
-
-
-def test_negative_exp_is_rejected_rather_than_clamped():
-    with pytest.raises(ValueError):
-        level_for(-1)
-
-
-async def test_the_wire_form_carries_level_but_the_table_has_no_such_column(service):
+async def test_the_wire_form_carries_no_invented_score(service):
+    """Gamification was rolled back (§1.1, decision row 28): level and exp were
+    numbers we made up, and a card showing one is a card that lies."""
     from agentd.db.models import Agent
 
     agent = await service.create(fields())
-    assert "level" not in {c.name for c in Agent.__table__.columns}
-    assert to_json(agent)["level"] == 1
+    payload = to_json(agent)
+
+    assert not {"level", "exp", "into_level", "level_span"} & set(payload)
+    assert "exp" not in {c.name for c in Agent.__table__.columns}
+
+
+async def test_total_missions_survives_because_it_is_a_fact(service):
+    """It counts missions that actually finished, so it says something true."""
+    agent = await service.create(fields())
+    assert to_json(agent)["totalMissions"] == 0
+
+
+async def test_total_missions_cannot_be_set_through_the_api(service):
+    """A count the user could edit would stop being a record of what happened."""
+    agent = await service.create(fields())
+    with pytest.raises(ValueError) as exc:
+        await service.update(agent.id, {"total_missions": 99})
+    assert "total_missions" in str(exc.value)
 
 
 # ---- CRUD ---------------------------------------------------------------
@@ -75,7 +62,6 @@ async def test_create_and_read_back(service):
     created = await service.create(fields())
     fetched = await service.get(created.id)
     assert fetched.name == "Mira Vale"
-    assert fetched.exp == 0
     assert fetched.total_missions == 0  # earned, never assigned (§5)
     assert fetched.tools == []
 
@@ -86,14 +72,6 @@ async def test_an_edit_persists_and_bumps_updated_at(service):
     updated = await service.update(agent.id, {"name": "Mira V."})
     assert updated.name == "Mira V."
     assert updated.updated_at >= before
-
-
-async def test_exp_cannot_be_awarded_through_the_service(service):
-    """Otherwise the roster is a place to give yourself levels."""
-    agent = await service.create(fields())
-    with pytest.raises(ValueError) as exc:
-        await service.update(agent.id, {"exp": 9999})
-    assert "exp" in str(exc.value)
 
 
 async def test_an_invented_avatar_is_rejected_on_the_way_in(service):
@@ -149,7 +127,7 @@ async def test_duplicate_copies_the_configuration_but_not_the_history(service):
     assert copy.id != source.id
     assert copy.system_prompt == "Be terse."
     assert copy.avatar_config == source.avatar_config
-    assert copy.exp == 0 and copy.total_missions == 0
+    assert copy.total_missions == 0  # a copy has not done the work
     assert "copy" in copy.name.lower()
 
 
