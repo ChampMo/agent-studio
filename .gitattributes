@@ -1,0 +1,21 @@
+# Normalise every text file to LF in the repo AND in the working tree.
+#
+# This is not cosmetic. The codegen scripts write LF, and codegen:check compares
+# the generated file byte-for-byte against a fresh render. With Windows'
+# core.autocrlf turning LF into CRLF on checkout, a clean clone would fail
+# codegen:check immediately, with no schema change to explain it.
+* text=auto eol=lf
+
+# Binary: never touch.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.db binary
+
+# Lockfiles are generated; keep diffs quiet in review.
+package-lock.json -diff
+uv.lock -diff
