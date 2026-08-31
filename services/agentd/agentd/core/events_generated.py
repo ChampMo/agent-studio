@@ -49,6 +49,16 @@ class RecipientBroadcast(BaseModel):
     kind: Literal['broadcast']
 
 
+class Recipient(RootModel[RecipientAgent | RecipientUser | RecipientBroadcast]):
+    root: Annotated[
+        RecipientAgent | RecipientUser | RecipientBroadcast,
+        Field(
+            description='An object, not a magic string, so an agent id can never collide with the literal "user" (§6.2).',
+            title='Recipient',
+        ),
+    ]
+
+
 class ToolError(BaseModel):
     code: Annotated[
         str,
@@ -101,13 +111,7 @@ class PayloadAgentMessage(BaseModel):
     messageId: Annotated[
         str, Field(description='Ties this message back to its ephemeral deltas.')
     ]
-    to: Annotated[
-        RecipientAgent | RecipientUser | RecipientBroadcast,
-        Field(
-            description='An object, not a magic string, so an agent id can never collide with the literal "user" (§6.2).',
-            title='Recipient',
-        ),
-    ]
+    to: Recipient
     content: str
     usage: Usage | None = None
 
@@ -258,6 +262,47 @@ class DraftError(BaseModel):
     payload: PayloadError
 
 
+class EventDraft(
+    RootModel[
+        DraftMissionStarted
+        | DraftMissionProgress
+        | DraftMissionEnded
+        | DraftAgentStatus
+        | DraftAgentThought
+        | DraftAgentMessage
+        | DraftAgentToolStart
+        | DraftAgentToolEnd
+        | DraftUserMessage
+        | DraftAgentRequest
+        | DraftAgentRequestResolved
+        | DraftArtifactCreated
+        | DraftBudgetWarning
+        | DraftError
+    ]
+):
+    root: Annotated[
+        DraftMissionStarted
+        | DraftMissionProgress
+        | DraftMissionEnded
+        | DraftAgentStatus
+        | DraftAgentThought
+        | DraftAgentMessage
+        | DraftAgentToolStart
+        | DraftAgentToolEnd
+        | DraftUserMessage
+        | DraftAgentRequest
+        | DraftAgentRequestResolved
+        | DraftArtifactCreated
+        | DraftBudgetWarning
+        | DraftError,
+        Field(
+            description='What runtime.py yields. The caller — never the runtime — hands this to the bus (§4.1).',
+            discriminator='type',
+            title='EventDraft',
+        ),
+    ]
+
+
 class EventEnvelope(BaseModel):
     v: Annotated[
         int,
@@ -282,27 +327,7 @@ class EventEnvelope(BaseModel):
             description='Stamped by the bus, never by the producer — clocks differ across processes (§2.3).'
         ),
     ]
-    draft: Annotated[
-        DraftMissionStarted
-        | DraftMissionProgress
-        | DraftMissionEnded
-        | DraftAgentStatus
-        | DraftAgentThought
-        | DraftAgentMessage
-        | DraftAgentToolStart
-        | DraftAgentToolEnd
-        | DraftUserMessage
-        | DraftAgentRequest
-        | DraftAgentRequestResolved
-        | DraftArtifactCreated
-        | DraftBudgetWarning
-        | DraftError,
-        Field(
-            description='What runtime.py yields. The caller — never the runtime — hands this to the bus (§4.1).',
-            discriminator='type',
-            title='EventDraft',
-        ),
-    ]
+    draft: EventDraft
 
 
 class EphemeralFrame(BaseModel):

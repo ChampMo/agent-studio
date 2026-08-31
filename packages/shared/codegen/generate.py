@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+﻿#!/usr/bin/env python
 """Generate Pydantic models from events.schema.json.
 
 PROJECT_BRIEF.md §2.2: the schema is the ONE contract. Both sides are
@@ -57,7 +57,6 @@ def render() -> str:
                 "--use-standard-collections",
                 "--enum-field-as-literal",
                 "all",
-                "--collapse-root-models",
                 "--use-title-as-name",
                 "--disable-timestamp",
                 # Pinned explicitly: the default formatter set is scheduled to

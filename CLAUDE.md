@@ -34,9 +34,14 @@ npm run test                 # codegen:check + pytest + vitest
 
 **M1.0 — skeleton + contract: done.**
 Schema authored, both generators wired, `codegen:check` verified to fail on a hand-edit
-(brief §12 M1, proof #1). Nothing else runs yet.
+(brief §12 M1, proof #1).
 
-Next: M1.1 (event bus, DB, auth, secrets) — see the M1 plan.
+**M1.1 — backend core: done.** Event bus, budget guard, async SQLite + Alembic, keychain
+adapter, per-launch token, `python -m agentd`, `scripts/dev.mjs`. 18 pytest green.
+Verified end to end: no token → 401, wrong token → 401, real token → 200, token absent
+from argv, migration creates all three tables.
+
+Next: M1.2 (provider adapters + capability probe) — see the M1 plan.
 
 ---
 
@@ -86,6 +91,18 @@ the forward-compat test points.
   will work when memory lands. Checked, not assumed.
 - **Git Bash here starts with an empty PATH.** Prefix commands with
   `export PATH="/usr/bin:/bin:/usr/local/bin:$PATH"` or use PowerShell.
+- **Never edit text files with PowerShell `Set-Content -Encoding utf8`.** On Windows
+  PowerShell 5.1 it writes a UTF-8 **BOM** and mangles non-ASCII on the way through
+  (`§` became `ยง` twice). Use the editor tooling, or Python with
+  `open(..., encoding="utf-8", newline="\n")`.
+- **`alembic.ini` must be pure ASCII with no BOM.** Alembic hands it to `configparser`,
+  which opens it with the *locale* encoding — cp874 on this machine — so one non-ASCII
+  character makes every migration die with a `UnicodeDecodeError`. Cost an hour once;
+  there is a comment at the top of the file now.
+- **Alembic's async `env.py` calls `asyncio.run()`**, which cannot nest inside a running
+  loop. The pytest fixture migrates via `asyncio.to_thread(upgrade_to_head, url)`.
+- **A `@dataclass` is unhashable by default** (`eq=True` sets `__hash__ = None`), so
+  `Subscriber` needs `eq=False` to live in a set.
 
 ---
 
