@@ -13,9 +13,9 @@
  * would be lost on every reload. Restarting the whole process keeps one code
  * path for the handshake.
  */
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { createServer } from "node:net";
+import { createServer, createConnection } from "node:net";
 import { mkdirSync, writeFileSync, rmSync, watch } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
@@ -24,6 +24,8 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DATA_DIR = resolve(ROOT, ".data");
 const HANDSHAKE = resolve(DATA_DIR, "dev-handshake.json");
 const WATCH_DIR = resolve(ROOT, "services/agentd/agentd");
+const WEB_PORT = 5173;
+const IS_WIN = process.platform === "win32";
 
 const freePort = () =>
   new Promise((res, rej) => {
@@ -34,6 +36,53 @@ const freePort = () =>
       srv.close(() => res(port));
     });
   });
+
+const portInUse = (port) =>
+  new Promise((res) => {
+    const sock = createConnection({ port, host: "127.0.0.1" });
+    sock.once("connect", () => {
+      sock.destroy();
+      res(true);
+    });
+    sock.once("error", () => res(false));
+  });
+
+/**
+ * Kill a child and everything it started.
+ *
+ * On Windows `spawn(..., { shell: true })` runs cmd.exe, which runs npm, which
+ * runs the actual server. `child.kill()` reaches only cmd.exe: the grandchildren
+ * survive, keep holding their ports, and the next `npm run dev` dies on "Port
+ * 5173 is already in use". One run of this script left eight orphaned backends
+ * behind before this existed.
+ */
+function killTree(child) {
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  if (IS_WIN) {
+    spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+      stdio: "ignore",
+    });
+  } else {
+    // Spawned detached below, so the negative pid addresses the whole group.
+    try {
+      process.kill(-child.pid, "SIGTERM");
+    } catch {
+      child.kill("SIGTERM");
+    }
+  }
+}
+
+if (await portInUse(WEB_PORT)) {
+  console.error(
+    `\n[dev] port ${WEB_PORT} is already in use.\n` +
+      `      Usually a dev server from an earlier run that outlived its parent.\n` +
+      (IS_WIN
+        ? `      Free it with:  Get-NetTCPConnection -LocalPort ${WEB_PORT} -State Listen | ` +
+          `ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }\n`
+        : `      Free it with:  lsof -ti tcp:${WEB_PORT} | xargs kill -9\n`),
+  );
+  process.exit(1);
+}
 
 const token = randomBytes(32).toString("hex");
 const port = await freePort();
@@ -47,6 +96,7 @@ writeFileSync(HANDSHAKE, JSON.stringify({ port, token }, null, 2), { mode: 0o600
 let child = null;
 let vite = null;
 let restarting = false;
+let cleaningUp = false;
 
 function start() {
   child = spawn(
@@ -55,16 +105,17 @@ function start() {
     {
       cwd: ROOT,
       stdio: ["pipe", "inherit", "inherit"],
-      shell: process.platform === "win32",
+      shell: IS_WIN,
+      detached: !IS_WIN,
       env: { ...process.env, AGENT_STUDIO_PORT: String(port) },
-    }
+    },
   );
   // The token goes in on stdin and nowhere else: argv is world-readable in the
   // process list, and an env var would be inherited by every child.
   child.stdin.write(token + "\n");
   child.stdin.end();
   child.on("exit", (code) => {
-    if (restarting) return;
+    if (restarting || cleaningUp) return;
     if (code !== 0 && code !== null) console.error(`\n[dev] backend exited (${code})`);
     cleanup(code ?? 0);
   });
@@ -74,9 +125,11 @@ function startVite() {
   vite = spawn("npm", ["--workspace", "apps/desktop", "run", "dev"], {
     cwd: ROOT,
     stdio: "inherit",
-    shell: process.platform === "win32",
+    shell: IS_WIN,
+    detached: !IS_WIN,
   });
   vite.on("exit", (code) => {
+    if (cleaningUp) return;
     if (code !== 0 && code !== null) console.error(`\n[dev] vite exited (${code})`);
     cleanup(code ?? 0);
   });
@@ -90,17 +143,19 @@ function restart() {
     restarting = false;
     start();
   });
-  child.kill();
+  killTree(child);
 }
 
 function cleanup(code = 0) {
+  if (cleaningUp) return;
+  cleaningUp = true;
   try {
     // The handshake file is per-launch. Leaving it behind would hand the next
     // run's page a token that no longer authenticates anything.
     rmSync(HANDSHAKE, { force: true });
   } catch {}
-  if (child && !child.killed) child.kill();
-  if (vite && !vite.killed) vite.kill();
+  killTree(child);
+  killTree(vite);
   process.exit(code);
 }
 
@@ -113,9 +168,15 @@ watch(WATCH_DIR, { recursive: true }, (_e, file) => {
 
 process.on("SIGINT", () => cleanup(0));
 process.on("SIGTERM", () => cleanup(0));
+// A crash must not leak the children either: without this the orphans hold
+// their ports and the next run cannot start.
+process.on("uncaughtException", (err) => {
+  console.error("[dev]", err);
+  cleanup(1);
+});
 
 console.log(`[dev] handshake -> ${HANDSHAKE}`);
 console.log(`[dev] backend  -> http://127.0.0.1:${port}`);
-console.log(`[dev] frontend -> http://127.0.0.1:5173`);
+console.log(`[dev] frontend -> http://127.0.0.1:${WEB_PORT}`);
 start();
 startVite();
