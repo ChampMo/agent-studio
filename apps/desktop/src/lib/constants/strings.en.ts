@@ -13,8 +13,46 @@ export const strings = {
   nav: {
     chat: "Chat",
     roster: "Roster",
+    teams: "Teams",
     timeline: "Timeline",
     settings: "Settings",
+  },
+
+  teams: {
+    title: "Teams",
+    create: "New team",
+    import: "Import",
+    export: "Export",
+    empty: "No teams yet. Build one from your roster.",
+    showArchived: "Show archived",
+    archived: "Archived",
+    ready: "Ready to run",
+    blocked: "Cannot run",
+    members: "members",
+    edit: "Edit",
+    duplicate: "Duplicate",
+    archive: "Archive",
+    restore: "Restore",
+    importedBefore:
+      "You have imported this team before. A separate copy was made — importing never overwrites what you have edited.",
+
+    newTitle: "New team",
+    editTitle: "Edit team",
+    save: "Save",
+    close: "Close",
+    roster: "Roster",
+    noAgents: "No agents yet. Create one first.",
+    seats: "Seats",
+    seat: "Seat",
+    emptySeat: "Drag an agent here, or click one on the left.",
+    leader: "Leader",
+    makeLeader: "Make leader",
+    clearSeat: "Remove",
+    nameLabel: "Team name",
+    layoutLabel: "Scene layout",
+    descriptionLabel: "Description",
+    displaced: (n: number) =>
+      `${n} member${n === 1 ? "" : "s"} sat beyond this layout's seats and are not shown. Saving now would drop them.`,
   },
 
   roster: {

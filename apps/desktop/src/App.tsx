@@ -5,10 +5,11 @@ import { OnboardingScreen } from "./features/settings/OnboardingScreen";
 import { SettingsPanel } from "./features/settings/SettingsPanel";
 import { ChatPanel } from "./features/chat/ChatPanel";
 import { RosterPanel } from "./features/roster/RosterPanel";
+import { TeamsPanel } from "./features/teams/TeamsPanel";
 import { TimelinePanel } from "./features/timeline/TimelinePanel";
 import { cn } from "./lib/cn";
 
-type Tab = "chat" | "roster";
+type Tab = "chat" | "roster" | "teams";
 
 export function App() {
   const ready = useSettingsStore((s) => s.ready);
@@ -38,7 +39,7 @@ export function App() {
     <div className="grid h-screen grid-cols-[minmax(0,1fr)_360px] grid-rows-1">
       <main className="flex min-w-0 flex-col border-r border-slate-800">
         <nav className="flex gap-1 border-b border-slate-800 px-3 py-2">
-          {(["chat", "roster"] as const).map((key) => (
+          {(["chat", "roster", "teams"] as const).map((key) => (
             <button
               key={key}
               onClick={() => setTab(key)}
@@ -54,7 +55,13 @@ export function App() {
           ))}
         </nav>
         <div className="min-h-0 flex-1">
-          {tab === "chat" ? <ChatPanel /> : <RosterPanel />}
+          {tab === "chat" ? (
+            <ChatPanel />
+          ) : tab === "roster" ? (
+            <RosterPanel />
+          ) : (
+            <TeamsPanel />
+          )}
         </div>
       </main>
 

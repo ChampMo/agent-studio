@@ -64,6 +64,37 @@ CRUD with soft delete and duplicate, derived level, the closed avatar catalogue,
 and the avatar picker verified in the running app; the Generate button itself has not
 been fired against the real endpoint yet.
 
+**M3 — teams: done.** `teams` / `team_members`, one validator, the builder, and
+export/import. 178 pytest green. Verified live: three teams at once sharing one agent,
+a leaderless team saved anyway but marked `canRun: false`, an export with no
+`provider_id` and nothing key-shaped, and an import producing entirely fresh ids.
+
+### The leader rule needs both halves, in different places
+
+SQL can express *at most one* leader — a partial unique index on `team_members(team_id)
+WHERE role_in_team = 'leader'` — and cannot express *at least one*. So the second half is
+in the validator, and both have their own test: the index raises `IntegrityError` on a
+second leader, the validator reports `no_leader` on none. Either alone looks like the
+rule is enforced and is not.
+
+### One validator, or the two lists drift
+
+`validate()` returns findings; `can_run()` is defined as "no error among them" and is the
+only run gate. Decision row 13 is about which pair drifts when there are two: it is
+always "what the builder warned about" versus "what the launcher refuses", and the user
+finds out by saving a team the UI called fine and being rejected at launch for a
+different reason. The frontend does not re-derive `canRun` either — it renders what the
+backend sent.
+
+Save accepts a team with errors on purpose. A half-built team is the normal state while
+building one, and refusing the save throws the work away.
+
+### A warning that always fires is not a warning
+
+`tool_uncovered` only appears when the tool registry is non-empty. Until M4 there are no
+tools, so "nobody covers web_search" would fire on every team forever and teach people
+to skim past the whole findings list.
+
 ### The avatar catalogue is closed, and that is the point
 
 §11 says an avatar is chosen from assets that exist. `agents/avatar.py` is the single

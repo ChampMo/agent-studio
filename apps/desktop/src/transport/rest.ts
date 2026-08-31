@@ -184,6 +184,38 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+
+  // ---- teams -----------------------------------------------------------
+
+  sceneLayouts: () =>
+    request<{ layouts: SceneLayout[]; default: string }>("/scene-layouts"),
+
+  listTeams: (includeArchived = false) =>
+    request<{ teams: Team[] }>(`/teams?include_archived=${includeArchived}`),
+
+  getTeam: (id: string) => request<Team>(`/teams/${id}`),
+
+  createTeam: (body: TeamInput) =>
+    request<Team>("/teams", { method: "POST", body: JSON.stringify(body) }),
+
+  updateTeam: (id: string, body: Partial<TeamInput>) =>
+    request<Team>(`/teams/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+
+  duplicateTeam: (id: string) =>
+    request<Team>(`/teams/${id}/duplicate`, { method: "POST" }),
+
+  archiveTeam: (id: string) => request<Team>(`/teams/${id}`, { method: "DELETE" }),
+
+  restoreTeam: (id: string) =>
+    request<Team>(`/teams/${id}/restore`, { method: "POST" }),
+
+  exportTeam: (id: string) => request<TeamExport>(`/teams/${id}/export`),
+
+  importTeam: (document: TeamExport) =>
+    request<{ team_id: string; agent_ids: string[]; alreadyImported: string[]; team: Team }>(
+      "/teams/import",
+      { method: "POST", body: JSON.stringify(document) },
+    ),
 };
 
 // ---- roster types -------------------------------------------------------
@@ -246,3 +278,67 @@ export interface Agent {
   into_level: number;
   level_span: number;
 }
+
+// ---- team types ---------------------------------------------------------
+
+export interface SceneLayout {
+  id: string;
+  name: string;
+  seats: number;
+  description: string;
+}
+
+export type Severity = "warn" | "error";
+
+export interface Finding {
+  code: string;
+  severity: Severity;
+  message: string;
+  /** The member or seat this is about, so the builder can mark it inline. */
+  subject: string | null;
+}
+
+export interface TeamMember {
+  agentId: string;
+  seatIndex: number;
+  roleInTeam: "leader" | "member";
+  overrides: Record<string, unknown> | null;
+  agentName: string | null;
+  agentArchived: boolean | null;
+}
+
+export interface Team {
+  id: string;
+  name: string;
+  description: string;
+  emblemConfig: Record<string, unknown>;
+  sceneLayoutId: string;
+  defaultBudget: Record<string, unknown>;
+  sourceId: string | null;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  members: TeamMember[];
+  findings: Finding[];
+  /** Computed from `findings` alone — there is no second set of checks (§5.2). */
+  canRun: boolean;
+}
+
+export interface TeamMemberInput {
+  agent_id: string;
+  seat_index: number;
+  role_in_team: "leader" | "member";
+  overrides?: Record<string, unknown> | null;
+}
+
+export interface TeamInput {
+  name: string;
+  description?: string;
+  emblem_config?: Record<string, unknown>;
+  scene_layout_id?: string;
+  default_budget?: Record<string, unknown>;
+  members?: TeamMemberInput[];
+}
+
+/** Opaque on purpose: the shape belongs to the backend's exporter. */
+export type TeamExport = Record<string, unknown>;

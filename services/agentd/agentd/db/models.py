@@ -1,6 +1,6 @@
 """SQLAlchemy models.
 
-`teams`, `team_members` and `artifacts` arrive with M3/M6 — but `missions` already carries the columns
+`artifacts` arrives with M6 — but `missions` already carries the columns
 those milestones depend on (`kind`, `roster_snapshot`, `end_reason`), because by
 then the table holds real rows and adding them is a data migration rather than a
 schema edit (PROJECT_BRIEF.md §5.1).
@@ -142,6 +142,10 @@ class Agent(Base):
     exp: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     total_missions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
+    #: Set on import so a re-import can recognise what it already brought in
+    #: rather than silently making a third copy (§5.3).
+    source_id: Mapped[str | None] = mapped_column(String, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     #: Soft delete only. A hard delete would strand every team and every
@@ -153,4 +157,67 @@ class Agent(Base):
     __table_args__ = (
         CheckConstraint("exp >= 0", name="ck_agents_exp_non_negative"),
         Index("ix_agents_archived_at", "archived_at"),
+    )
+
+
+class Team(Base):
+    """A saved party.
+
+    Members are references, not copies: editing an agent changes every team it
+    is on, and there is no versioning (§5). `duplicate` on the agent is the
+    escape hatch for anyone who wants a configuration frozen, and
+    `missions.roster_snapshot` is what keeps a finished run honest.
+    """
+
+    __tablename__ = "teams"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    emblem_config: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    #: A string enum validated at the app layer; there is no layouts table (§13).
+    scene_layout_id: Mapped[str] = mapped_column(String, nullable=False)
+    default_budget: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    #: Set on import, so a re-import can recognise what it already brought in
+    #: instead of silently making a third copy (§5.3).
+    source_id: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    #: Soft delete, like agents: finished missions still point here (§5.2).
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class TeamMember(Base):
+    """One agent in one seat of one team.
+
+    Two constraints carry real weight. `UNIQUE(team_id, seat_index)` stops two
+    characters being drawn at the same desk in M5. The partial unique index on
+    the leader row enforces *at most* one leader — "at least one" cannot be
+    expressed in SQL and lives in the validator instead (§5.2).
+    """
+
+    __tablename__ = "team_members"
+
+    team_id: Mapped[str] = mapped_column(
+        String, ForeignKey("teams.id", ondelete="CASCADE"), primary_key=True
+    )
+    agent_id: Mapped[str] = mapped_column(
+        String, ForeignKey("agents.id", ondelete="RESTRICT"), primary_key=True
+    )
+    seat_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    role_in_team: Mapped[str] = mapped_column(String, nullable=False, default="member")
+    #: Per-team model / tool_subset / prompt_suffix. Resolved into
+    #: `missions.roster_snapshot` at launch so the timeline reports the config
+    #: that actually ran, not the agent's defaults (§5.1).
+    overrides: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("team_id", "seat_index", name="uq_team_members_seat"),
+        CheckConstraint(
+            "role_in_team IN ('leader', 'member')", name="ck_team_members_role"
+        ),
+        CheckConstraint("seat_index >= 0", name="ck_team_members_seat_non_negative"),
     )
