@@ -68,10 +68,42 @@ export/import. 178 pytest green. Verified live: three teams at once sharing one 
 a leaderless team saved anyway but marked `canRun: false`, an export with no
 `provider_id` and nothing key-shaped, and an import producing entirely fresh ids.
 
-**M4 — orchestration: backend done, live run pending.** LangGraph plan → work →
-summarise, the roster snapshot in use, the validator as the launch gate, budget across
-the whole team, and the Mission tab. 190 pytest + 16 vitest green. Not yet run against
-the real endpoint with three agents.
+**M4 — orchestration: done, verified live.** LangGraph plan → work → summarise, the
+roster snapshot in use, the validator as the launch gate, budget across the whole team,
+and the Mission tab. 194 pytest + 16 vitest green.
+
+A real three-agent run against DeepSeek: all three produced work, two tasks distributed
+to seats 1 and 2, completed in 58s for 1,071 in / 6,164 out tokens. Then the agents were
+renamed, re-modelled, re-avatared and one archived, and the replay still showed
+`Source Scout` / `deepseek-v4-flash` / `blazer` / seat 2.
+
+### Three things only a live run found
+
+**The leader kept all the work.** The first run produced one task assigned to seat 0;
+the other two agents never ran. Two causes, both ours. The plan had been truncated and
+the correction said *"return fewer, shorter tasks"* — so the model returned exactly one.
+And nothing stopped the leader assigning to itself. `_assignable()` now excludes the
+leader whenever the team has workers (a solo team still assigns to itself), and the
+truncation correction says *keep every task, write each instruction more briefly*.
+
+**Generation took three attempts, every time.** DeepSeek is `json_object` only, so the
+schema is never sent — the model sees the system prompt and nothing else, and that prompt
+described only `avatar_config`. It was guessing the field names. The prompt now lists
+every key with its type, including that `personality_traits` is an array.
+
+**`MAX_TOKENS_PER_TASK = 4096` was too small.** A worker spent it all on reasoning and
+emitted an empty answer; the next teammate correctly replied that there was nothing to
+check. Raised to 8192 — and a task that produces nothing is now reported `failed`, not
+`done`. The progress line saying `done 1/2` for a turn that emitted nothing was the only
+untrue thing in that record.
+
+### A mission cancelled before its task starts
+
+A task cancelled before its body ever ran executes no `finally`, so it scheduled no
+finaliser and the row would sit at `running` for ever with no `mission.ended`. Found by a
+flake that cancelled a fraction too early. `_track()` now guarantees the terminal event
+from the done-callback, and the test waits on an event the provider sets rather than on a
+fixed number of loop turns — a race dressed as a delay.
 
 **Gamification rolled back (brief §1.1, decision row 28).** `level` and `exp` are gone —
 migration `0004_drop_exp` removes the column, and a test asserts the wire form carries no

@@ -376,8 +376,82 @@ async def test_a_plan_naming_an_empty_seat_is_corrected():
             snapshot=roster_of_three(),
             goal="go",
         )
-    assert "does not exist" in exc.value.attempts[0]
+    assert "cannot take a task" in exc.value.attempts[0]
     assert len(exc.value.attempts) == 3  # it was retried, not accepted
+
+
+async def test_the_leader_cannot_assign_the_work_to_itself():
+    """From the first live three-agent run: the plan came back as one task on
+    seat 0 and the two teammates never ran. A team of one is not a team, so a
+    plan that keeps the work is rejected and corrected."""
+    selfish = (
+        '{"tasks": [{"id": "t1", "title": "Do it all", '
+        '"assignee_seat": 0, "instruction": "answer"}]}'
+    )
+    with pytest.raises(PlanningFailed) as exc:
+        await make_plan(
+            provider=TeamModel(plan=selfish),
+            caps=Capabilities(),
+            model="m1",
+            snapshot=roster_of_three(),
+            goal="go",
+        )
+    assert "cannot take a task" in exc.value.attempts[0]
+    # The correction says why, so the retry has somewhere to go.
+    assert "you summarise at the end" in exc.value.attempts[0]
+
+
+async def test_a_solo_team_may_assign_to_its_only_member():
+    """The rule is "do not keep the work from your team", not "never work" —
+    with nobody else, the leader is the team."""
+    solo = RosterSnapshot([member(0, "a-lead", "Lead", leader=True)])
+    plan = (
+        '{"tasks": [{"id": "t1", "title": "Do it", '
+        '"assignee_seat": 0, "instruction": "answer"}]}'
+    )
+    result = await make_plan(
+        provider=TeamModel(plan=plan),
+        caps=Capabilities(),
+        model="m1",
+        snapshot=solo,
+        goal="go",
+    )
+    assert result.attempts == 1
+
+
+async def test_the_truncation_correction_does_not_shrink_the_plan():
+    """The first correction said "return fewer, shorter tasks", and a model took
+    the hint: one task, assigned to itself. Shorten the wording, not the plan."""
+    from agentd.orchestrator import planner
+
+    model = TeamModel(plan=PLAN)
+
+    class Truncating(TeamModel):
+        def __init__(self):
+            super().__init__()
+            self._first = True
+
+        async def stream(self, req, caps):
+            self.calls.append(req.model)
+            if self._first:
+                self._first = False
+                yield TextChunk('{"tasks": [{"id": "t1"')
+                yield DoneChunk("length", Usage(20, 30))
+                return
+            yield TextChunk(PLAN)
+            yield DoneChunk("stop", Usage(20, 30))
+
+    truncating = Truncating()
+    result = await make_plan(
+        provider=truncating,
+        caps=Capabilities(),
+        model="m1",
+        snapshot=roster_of_three(),
+        goal="go",
+    )
+    assert "keep every task" in result.recovered_from[0]
+    assert "fewer" not in result.recovered_from[0]
+    del model, planner
 
 
 async def test_a_corrected_plan_is_reported_not_hidden():

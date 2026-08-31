@@ -31,7 +31,9 @@ from ..providers.base import (
 )
 from ..teams.snapshot import RosterSnapshot
 
-MAX_TOKENS = 4096
+#: A reasoning model spends heavily before its first visible character, and a
+#: plan cut off mid-JSON costs a whole retry. Room is cheaper than the retry.
+MAX_TOKENS = 8192
 MAX_ATTEMPTS = 3
 MAX_TASKS = 12
 
@@ -62,20 +64,22 @@ class PlanResult:
     recovered_from: list[str] = field(default_factory=list)
 
 
-SYSTEM = """You are {name}, the leader of a small team. Break the goal into tasks
-and assign each one to a teammate by seat number.
+SYSTEM = """You are {name}, the leader of a small team. You do not do the work
+yourself: you break the goal into tasks, hand each one to a teammate, and write
+the final answer once they report back.
 
 Return ONE JSON object and nothing else:
 {{"tasks": [{{"id": "t1", "title": "...", "assignee_seat": 0, "instruction": "..."}}]}}
 
 `instruction` is what that teammate will be told, on its own, with no other
-context. Write it so it stands alone.
+context and no memory of this plan. Write it so it stands alone.
 
 Your team:
 {roster}
 
 Rules:
-- assignee_seat must be one of the seats listed above.
+- assignee_seat must be one of the teammate seats listed above.{leader_note}
+- Give every teammate at least one task. You have them for a reason.
 - One task per distinct piece of work. Do not pad. At most {max_tasks}.
 - Order matters: tasks run in the order you list them.
 """
@@ -84,20 +88,40 @@ Rules:
 def _roster_text(snapshot: RosterSnapshot) -> str:
     return "\n".join(
         f"  seat {m.seat_index}: {m.name} — {m.title or m.role or 'teammate'}"
-        + (" (you, the leader)" if m.is_leader else "")
+        + (" (you — you plan and summarise, you do not take tasks)" if m.is_leader else "")
         for m in snapshot.members
     )
 
 
+def _assignable(snapshot: RosterSnapshot) -> set[int]:
+    """Seats a task may go to.
+
+    The leader supervises (the brief makes the leader the graph's supervisor),
+    so on a team that has workers the leader is excluded. Without this the plan
+    can assign everything to itself and the other members never run — which is
+    what happened on the first live three-agent run: one task, seat 0, and two
+    teammates that did nothing. A solo team has nobody else, so there the leader
+    takes its own work.
+    """
+    workers = {m.seat_index for m in snapshot.workers}
+    return workers or {m.seat_index for m in snapshot.members}
+
+
 def _check_seats(plan: Plan, snapshot: RosterSnapshot) -> str | None:
-    """A seat nobody occupies means a task with nowhere to go."""
-    seats = {m.seat_index for m in snapshot.members}
+    """A task assigned to a seat that cannot take one would simply vanish."""
+    seats = _assignable(snapshot)
     bad = sorted({t.assignee_seat for t in plan.tasks} - seats)
     if not bad:
         return None
+    leader = snapshot.leader
+    hint = (
+        f" Seat {leader.seat_index} is you: you summarise at the end instead."
+        if leader and leader.seat_index in bad
+        else ""
+    )
     return (
-        f"assignee_seat {bad} does not exist on this team; "
-        f"valid seats are {sorted(seats)}"
+        f"assignee_seat {bad} cannot take a task; "
+        f"assignable seats are {sorted(seats)}.{hint}"
     )
 
 
@@ -111,10 +135,16 @@ async def make_plan(
     max_attempts: int = MAX_ATTEMPTS,
 ) -> PlanResult:
     leader = snapshot.leader
+    assignable = _assignable(snapshot)
     system = SYSTEM.format(
         name=leader.name if leader else "the leader",
         roster=_roster_text(snapshot),
         max_tasks=MAX_TASKS,
+        leader_note=(
+            f" Do not assign anything to seat {leader.seat_index} — that is you."
+            if leader and leader.seat_index not in assignable
+            else ""
+        ),
     )
     messages = [Message("user", f"Goal: {goal}")]
     total = Usage()
@@ -130,9 +160,12 @@ async def make_plan(
         )
 
         if was_truncated(stop_reason):
+            # Deliberately not "return fewer tasks". That correction taught a
+            # model to reply with a single task assigned to itself, and the team
+            # never ran. Shorten the wording, never the plan.
             problem = (
-                "the plan was cut off at max_tokens before the JSON closed; "
-                "return fewer, shorter tasks"
+                "the plan was cut off before the JSON closed; keep every task "
+                "but write each instruction much more briefly"
             )
         else:
             try:

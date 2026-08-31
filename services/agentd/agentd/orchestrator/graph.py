@@ -34,7 +34,10 @@ from .planner import PlanningFailed, make_plan
 #: graph never learns which vendor anything is (§3.1).
 ProviderFor = Callable[[SnapshotMember], "tuple[LLMProvider, Capabilities]"]
 
-MAX_TOKENS_PER_TASK = 4096
+#: A reasoning model can spend thousands of tokens before its first visible
+#: character. At 4096 a live run produced an empty answer and a truncation
+#: error, and the teammate downstream had nothing to work from.
+MAX_TOKENS_PER_TASK = 8192
 
 
 class MissionState(TypedDict, total=False):
@@ -229,6 +232,7 @@ def _build_graph(
             )
 
             answer = ""
+            truncated = False
             async for item in run_agent_turn(
                 provider=provider,
                 caps=caps,
@@ -238,22 +242,55 @@ def _build_graph(
                 budget=budget,
             ):
                 await emit(item)
-                if not is_ephemeral(item) and item["type"] == "agent.message":
+                if is_ephemeral(item):
+                    continue
+                if item["type"] == "agent.message":
                     answer = item["payload"]["content"]
+                elif item["type"] == "error":
+                    truncated = truncated or item["payload"]["code"] == "output_truncated"
 
-            results.append({"task": task, "agent_id": member.agent_id, "answer": answer})
+            # A task that produced nothing is not done, whatever the loop
+            # counter says. A live run reported `done 1/2` for a turn that was
+            # cut off before it emitted a word, and the next teammate correctly
+            # replied that there was nothing to check -- the progress line was
+            # the only part of the record that was untrue (section 1).
+            produced = bool(answer.strip())
+            results.append(
+                {
+                    "task": task,
+                    "agent_id": member.agent_id,
+                    "answer": answer,
+                    "ok": produced,
+                }
+            )
             await emit(
                 _draft(
                     "mission.progress",
                     {
                         "taskId": task["id"],
                         "label": task["title"],
-                        "state": "done",
+                        "state": "done" if produced else "failed",
                         "done": index + 1,
                         "total": len(tasks),
                     },
                 )
             )
+            if not produced:
+                await emit(
+                    _draft(
+                        "error",
+                        {
+                            "agentId": member.agent_id,
+                            "code": "task_produced_nothing",
+                            "message": (
+                                f"{member.name} returned no usable answer for "
+                                f"{task['title']!r}"
+                                + (" (cut off at max_tokens)" if truncated else "")
+                            ),
+                            "recoverable": True,
+                        },
+                    )
+                )
 
         return {"results": results}
 
@@ -263,8 +300,13 @@ def _build_graph(
         budget.check()
 
         results = state.get("results") or []
+        # A task that produced nothing is reported as such rather than left as a
+        # blank the leader has to guess at -- and guessing is how a summary ends
+        # up describing work that never happened.
         transcript = "\n\n".join(
-            f"[{r['task']['title']}]\n{r['answer']}" for r in results
+            f"[{r['task']['title']}]\n"
+            + (r["answer"] if r.get("ok", True) else "(no answer was produced)")
+            for r in results
         )
         provider, caps = provider_for(leader)
         request = ChatRequest(

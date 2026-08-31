@@ -112,8 +112,7 @@ class MissionRunner:
             self._run(mission_id, profile, content, system, limits),
             name=f"mission:{mission_id}",
         )
-        self._tasks[mission_id] = task
-        task.add_done_callback(lambda _t: self._tasks.pop(mission_id, None))
+        self._track(mission_id, task)
         return mission_id
 
     async def start_mission(
@@ -200,8 +199,7 @@ class MissionRunner:
             self._run_team(mission_id, roster, goal, limits),
             name=f"mission:{mission_id}",
         )
-        self._tasks[mission_id] = task
-        task.add_done_callback(lambda _t: self._tasks.pop(mission_id, None))
+        self._track(mission_id, task)
         return mission_id
 
     async def _run_team(
@@ -324,6 +322,26 @@ class MissionRunner:
             for agent in rows.scalars().all():
                 agent.total_missions += 1
             await s.commit()
+
+    def _track(self, mission_id: str, task: asyncio.Task) -> None:
+        """Remember the task, and guarantee the mission is recorded either way.
+
+        A task cancelled before its body ever ran executes no `finally`, so it
+        schedules no finaliser: the row would sit at `running` forever with no
+        `mission.ended`, which is the one thing every mission is promised. The
+        callback covers exactly that window.
+        """
+        self._tasks[mission_id] = task
+
+        def _done(_t: asyncio.Task) -> None:
+            self._tasks.pop(mission_id, None)
+            if _t.cancelled() and mission_id not in self._finishers:
+                self._finishers[mission_id] = asyncio.create_task(
+                    self._finish(mission_id, "cancelled", "stopped by the user"),
+                    name=f"finalise:{mission_id}",
+                )
+
+        task.add_done_callback(_done)
 
     async def cancel(self, mission_id: str) -> bool:
         """Stop a running mission. Cancelling the task closes the runtime

@@ -43,12 +43,16 @@ class ScriptedProvider:
         self.closed = False
         self.stream_finalised = False
         self.last_max_tokens: int | None = None
+        #: Set the moment the stream is entered. Tests wait on this rather than
+        #: on a fixed number of loop turns, which is a race dressed as a delay.
+        self.started = asyncio.Event()
 
     async def list_models(self):
         return ["m1"]
 
     async def stream(self, req: ChatRequest, caps: Capabilities):
         self.last_max_tokens = req.max_tokens
+        self.started.set()
         try:
             for chunk in self._chunks:
                 yield chunk
@@ -283,10 +287,7 @@ async def test_cancel_ends_the_mission_with_reason_cancelled(monkeypatch, db, bu
     runner = await _runner_with(monkeypatch, db, bus, provider)
 
     mission_id = await runner.start_chat(profile=StubProfile(), content="hello")
-    for _ in range(100):  # let the turn reach the hanging stream
-        await asyncio.sleep(0)
-        if provider.last_max_tokens is not None:
-            break
+    await asyncio.wait_for(provider.started.wait(), timeout=5)
 
     assert await runner.cancel(mission_id) is True
     await runner.wait(mission_id)
@@ -296,6 +297,36 @@ async def test_cancel_ends_the_mission_with_reason_cancelled(monkeypatch, db, bu
     assert len(ended) == 1
     assert ended[0]["draft"]["payload"]["reason"] == "cancelled"
     assert provider.closed is True  # the provider client was shut down
+
+
+async def test_a_mission_cancelled_before_it_starts_is_still_recorded(
+    monkeypatch, db, bus
+):
+    """Every mission is promised exactly one `mission.ended`.
+
+    A task cancelled before its body ever ran executes no `finally`, so it
+    schedules no finaliser — the row would sit at `running` for ever. Found by
+    a flaky test that cancelled a fraction too early.
+    """
+    provider = ScriptedProvider([TextChunk("x")], hang=True)
+    runner = await _runner_with(monkeypatch, db, bus, provider)
+
+    mission_id = await runner.start_chat(profile=StubProfile(), content="hello")
+    # No await in between: the task has been created and has not run a line.
+    assert await runner.cancel(mission_id) is True
+    await runner.wait(mission_id)
+
+    events = await bus.history(mission_id, 0, 999)
+    ended = [e for e in events if e["draft"]["type"] == "mission.ended"]
+    assert len(ended) == 1
+    assert ended[0]["draft"]["payload"]["reason"] == "cancelled"
+
+    async with db.session() as s:
+        mission = (
+            await s.execute(select(Mission).where(Mission.id == mission_id))
+        ).scalar_one()
+    assert mission.status == "ended"
+    assert mission.end_reason == "cancelled"
 
 
 async def test_a_provider_failure_ends_the_mission_as_failed(monkeypatch, db, bus):

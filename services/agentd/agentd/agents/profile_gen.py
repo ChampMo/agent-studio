@@ -51,9 +51,19 @@ SYSTEM_PROMPT = """You design characters for a multi-agent workstation.
 
 Return ONE JSON object and nothing else. No prose, no markdown fence.
 
+The object must have exactly these keys:
+
+  "name":               a short personal name
+  "title":              their job title, a few words
+  "role":               one line on what they actually do
+  "backstory":          two or three sentences
+  "personality_traits": an ARRAY of 3 to 5 short strings, e.g. ["methodical", "blunt"]
+  "system_prompt":      the instruction this agent will run under, written in
+                        the second person and usable exactly as written
+  "avatar_config":      an object with the four keys below
+
 The character is a specialist teammate, not a fantasy hero: `title` and `role`
-describe what they actually do. `system_prompt` is the instruction that agent
-will run under, written in the second person, and it must be usable as-is.
+describe real work.
 
 `avatar_config` must pick one value per slot from exactly these options:
 {catalogue}
