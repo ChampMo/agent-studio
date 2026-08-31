@@ -57,6 +57,40 @@ onboarding gate, chat with a stop button, raw timeline. 70 pytest + 13 vitest gr
 Next: enter a provider key in the running app to finish M1's manual criteria, then M1.5
 (Tauri shell + the secret-hygiene test).
 
+### A capability probe must have three outcomes, not two
+
+The structured-output check ran with `max_tokens=128`. DeepSeek spent 137 tokens
+reasoning before its first visible character, so the reply was cut off at
+`{"ok": true, "`, `json.loads` raised "Unterminated string", and the model was recorded
+as `structured_output: "none"`. It was not: at a higher cap it answers
+`{"ok": true, "note": "Ready"}` in 166 output tokens. Schema mode really is unavailable
+there — a clean 400 — so the true value is `json_object`.
+
+Three things came out of it, all of them structural rather than a number change:
+
+- `PROBE_MAX_TOKENS = 2048`. A cap tight enough to cut off a reasoning model turns
+  every probe into a false negative.
+- A check is `pass | fail | inconclusive`. A truncated stream is evidence of nothing,
+  and `ProbeResult.conclusive` names the capability fields a run actually established.
+  `POST /providers/{id}/test` merges only those onto the stored profile, so our own bug
+  can never be written down as a fact about a model.
+- The probe used to discard `DoneChunk` (`text, _, _`), throwing away the
+  `stop_reason: "length"` that explained the whole thing. It reads it now.
+
+The same shape is waiting in M4: tool-call arguments are also assembled from streamed
+fragments. `ToolCallChunk.truncated` marks a call whose arguments were cut off, the
+runtime reports `tool_call_truncated` instead of executing it, and
+`tests/test_truncation.py` forces a 4KB argument through a cut-off stream to keep that
+honest.
+
+### Cancellation was cancelling its own cleanup
+
+`_run` caught `CancelledError` and then awaited `_finish`, which was itself cancelled
+mid-write — a stopped mission could end with no `mission.ended` event and a row stuck at
+status `running`. The `finally` block now only *schedules* finalisation as a separate
+task (`_finalise`), so recording a cancellation cannot be cancelled by it. `wait()`
+awaits both.
+
 ### CORS had to be added, and it is not the security boundary
 
 The frontend runs on another port in dev and another scheme under Tauri, so the browser

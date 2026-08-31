@@ -29,6 +29,7 @@ from .base import (
     ToolCallChunk,
     Usage,
     apply_sampling,
+    was_truncated,
 )
 
 
@@ -121,12 +122,17 @@ class OpenAICompatibleProvider:
         except Exception as exc:
             raise _normalise(exc) from exc
 
+        # Tool arguments arrive as fragments keyed by index, so a stream that
+        # was cut off leaves a half-written JSON object here. Flagged rather
+        # than silently handed on as a complete call.
+        truncated = was_truncated(stop_reason)
         for slot in partial.values():
             if slot["name"]:
                 yield ToolCallChunk(
                     call_id=slot["id"] or slot["name"],
                     name=slot["name"],
                     arguments_json=slot["arguments"] or "{}",
+                    truncated=truncated,
                 )
 
         yield DoneChunk(stop_reason=stop_reason, usage=usage)

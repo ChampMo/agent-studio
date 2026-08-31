@@ -38,6 +38,9 @@ class MissionRunner:
         self._db = db
         self._bus = bus
         self._tasks: dict[str, asyncio.Task] = {}
+        #: Finalisation runs in its own task so that cancelling a mission cannot
+        #: cancel the work that records the cancellation. See `_run`.
+        self._finishers: dict[str, asyncio.Task] = {}
 
     # ---- lifecycle ----------------------------------------------------
 
@@ -108,10 +111,17 @@ class MissionRunner:
         return task is not None and not task.done()
 
     async def wait(self, mission_id: str) -> None:
-        """Tests only: await the background turn."""
+        """Tests only: await the turn AND its finalisation.
+
+        Both, because the mission.ended event is written by the finaliser;
+        awaiting only the turn would race a cancelled mission's own record.
+        """
         task = self._tasks.get(mission_id)
         if task:
             await asyncio.gather(task, return_exceptions=True)
+        finisher = self._finishers.get(mission_id)
+        if finisher:
+            await asyncio.gather(finisher, return_exceptions=True)
 
     # ---- the run ------------------------------------------------------
 
@@ -155,8 +165,12 @@ class MissionRunner:
                         summary = item["payload"]["content"][:500]
 
         except asyncio.CancelledError:
+            # Do not await anything here. This task is being torn down, and any
+            # further await is liable to be cancelled mid-flight — which is how
+            # a stopped mission ended up with no mission.ended event and a row
+            # stuck at status "running". The finally block schedules the
+            # recording instead of performing it.
             reason, summary = "cancelled", "stopped by the user"
-            await self._finish(mission_id, reason, summary)
             raise
         except BudgetExceeded as exc:
             reason = "budget_exceeded"
@@ -190,9 +204,27 @@ class MissionRunner:
                 },
             )
         finally:
-            if provider is not None:
-                await provider.aclose()
+            # Schedule, never await: this block also runs while the task is
+            # being cancelled, and an await here would be cancelled with it.
+            self._finishers[mission_id] = asyncio.create_task(
+                self._finalise(mission_id, provider, reason, summary),
+                name=f"finalise:{mission_id}",
+            )
 
+    async def _finalise(
+        self, mission_id: str, provider, reason: str, summary: str
+    ) -> None:
+        """Close the provider and record the outcome, in a task of its own.
+
+        Separate from `_run` so that cancelling a mission cannot cancel the work
+        that records the cancellation. Every mission ends with exactly one
+        `mission.ended`, including the ones the user stopped.
+        """
+        if provider is not None:
+            try:
+                await provider.aclose()
+            except Exception:  # noqa: BLE001 - a failed close must not lose the event
+                pass
         await self._finish(mission_id, reason, summary)
 
     async def _finish(self, mission_id: str, reason: str, summary: str) -> None:

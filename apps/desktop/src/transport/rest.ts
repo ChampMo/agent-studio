@@ -65,17 +65,33 @@ export interface Capabilities {
   max_output_tokens: number | null;
 }
 
+export type CheckStatus = "pass" | "fail" | "inconclusive";
+
 export interface ProbeCheck {
   id: string;
   label: string;
+  /** Three outcomes, not two: see `inconclusive` in probe.py. */
+  status: CheckStatus;
   ok: boolean;
   detail: string;
 }
 
+export interface ProbeCounts {
+  passed: number;
+  failed: number;
+  inconclusive: number;
+  total: number;
+}
+
 export interface ProbeResult {
+  /** Whether the endpoint is usable at all — models + chat only. NOT "all
+   *  checks passed": tool calling and structured output are informational. */
   ok: boolean;
+  counts: ProbeCounts;
   checks: ProbeCheck[];
   capabilities: Capabilities;
+  /** Capability fields this run actually established and stored. */
+  conclusive: string[];
 }
 
 export const api = {

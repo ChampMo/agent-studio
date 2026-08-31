@@ -182,7 +182,15 @@ async def test_connection(request: Request, profile_id: str) -> dict[str, Any]:
             )
         ).scalar_one()
         if result.ok:
-            row.capabilities = result.capabilities.to_json()
+            # Merge only what this run actually established. An inconclusive
+            # check — a reply cut off at max_tokens, say — proves nothing, and
+            # writing its apparent result would turn our own bug into a
+            # recorded fact about the model (§3.1). Previously stored findings
+            # survive untouched.
+            row.capabilities = {
+                **(row.capabilities or {}),
+                **result.conclusive_capabilities(),
+            }
             row.verified_at = datetime.now(UTC)
         await s.commit()
 

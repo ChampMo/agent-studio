@@ -42,8 +42,11 @@ export const strings = {
     title: "Connection test",
     rerun: "Test connection",
     running: "Running four checks…",
-    passed: "All checks passed",
-    failed: "Some checks did not pass",
+    allPassed: "All checks passed",
+    unusable: "Endpoint not usable",
+    inconclusive: "inconclusive",
+    inconclusiveHint:
+      "An inconclusive check proves nothing either way, so nothing was recorded for it. Re-run to try again.",
     capabilities: "Observed capabilities",
     checkNames: {
       models: "Model exists at this endpoint",

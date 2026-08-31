@@ -123,11 +123,27 @@ class TextChunk:
     text: str
 
 
+#: Stop reasons that mean the model was cut off rather than finished.
+#:
+#: Anything assembled across a stream — a JSON reply, a tool call's arguments —
+#: is a fragment when the stream ends this way. Treating a fragment as the
+#: finished article is how a truncation gets misread as a model limitation.
+TRUNCATED_STOP_REASONS = frozenset({"length", "max_tokens"})
+
+
+def was_truncated(stop_reason: str | None) -> bool:
+    return stop_reason in TRUNCATED_STOP_REASONS
+
+
 @dataclass(frozen=True)
 class ToolCallChunk:
     call_id: str
     name: str
     arguments_json: str
+    #: True when the stream was cut off before the arguments finished. The
+    #: fragment is passed on rather than dropped — the caller must be able to
+    #: report what happened — but it must never be executed as if complete.
+    truncated: bool = False
 
 
 @dataclass(frozen=True)

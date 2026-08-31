@@ -127,17 +127,34 @@ async def run_agent_turn(
                 )
 
             elif isinstance(chunk, ToolCallChunk):
-                # M1 sends no tools, so this means the endpoint invented one.
-                # Reported rather than dropped, for the same reason as above.
-                yield _draft(
-                    "error",
-                    {
-                        "agentId": agent_id,
-                        "code": "unexpected_tool_call",
-                        "message": f"model called {chunk.name!r} but no tools were offered",
-                        "recoverable": True,
-                    },
-                )
+                if chunk.truncated:
+                    # Arguments arrive as streamed fragments, so a cut-off
+                    # stream leaves half-written JSON. Executing that would run
+                    # a call the model never finished asking for.
+                    yield _draft(
+                        "error",
+                        {
+                            "agentId": agent_id,
+                            "code": "tool_call_truncated",
+                            "message": (
+                                f"call to {chunk.name!r} was cut off at max_tokens "
+                                "before its arguments finished; not executed"
+                            ),
+                            "recoverable": True,
+                        },
+                    )
+                else:
+                    # M1 sends no tools, so this means the endpoint invented one.
+                    # Reported rather than dropped, for the same reason as above.
+                    yield _draft(
+                        "error",
+                        {
+                            "agentId": agent_id,
+                            "code": "unexpected_tool_call",
+                            "message": f"model called {chunk.name!r} but no tools were offered",
+                            "recoverable": True,
+                        },
+                    )
 
             elif isinstance(chunk, DoneChunk):
                 done = chunk

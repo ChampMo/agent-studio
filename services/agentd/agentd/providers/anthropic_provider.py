@@ -36,6 +36,7 @@ from .base import (
     ToolCallChunk,
     Usage,
     apply_sampling,
+    was_truncated,
 )
 
 
@@ -167,11 +168,15 @@ class AnthropicProvider:
         except Exception as exc:
             raise _normalise(exc) from exc
 
+        # input_json_delta arrives in fragments, so a cut-off stream leaves a
+        # half-written arguments object. Flagged, never passed on as complete.
+        truncated = was_truncated(stop_reason)
         for slot in tool_blocks.values():
             yield ToolCallChunk(
                 call_id=slot["id"],
                 name=slot["name"],
                 arguments_json=slot["arguments"] or "{}",
+                truncated=truncated,
             )
 
         yield DoneChunk(stop_reason=stop_reason, usage=usage)

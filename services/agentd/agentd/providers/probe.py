@@ -7,15 +7,19 @@ checks reports separately: a failure at step 1 (wrong model id) and a failure at
 step 3 (no tool calling) need completely different fixes from the user, and a
 single red cross would hide which one happened.
 
-Kept deliberately cheap — tiny prompts, small `max_tokens`. Running this costs
-a fraction of a cent.
+**A check has three outcomes, not two.** `inconclusive` exists because the first
+version of this file recorded a capability the endpoint never demonstrated: a
+128-token cap truncated the reply mid-string, the JSON failed to parse, and the
+model was written down as unable to produce JSON. It could — it had spent 137
+tokens on reasoning before emitting any content. A truncated stream is evidence
+of nothing, and evidence of nothing must never reach the database.
 """
 
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from .base import (
     Capabilities,
@@ -28,7 +32,15 @@ from .base import (
     ToolCallChunk,
     ToolSpec,
     Usage,
+    was_truncated,
 )
+
+CheckStatus = Literal["pass", "fail", "inconclusive"]
+
+#: Generous on purpose. `max_tokens` is a cap, not a spend — a reasoning model
+#: can burn well over a hundred tokens before its first visible character, and a
+#: cap tight enough to cut that off turns every probe into a false negative.
+PROBE_MAX_TOKENS = 2048
 
 _PROBE_TOOL = ToolSpec(
     name="report_status",
@@ -48,16 +60,31 @@ _PROBE_SCHEMA = {
     "additionalProperties": False,
 }
 
+_TRUNCATED_DETAIL = (
+    "the reply was cut off at max_tokens before it finished, so this proves "
+    "nothing either way — not recorded"
+)
+
 
 @dataclass
 class CheckResult:
     id: str
     label: str
-    ok: bool
+    status: CheckStatus
     detail: str
 
+    @property
+    def ok(self) -> bool:
+        return self.status == "pass"
+
     def to_json(self) -> dict[str, Any]:
-        return {"id": self.id, "label": self.label, "ok": self.ok, "detail": self.detail}
+        return {
+            "id": self.id,
+            "label": self.label,
+            "status": self.status,
+            "ok": self.ok,
+            "detail": self.detail,
+        }
 
 
 @dataclass
@@ -65,24 +92,49 @@ class ProbeResult:
     checks: list[CheckResult] = field(default_factory=list)
     capabilities: Capabilities = field(default_factory=Capabilities)
     usage: Usage = field(default_factory=Usage)
+    #: Capability fields this run actually established. Anything absent was not
+    #: demonstrated and must not be written to the profile (§3.1).
+    conclusive: set[str] = field(default_factory=set)
 
     @property
     def ok(self) -> bool:
-        """Steps 1 and 2 are pass/fail for the endpoint as a whole. Steps 3 and 4
-        are informational: a model without tool calling is still usable for chat,
-        the UI just has to warn before an agent is given tools."""
+        """Whether the endpoint is usable at all.
+
+        Steps 1 and 2 are pass/fail for the endpoint as a whole. Steps 3 and 4
+        are informational: a model without tool calling still works for chat,
+        the UI just has to warn before an agent is given tools.
+        """
         required = {"models", "chat"}
         return all(c.ok for c in self.checks if c.id in required)
+
+    @property
+    def counts(self) -> dict[str, int]:
+        return {
+            "passed": sum(1 for c in self.checks if c.status == "pass"),
+            "failed": sum(1 for c in self.checks if c.status == "fail"),
+            "inconclusive": sum(1 for c in self.checks if c.status == "inconclusive"),
+            "total": len(self.checks),
+        }
+
+    def conclusive_capabilities(self) -> dict[str, Any]:
+        """Only the fields this run proved. The caller merges these onto what
+        is already stored rather than replacing it wholesale."""
+        full = self.capabilities.to_json()
+        return {k: v for k, v in full.items() if k in self.conclusive}
 
     def to_json(self) -> dict[str, Any]:
         return {
             "ok": self.ok,
+            "counts": self.counts,
             "checks": [c.to_json() for c in self.checks],
             "capabilities": self.capabilities.to_json(),
+            "conclusive": sorted(self.conclusive),
         }
 
 
-async def _collect(provider: LLMProvider, req: ChatRequest, caps: Capabilities):
+async def _collect(
+    provider: LLMProvider, req: ChatRequest, caps: Capabilities
+) -> tuple[str, list[ToolCallChunk], DoneChunk | None]:
     text, tool_calls, done = [], [], None
     async for chunk in provider.stream(req, caps):
         if isinstance(chunk, TextChunk):
@@ -96,7 +148,6 @@ async def _collect(provider: LLMProvider, req: ChatRequest, caps: Capabilities):
 
 async def run_probe(provider: LLMProvider, model: str) -> ProbeResult:
     result = ProbeResult()
-    caps = Capabilities()
 
     # ---- 1. does this model id exist here? ----------------------------
     # First, because every later failure is ambiguous until this is settled:
@@ -105,7 +156,7 @@ async def run_probe(provider: LLMProvider, model: str) -> ProbeResult:
         models = await provider.list_models()
         if model in models:
             result.checks.append(
-                CheckResult("models", "Model exists", True, f"{len(models)} models offered")
+                CheckResult("models", "Model exists", "pass", f"{len(models)} models offered")
             )
         else:
             close = [m for m in models if model.split("-")[0] in m][:5]
@@ -113,101 +164,118 @@ async def run_probe(provider: LLMProvider, model: str) -> ProbeResult:
                 CheckResult(
                     "models",
                     "Model exists",
-                    False,
+                    "fail",
                     f"{model!r} is not offered here."
                     + (f" Did you mean: {', '.join(close)}?" if close else ""),
                 )
             )
             return result
     except ProviderError as exc:
-        result.checks.append(CheckResult("models", "Model exists", False, exc.message))
+        result.checks.append(CheckResult("models", "Model exists", "fail", exc.message))
         return result
 
     # ---- 2. plain chat, streamed, and does it accept sampling? --------
     sampling_supported = True
     try:
-        text, _, done = await _collect(
-            provider,
-            ChatRequest(
-                model=model,
-                messages=[Message("user", "Reply with the single word: ready")],
-                max_tokens=16,
-                sampling={"temperature": 0.0},
-            ),
-            Capabilities(sampling_params=True),
-        )
-        result.checks.append(
-            CheckResult("chat", "Chat and streaming", True, f"replied {text.strip()!r}")
-        )
-        if done:
-            result.usage = done.usage
-    except ProviderError as exc:
+        text, _, done = await _chat_probe(provider, model, sampling=True)
+    except ProviderError:
         # Sonnet 5 removed temperature/top_p/top_k and 400s on them, so a
         # failure here may be about the parameter rather than the endpoint.
         # Retry once without sampling before blaming the connection.
         try:
-            text, _, done = await _collect(
-                provider,
-                ChatRequest(
-                    model=model,
-                    messages=[Message("user", "Reply with the single word: ready")],
-                    max_tokens=16,
-                ),
-                Capabilities(sampling_params=False),
-            )
+            text, _, done = await _chat_probe(provider, model, sampling=False)
             sampling_supported = False
-            result.checks.append(
-                CheckResult(
-                    "chat",
-                    "Chat and streaming",
-                    True,
-                    f"replied {text.strip()!r} (model rejects sampling parameters, "
-                    "so temperature will be ignored)",
-                )
-            )
-            if done:
-                result.usage = done.usage
         except ProviderError as retry_exc:
             result.checks.append(
-                CheckResult("chat", "Chat and streaming", False, retry_exc.message)
+                CheckResult("chat", "Chat and streaming", "fail", retry_exc.message)
             )
             return result
 
-    caps = Capabilities(sampling_params=sampling_supported)
+    if done:
+        result.usage = done.usage
+    if not text.strip():
+        result.checks.append(
+            CheckResult(
+                "chat",
+                "Chat and streaming",
+                "fail",
+                "the endpoint streamed no text at all",
+            )
+        )
+        return result
+
+    result.checks.append(
+        CheckResult(
+            "chat",
+            "Chat and streaming",
+            "pass",
+            f"replied {text.strip()[:40]!r}"
+            + ("" if sampling_supported else " (model rejects sampling parameters, "
+               "so temperature will be ignored)"),
+        )
+    )
+    # Established either way: it accepted the parameter, or it rejected it and
+    # the retry succeeded. Both are observations.
+    result.conclusive.add("sampling_params")
 
     # ---- 3. tool calling ----------------------------------------------
     tool_calling = False
     try:
-        _, calls, _ = await _collect(
+        _, calls, done = await _collect(
             provider,
             ChatRequest(
                 model=model,
                 messages=[Message("user", "Report that everything is fine.")],
-                max_tokens=256,
+                max_tokens=PROBE_MAX_TOKENS,
                 tools=[_PROBE_TOOL],
             ),
             Capabilities(sampling_params=sampling_supported, tool_calling=True),
         )
-        tool_calling = any(c.name == _PROBE_TOOL.name for c in calls)
-        result.checks.append(
-            CheckResult(
-                "tools",
-                "Tool calling",
-                tool_calling,
-                "returned a well-formed tool call"
-                if tool_calling
-                else "accepted the tool but answered in prose instead of calling it",
+        stop = done.stop_reason if done else None
+        wanted = [c for c in calls if c.name == _PROBE_TOOL.name]
+
+        if was_truncated(stop) and not wanted:
+            # The arguments would be a fragment even if a call had appeared.
+            result.checks.append(
+                CheckResult("tools", "Tool calling", "inconclusive", _TRUNCATED_DETAIL)
             )
-        )
+        elif any(c.truncated for c in wanted):
+            result.checks.append(
+                CheckResult(
+                    "tools",
+                    "Tool calling",
+                    "inconclusive",
+                    "a tool call started but its arguments were cut off at "
+                    "max_tokens, so they cannot be trusted — not recorded",
+                )
+            )
+        else:
+            tool_calling = bool(wanted)
+            result.conclusive.add("tool_calling")
+            result.checks.append(
+                CheckResult(
+                    "tools",
+                    "Tool calling",
+                    "pass" if tool_calling else "fail",
+                    "returned a well-formed tool call"
+                    if tool_calling
+                    else "accepted the tool but answered in prose instead of calling it",
+                )
+            )
     except ProviderError as exc:
-        result.checks.append(CheckResult("tools", "Tool calling", False, exc.message))
+        # A refusal from the endpoint is a real answer about the endpoint.
+        result.conclusive.add("tool_calling")
+        result.checks.append(CheckResult("tools", "Tool calling", "fail", exc.message))
 
     # ---- 4. structured output, strongest mode first --------------------
-    structured = "none"
-    detail = ""
+    structured: str = "none"
+    status: CheckStatus = "fail"
+    detail = "no structured-output mode worked"
+    conclusive = True
+
     for mode in ("schema", "json_object"):
         try:
-            text, _, _ = await _collect(
+            text, _, done = await _collect(
                 provider,
                 ChatRequest(
                     model=model,
@@ -217,19 +285,26 @@ async def run_probe(provider: LLMProvider, model: str) -> ProbeResult:
                             'Reply with JSON matching {"ok": boolean, "note": string}.',
                         )
                     ],
-                    max_tokens=128,
+                    max_tokens=PROBE_MAX_TOKENS,
                     response_schema=_PROBE_SCHEMA,
                 ),
                 Capabilities(
                     sampling_params=sampling_supported,
                     tool_calling=tool_calling,
-                    structured_output=mode,
+                    structured_output=mode,  # type: ignore[arg-type]
                 ),
             )
+
+            if was_truncated(done.stop_reason if done else None):
+                # This is the exact failure the three-outcome design exists for.
+                detail, conclusive, status = _TRUNCATED_DETAIL, False, "inconclusive"
+                break
+
             parsed = json.loads(text)
             if not isinstance(parsed, dict) or "ok" not in parsed:
-                raise ValueError("JSON did not match the requested shape")
-            structured = mode
+                raise ValueError("the reply was JSON but not the requested shape")
+
+            structured, status, conclusive = mode, "pass", True
             detail = (
                 "schema is enforced by the endpoint"
                 if mode == "schema"
@@ -237,17 +312,15 @@ async def run_probe(provider: LLMProvider, model: str) -> ProbeResult:
                 "be validated and retried by the caller"
             )
             break
-        except (ProviderError, json.JSONDecodeError, ValueError) as exc:
-            detail = str(getattr(exc, "message", exc))
+        except ProviderError as exc:
+            # An explicit rejection is a real answer: this mode is unavailable.
+            detail = exc.message
+        except (json.JSONDecodeError, ValueError) as exc:
+            detail = f"reply was not usable JSON: {exc}"
 
-    result.checks.append(
-        CheckResult(
-            "structured",
-            "Structured output",
-            structured != "none",
-            detail or "no structured-output mode worked",
-        )
-    )
+    result.checks.append(CheckResult("structured", "Structured output", status, detail))
+    if conclusive:
+        result.conclusive.add("structured_output")
 
     max_in = max_out = None
     describe = getattr(provider, "describe_model", None)
@@ -255,6 +328,7 @@ async def run_probe(provider: LLMProvider, model: str) -> ProbeResult:
         try:
             info = await describe(model)
             max_in, max_out = info.get("max_input_tokens"), info.get("max_output_tokens")
+            result.conclusive.update({"max_input_tokens", "max_output_tokens"})
         except ProviderError:
             pass  # optional enrichment; never fails the probe
 
@@ -269,3 +343,16 @@ async def run_probe(provider: LLMProvider, model: str) -> ProbeResult:
         max_output_tokens=max_out,
     )
     return result
+
+
+async def _chat_probe(provider: LLMProvider, model: str, *, sampling: bool):
+    return await _collect(
+        provider,
+        ChatRequest(
+            model=model,
+            messages=[Message("user", "Reply with the single word: ready")],
+            max_tokens=PROBE_MAX_TOKENS,
+            sampling={"temperature": 0.0} if sampling else None,
+        ),
+        Capabilities(sampling_params=sampling),
+    )
