@@ -6,7 +6,7 @@
  * scene ever shows something the timeline does not, one of them is lying — and
  * with a single derivation from a single store, neither can.
  */
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useEventStore } from "../stores/eventStore";
 import { useMissionStore } from "../stores/missionStore";
@@ -14,12 +14,15 @@ import { useTeamStore } from "../stores/teamStore";
 import { strings } from "../lib/constants/strings.en";
 import { deriveSceneState } from "./bindings/sceneState";
 import { Scene } from "./engine/stage";
+import { isSoundOn, playChime, setSoundOn, shouldChime } from "./audio";
 
 export function SceneView() {
   const host = useRef<HTMLDivElement>(null);
   const scene = useRef<Scene | null>(null);
 
   const events = useEventStore((s) => s.events);
+  const streaming = useEventStore((s) => s.streaming);
+  const replaying = useEventStore((s) => s.replaying);
   const roster = useMissionStore((s) => s.roster);
   const missionId = useMissionStore((s) => s.missionId);
   const teams = useTeamStore((s) => s.teams);
@@ -36,9 +39,35 @@ export function SceneView() {
   );
 
   const state = useMemo(
-    () => deriveSceneState({ roster, events, seats }),
-    [roster, events, seats],
+    () => deriveSceneState({ roster, events, seats, streaming }),
+    [roster, events, seats, streaming],
   );
+
+  const [sound, setSound] = useState(isSoundOn);
+  const chimedUpTo = useRef(0);
+
+  // Only events this render has not already sounded, and only ones that just
+  // happened: a reconnect replays the log from seq 0, and History replays whole
+  // finished missions (see `shouldChime`).
+  useEffect(() => {
+    const now = Date.now();
+    for (const { event } of events) {
+      if (event.seq <= chimedUpTo.current) continue;
+      chimedUpTo.current = event.seq;
+      const kind = shouldChime(event, now, replaying);
+      if (kind) playChime(kind);
+    }
+  }, [events, replaying]);
+
+  // A different mission is a different log, and its sequence starts again.
+  useEffect(() => {
+    chimedUpTo.current = 0;
+  }, [missionId]);
+
+  // What to draw as soon as there is something to draw it with. Mounting is
+  // async, so the first state usually exists before the renderer does.
+  const latest = useRef({ state, layoutId });
+  latest.current = { state, layoutId };
 
   useEffect(() => {
     let cancelled = false;
@@ -52,6 +81,10 @@ export function SceneView() {
         return;
       }
       scene.current = instance;
+      // Draw immediately rather than waiting for the next event. A mission that
+      // is paused, finished or simply quiet produces none, and the room stayed
+      // empty until something happened to change the state.
+      instance.render(latest.current.state, latest.current.layoutId);
     });
 
     return () => {
@@ -73,6 +106,20 @@ export function SceneView() {
           <p className="text-xs text-slate-600">{strings.scene.empty}</p>
         </div>
       ) : null}
+      <button
+        onClick={() => {
+          const next = !sound;
+          setSoundOn(next);
+          setSound(next);
+          // The click is also the gesture the browser wants before it will let
+          // an AudioContext start, so confirm the setting audibly.
+          if (next) playChime("message");
+        }}
+        title={sound ? strings.scene.soundOn : strings.scene.soundOff}
+        className="absolute right-2 top-2 rounded bg-slate-900/70 px-2 py-1 text-[11px] text-slate-400 hover:text-slate-200"
+      >
+        {sound ? "🔊" : "🔇"}
+      </button>
       {state.endReason ? (
         <div className="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2">
           <span className="rounded bg-slate-900/80 px-2 py-1 text-[11px] text-slate-400">

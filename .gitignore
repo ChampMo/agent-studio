@@ -25,6 +25,11 @@ dist/
 target/
 src-tauri/target/
 src-tauri/gen/
+# The frozen backend, built by `npm run build:sidecar`. A 30 MB binary rebuilt
+# from source on every machine has no business in git, and a stale committed one
+# would be bundled into an installer without anyone noticing.
+src-tauri/binaries/
+services/agentd/build/
 # NOTE: src-tauri/icons/* is committed on purpose. tauri-build requires
 # icon.ico on Windows and icon.icns on macOS at compile time, so ignoring
 # them would make a fresh clone fail to build until someone re-ran

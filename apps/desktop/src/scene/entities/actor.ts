@@ -29,6 +29,15 @@ const CAPTION = new TextStyle({
   fontSize: 11,
 });
 
+const SPEECH = new TextStyle({
+  fill: 0x0f172a,
+  fontFamily: "ui-sans-serif, system-ui, sans-serif",
+  fontSize: 11,
+  wordWrap: true,
+  wordWrapWidth: 190,
+  lineHeight: 15,
+});
+
 const TASK = new TextStyle({
   fill: 0x7dd3fc,
   fontFamily: "ui-sans-serif, system-ui, sans-serif",
@@ -46,15 +55,28 @@ export class ActorView extends Container {
   private readonly nameLabel = new Text({ text: "", style: LABEL });
   private readonly caption = new Text({ text: "", style: CAPTION });
   private readonly task = new Text({ text: "", style: TASK });
+  private readonly bubble = new Graphics();
+  private readonly speech = new Text({ text: "", style: SPEECH });
   private phase = Math.random() * Math.PI * 2;
   private state: Actor | null = null;
+  /** 0 when standing, otherwise the direction of travel. */
+  private walking = 0;
 
   constructor() {
     super();
-    this.addChild(this.desk, this.figure, this.nameLabel, this.caption, this.task);
+    this.addChild(
+      this.desk,
+      this.figure,
+      this.nameLabel,
+      this.caption,
+      this.task,
+      this.bubble,
+      this.speech,
+    );
     this.nameLabel.anchor.set(0.5, 1);
     this.caption.anchor.set(0.5, 0);
     this.task.anchor.set(0.5, 0);
+    this.speech.anchor.set(0.5, 1);
   }
 
   update(actor: Actor): void {
@@ -67,14 +89,60 @@ export class ActorView extends Container {
     this.nameLabel.text = (actor.isLeader ? "★ " : "") + actor.name;
     this.caption.text = shapeFor(actor.pose).caption;
     this.task.text = actor.task ?? "";
+    this.say(actor.says);
     if (changed) this.redraw();
   }
 
-  /** Called every frame by the stage; the only thing that moves is the bob. */
+  /**
+   * Which way this character is travelling, set by the stage each frame.
+   *
+   * The walk is not decided here and not decided there either: the stage is
+   * closing a gap between two positions the derivation chose. This only affects
+   * how it looks while that happens.
+   */
+  setWalking(direction: number): void {
+    this.walking = direction;
+  }
+
+  /** Called every frame by the stage: the idle bob, and the gait when moving. */
   tick(elapsed: number): void {
     if (!this.state) return;
     const shape = shapeFor(this.state.pose);
-    this.figure.y = Math.sin(elapsed * 2.4 + this.phase) * shape.bob;
+    if (this.walking !== 0) {
+      // A two-beat gait. Bigger and faster than the idle bob, so crossing the
+      // room reads as walking rather than sliding.
+      this.figure.y = -Math.abs(Math.sin(elapsed * 9)) * 3.5;
+      this.figure.rotation = Math.sin(elapsed * 9) * 0.05;
+      this.figure.scale.x = this.walking < 0 ? -1 : 1;
+    } else {
+      this.figure.y = Math.sin(elapsed * 2.4 + this.phase) * shape.bob;
+      this.figure.rotation = 0;
+      this.figure.scale.x = 1;
+    }
+  }
+
+  /**
+   * The speech bubble: what this character actually said, shortened by the
+   * derivation and never rewritten here (§1.1).
+   */
+  private say(text: string | null): void {
+    this.bubble.clear();
+    this.speech.text = text ?? "";
+    this.speech.visible = text !== null;
+    if (text === null) return;
+
+    const w = this.speech.width + 16;
+    const h = this.speech.height + 12;
+    const top = this.speech.y - h;
+    this.bubble
+      .roundRect(-w / 2, top, w, h, 8)
+      .fill({ color: 0xe2e8f0 })
+      // The tail, pointing down at whoever is speaking.
+      .moveTo(-5, top + h)
+      .lineTo(5, top + h)
+      .lineTo(0, top + h + 7)
+      .closePath()
+      .fill({ color: 0xe2e8f0 });
   }
 
   private redraw(): void {
@@ -170,5 +238,7 @@ export class ActorView extends Container {
     this.nameLabel.position.set(0, torsoTop - headR * 3.1);
     this.caption.position.set(0, baseY + 6);
     this.task.position.set(0, baseY + 22);
+    this.speech.position.set(0, this.nameLabel.y - 20);
+    if (this.state.says) this.say(this.state.says);
   }
 }

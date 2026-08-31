@@ -22,6 +22,8 @@ export const strings = {
 
   scene: {
     empty: "Send a team out and they will appear here.",
+    soundOn: "Sound on — click to mute",
+    soundOff: "Muted — click for sound",
     ended: (reason: string) => `mission ended — ${reason}`,
   },
 

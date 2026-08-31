@@ -80,6 +80,54 @@ export function seatPositions(layoutId: string | null, seats: number): Point[] {
   return [...known, ...generated(seats).slice(known.length)];
 }
 
+/**
+ * Where whoever has the floor stands (§12 M7).
+ *
+ * The centroid of the desks, stepped toward the viewer so the character is in
+ * front of the furniture rather than inside it. Derived from the seats rather
+ * than listed per layout: a layout this build has never seen still has a middle,
+ * so there is no arrangement in which the walk has nowhere to go (§8).
+ */
+export function floorSpot(positions: Point[]): Point {
+  if (positions.length === 0) return { x: 0.6, y: 0.6 };
+  const sum = positions.reduce((a, p) => ({ x: a.x + p.x, y: a.y + p.y }), { x: 0, y: 0 });
+  return {
+    x: sum.x / positions.length + 0.6,
+    y: sum.y / positions.length + 0.6,
+  };
+}
+
+/**
+ * Where the camera looks: the character with the floor, or the middle of the
+ * room when nobody has it.
+ *
+ * Pure, and separate from the renderer, so "an agent nobody can place does not
+ * send the camera off the map" is a test rather than something you catch by
+ * watching (§8).
+ */
+export function cameraTarget(
+  focusSeatIndex: number | null,
+  focusPlace: "seat" | "floor",
+  positions: Point[],
+): Point {
+  const centre = roomCentre(positions);
+  if (focusSeatIndex === null) return centre;
+  if (focusPlace === "floor") {
+    const spot = floorSpot(positions);
+    return toScreen(spot.x, spot.y);
+  }
+  const cell = positions[focusSeatIndex];
+  // A seat the layout does not have is not a reason to look at nothing.
+  if (!cell) return centre;
+  return toScreen(cell.x, cell.y);
+}
+
+/** The middle of the room in screen space. */
+export function roomCentre(positions: Point[]): Point {
+  const { w, h } = floorExtent(positions);
+  return toScreen((w - 1) / 2, (h - 1) / 2);
+}
+
 /** The floor tiles to draw, one ring wider than the furthest desk. */
 export function floorExtent(positions: Point[]): { w: number; h: number } {
   const maxX = positions.reduce((m, p) => Math.max(m, p.x), 0);

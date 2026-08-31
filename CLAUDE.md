@@ -23,8 +23,13 @@ npm install                  # JS deps (workspaces: apps/desktop, packages/share
 uv sync --project services/agentd   # Python deps into services/agentd/.venv
 npm run codegen              # regenerate TS + Pydantic from the schema
 npm run codegen:check        # fail if either generated file is stale or hand-edited
-npm run test                 # codegen:check + pytest + vitest
+npm run test                 # codegen:check + pytest + vitest + cargo
+npm run build:sidecar        # freeze the backend into src-tauri/binaries/
+npm run package              # build:sidecar + tauri build -> MSI and NSIS installers
 ```
+
+`npm run package` needs no running copy of the app: Windows locks the image of a running
+process, and the build refuses rather than shipping the previous backend.
 
 `uv` installs to `C:\Users\<you>\.local\bin` and may not be on PATH in a fresh shell.
 
@@ -225,6 +230,106 @@ same `decodeFrame` and the same `ingest` the socket feeds. The timeline and the 
 cannot disagree with a live run because there is only one derivation (§2.1) — and the
 test asserts exactly that: `deriveSceneState` over replayed events equals the same
 function over the live ones.
+
+**M7 — polish and packaging: done, verified live.** Characters walk, speak, and
+are followed by a camera; the app builds into an installer with the backend
+frozen inside it. 209 pytest + 63 vitest + 4 cargo green.
+
+Verified by running the packaged build, not the dev one: `agent-studio.exe`
+started its own backend on an ephemeral port, the window came up on onboarding
+against a fresh `%APPDATA%/AgentStudio` database, `/health` answered 401 without
+the token it had never been told, and closing the window left no process behind.
+`npm run package` produces `Agent Studio_0.1.0_x64_en-US.msi` (35 MB) and an
+NSIS installer beside it.
+
+### Walking is a position that changed, not an animation
+
+The temptation in a milestone called "polish" is decoration, which §1.1 rules
+out. So movement is derived like everything else: an actor's `place` is `seat`
+or `floor`, and `floor` means the mission currently turns on them — the agent an
+outstanding question is waiting on, or the one whose task is running. The
+renderer's only job is to close the distance between where a character is and
+where the derivation put them. Nothing walks anywhere for a reason that is not
+on the log, and `movement.test.ts` asserts each rule, including that a question
+outranks a running task and that `mission.ended` sits everyone down.
+
+Speech bubbles are the same discipline: the agent's own words, shortened at
+`BUBBLE_LIMIT` and never paraphrased, and only for whoever spoke last.
+
+### A pose can outlive the fact that produced it
+
+The leader publishes `agent.status waiting` when it asks for approval and
+publishes nothing when the answer arrives — so it stood at the front of the room
+captioned `waiting` for the rest of the run, describing a question that had been
+answered minutes earlier.
+
+Fixed in the derivation, not by emitting a status no agent produced: an
+`agent.request.resolved` clears the asker's pose, and any real status published
+afterwards still wins. That is the same shape as the `mission.ended` reset, and
+the opposite of the synthetic `agent.status idle` on cancel that was rejected in
+M5 — here the log itself says the wait is over.
+
+### The scene only drew when something changed
+
+Mounting PixiJS is async, so `scene.current` is set after the first state
+exists. Every draw was triggered by a state change, and a mission that was
+paused, finished or simply quiet produced none — so the room stayed black until
+something happened. Live for two milestones, invisible because a running mission
+never stops changing. The renderer now draws once as soon as it exists.
+
+### Sound has to know what "just happened" means
+
+A chime per event is trivial and wrong: the socket resumes from seq 0 on every
+reconnect and History replays whole finished missions, so the naive version
+fires thirty chimes for a run from last week. `shouldChime` is pure and takes
+`now`: it refuses anything while replaying, anything older than five seconds,
+and anything whose timestamp this build cannot read. Sound is off until asked
+for, and the click that turns it on is also the gesture browsers require before
+an `AudioContext` may start.
+
+### What PyInstaller cannot see
+
+Three kinds of thing, all found by running the result rather than by reading
+about it. **Data loaded by path**: Alembic opens `alembic.ini`, `env.py` and
+every revision off disk, so they are bundled as data and `migrate.py` resolves
+them under `_MEIPASS` when frozen. **Backends chosen at runtime**: `keyring`
+finds its backend through entry points and SQLAlchemy imports `aiosqlite` by
+name — neither appears in an import statement. **Package metadata**, read by
+libraries reporting their own version.
+
+The entry script also cannot be `agentd/__main__.py`: PyInstaller runs it as a
+top-level `__main__`, where its relative imports have no parent package and the
+build dies on the first line it executes. `sidecar.py` imports the package
+properly, which keeps `python -m agentd` and the frozen binary on one code path
+with no `if frozen` branches inside the app.
+
+### The backend must not outlive the app
+
+`RunEvent::Exit` kills the process Tauri spawned — which, in a one-file
+PyInstaller build, is a bootloader, not the server. The server carried on
+listening, holding the database and the user's keychain access, with nothing on
+screen to say so. Three of them were running before I noticed, and the way I
+noticed was a build failing with `EBUSY`: Windows locks the image of a running
+process, so the stale binary could not be overwritten and an installer would
+have silently shipped yesterday's backend.
+
+The fix is in the backend, not the shell: a watchdog thread reads stdin and
+shuts the server down at EOF. The parent holds the write end, so this survives a
+forced kill — which matters most on Windows, where a terminated process runs no
+handler of its own. `scripts/build-sidecar.mjs` now also names the lock instead
+of printing an `EBUSY` stack trace.
+
+### Two things that looked like bugs and were not
+
+A probe of the frozen backend returned 401 for the token it had just handed
+over. The freeze was fine: the probe used a **fixed port**, and a leftover
+backend from the previous run answered it with its own token. A fixed port in a
+test harness is a shared global.
+
+Then it returned `fetch failed`. The ready line is printed *before* uvicorn
+binds — deliberately, since the parent needs the port before the socket exists —
+so waiting for the message is not waiting for the server. The probe polls the
+socket now.
 
 ---
 
@@ -503,6 +608,16 @@ the forward-compat test points.
   Nothing in the code claims otherwise, but nothing in the UI says so either. Deferred
   past M6 by choice; two questions open if it proceeds: which search API, and whether its
   key goes in the keychain alongside the provider keys (§9.1 says it must).
+- **The installers are unsigned.** Windows SmartScreen will warn on first run, and macOS
+  would refuse outright without notarisation. Nothing to fix in the code — it needs a
+  certificate — but anyone handing the MSI to someone else should expect the warning and
+  not treat it as a build problem.
+- **Startup costs a second or two.** A one-file PyInstaller build unpacks itself on every
+  launch (~3.5s to a first answer here). Bundling as a directory would remove that, and
+  `externalBin` takes a single file, so it would mean shipping the backend as a resource
+  and spawning it by path instead.
 
-Next: M7 — scene polish (walking, speech bubbles, sound, camera) and PyInstaller sidecar
-packaging.
+Every milestone in brief §12 is done: M1 through M7, each verified against a running
+build rather than a test alone. The next work is whatever is chosen next — the tool
+registry is the largest thing the app currently lacks, and it is the one that would make
+an agent's answers about the present true.

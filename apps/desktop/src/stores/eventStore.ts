@@ -19,6 +19,11 @@ export interface SequencedEntry {
   futureVersion: boolean;
 }
 
+export interface StreamingMessage {
+  agentId: string;
+  text: string;
+}
+
 export interface MalformedEntry {
   raw: unknown;
   reason: string;
@@ -31,8 +36,10 @@ interface EventState {
   events: SequencedEntry[];
   /** Frames this build could not read at all. Surfaced, never swallowed (§8). */
   malformed: MalformedEntry[];
-  /** Partial text per messageId, assembled from deltas while a reply streams. */
-  streaming: Record<string, string>;
+  /** Partial text per messageId, assembled from deltas while a reply streams.
+   *  Carries the author as well: the scene has to know whose speech bubble is
+   *  being typed, and the `agent.message` naming them only arrives at the end. */
+  streaming: Record<string, StreamingMessage>;
   endReason: string | null;
   /** True while showing a finished run read back off the log, not a live one.
    *  The events are identical; what differs is that nothing more will arrive. */
@@ -100,9 +107,15 @@ export const useEventStore = create<EventState>((set, get) => ({
     }
 
     if (decoded.kind === "ephemeral") {
-      const { messageId, text } = decoded.frame;
+      const { messageId, text, agentId } = decoded.frame;
       set((s) => ({
-        streaming: { ...s.streaming, [messageId]: (s.streaming[messageId] ?? "") + text },
+        streaming: {
+          ...s.streaming,
+          [messageId]: {
+            agentId: agentId ?? s.streaming[messageId]?.agentId ?? "",
+            text: (s.streaming[messageId]?.text ?? "") + text,
+          },
+        },
       }));
       return;
     }
@@ -153,7 +166,7 @@ export interface ChatTurn {
  */
 export function buildTurns(
   events: SequencedEntry[],
-  streaming: Record<string, string>,
+  streaming: Record<string, StreamingMessage>,
 ): ChatTurn[] {
   const turns: ChatTurn[] = [];
   for (const { event } of events) {
@@ -170,8 +183,13 @@ export function buildTurns(
       });
     }
   }
-  for (const [messageId, text] of Object.entries(streaming)) {
-    turns.push({ id: `stream-${messageId}`, role: "agent", text, streaming: true });
+  for (const [messageId, partial] of Object.entries(streaming)) {
+    turns.push({
+      id: `stream-${messageId}`,
+      role: "agent",
+      text: partial.text,
+      streaming: true,
+    });
   }
   return turns;
 }

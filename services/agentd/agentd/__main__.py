@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import threading
 
 import uvicorn
 
@@ -20,6 +21,32 @@ from .core.config import get_settings
 from .db.migrate import upgrade_to_head
 
 log = logging.getLogger("agentd")
+
+
+def watch_parent(server: uvicorn.Server) -> None:
+    """Shut down when the process that started us goes away.
+
+    The parent holds the write end of our stdin, so when it exits - cleanly,
+    crashed, or force-killed - the pipe closes and the read below returns
+    empty. Nothing else is a reliable signal: Windows cannot intercept a forced
+    kill, so no handler in the parent gets to run, and under PyInstaller the
+    parent kills a bootloader that is not this process at all. Left alone, the
+    result is an unattended HTTP server on loopback that still holds the user's
+    keychain access and a lock on the database (section 9.1).
+    """
+
+    def watch() -> None:
+        try:
+            # Only EOF matters. Anything the parent sends after the token line
+            # is read and ignored, so a stray newline is not a shutdown.
+            while sys.stdin.readline():
+                pass
+        except Exception:  # noqa: BLE001 - a closed pipe raises on some platforms
+            pass
+        log.info("parent process is gone; shutting down")
+        server.should_exit = True
+
+    threading.Thread(target=watch, name="parent-watchdog", daemon=True).start()
 
 
 def main() -> int:
@@ -44,13 +71,19 @@ def main() -> int:
     # was armed above, and only an in-process run is guaranteed to see it.
     from .main import app
 
-    uvicorn.run(
-        app,
-        host=settings.host,
-        port=settings.port,
-        log_level=settings.log_level,
-        access_log=False,
+    # `Server` rather than `uvicorn.run`, so the watchdog above has something
+    # to ask to stop.
+    server = uvicorn.Server(
+        uvicorn.Config(
+            app,
+            host=settings.host,
+            port=settings.port,
+            log_level=settings.log_level,
+            access_log=False,
+        )
     )
+    watch_parent(server)
+    server.run()
     return 0
 
 
