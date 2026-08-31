@@ -33,6 +33,7 @@ export function MissionPanel() {
 
   const [teamId, setTeamId] = useState("");
   const [goal, setGoal] = useState("");
+  const [requireApproval, setRequireApproval] = useState(false);
 
   useEffect(() => {
     void loadTeams();
@@ -97,7 +98,8 @@ export function MissionPanel() {
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              if (team && goal.trim()) void launch(team, goal.trim());
+              if (team && goal.trim())
+                void launch(team, goal.trim(), requireApproval);
             }}
             className="space-y-3 rounded-lg border border-slate-800 bg-slate-900/40 p-4"
           >
@@ -125,6 +127,23 @@ export function MissionPanel() {
                 placeholder={strings.mission.goalPlaceholder}
               />
             </Field>
+
+            {/* Opt-in. A gate on every run is a gate users switch off rather
+                than one they read (§12 M6). */}
+            <label className="flex items-start gap-2 text-xs text-slate-300">
+              <input
+                type="checkbox"
+                checked={requireApproval}
+                onChange={(e) => setRequireApproval(e.target.checked)}
+                className="mt-0.5 accent-sky-500"
+              />
+              <span>
+                {strings.mission.approvalLabel}
+                <span className="block text-[11px] text-slate-500">
+                  {strings.mission.approvalHint}
+                </span>
+              </span>
+            </label>
 
             <Button type="submit" disabled={launching || !team || !goal.trim()}>
               {launching ? strings.mission.launching : strings.mission.launch}

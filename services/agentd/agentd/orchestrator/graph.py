@@ -23,11 +23,13 @@ from collections.abc import AsyncIterator, Callable
 from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import Command
 
 from ..agents.runtime import is_ephemeral, run_agent_turn
 from ..core.budget import BudgetExceeded, BudgetTracker
 from ..providers.base import Capabilities, ChatRequest, LLMProvider, Message
 from ..teams.snapshot import RosterSnapshot, SnapshotMember
+from .hitl import APPROVE, Ask, PlanRejected, ask_to_approve, new_request_id, pause
 from .planner import PlanningFailed, make_plan
 
 #: Resolves a snapshot member to a live provider + capabilities. Injected so the
@@ -47,6 +49,19 @@ class MissionState(TypedDict, total=False):
     summary: str
 
 
+class Paused(Exception):
+    """The graph stopped at an `interrupt()` and is waiting for a person.
+
+    Not an error. The runner turns it into `status = "waiting"` and a
+    `pending_request`, and the mission sits there until someone answers -
+    across a restart if need be (§12 M6).
+    """
+
+    def __init__(self, ask: Ask) -> None:
+        super().__init__(ask.question)
+        self.ask = ask
+
+
 def _draft(event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
     return {"type": event_type, "payload": payload}
 
@@ -58,8 +73,16 @@ async def run_team_mission(
     goal: str,
     budget: BudgetTracker,
     provider_for: ProviderFor,
+    checkpointer: Any | None = None,
+    require_approval: bool = False,
+    resume: str | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
-    """Run a team to completion, narrating every step as events."""
+    """Run a team to completion, narrating every step as events.
+
+    `resume` re-enters a mission that stopped at an approval. The graph picks up
+    from its checkpoint, which may have been written by a process that no longer
+    exists - that is the whole point of the checkpointer (§12 M6).
+    """
     leader = snapshot.leader
     if leader is None:
         # Unreachable through the API — the validator blocks a leaderless team
@@ -77,11 +100,37 @@ async def run_team_mission(
         budget=budget,
         provider_for=provider_for,
         emit=emit,
+        require_approval=require_approval,
+        checkpointer=checkpointer,
+        resuming=resume is not None,
     )
+
+    # One thread per mission, so a resume finds the right checkpoint even when
+    # the process that wrote it is gone.
+    config = {"configurable": {"thread_id": mission_id}} if checkpointer else {}
 
     async def drive() -> None:
         try:
-            await graph.ainvoke({"goal": goal, "tasks": [], "results": []})
+            entry: Any = (
+                Command(resume=resume)
+                if resume is not None
+                else {"goal": goal, "tasks": [], "results": []}
+            )
+            result = await graph.ainvoke(entry, config)
+            # LangGraph reports an interrupt in the result rather than raising,
+            # so a pause has to be recognised here and handed to the runner.
+            pending = (result or {}).get("__interrupt__") if isinstance(result, dict) else None
+            if pending:
+                payload = getattr(pending[0], "value", None) or {}
+                raise Paused(
+                    Ask(
+                        request_id=str(payload.get("requestId", new_request_id())),
+                        kind=payload.get("kind", "approval"),
+                        agent_id=str(payload.get("agentId", "")),
+                        question=str(payload.get("question", "")),
+                        options=payload.get("options"),
+                    )
+                )
         finally:
             await queue.put(None)
 
@@ -110,6 +159,9 @@ def _build_graph(
     budget: BudgetTracker,
     provider_for: ProviderFor,
     emit: Callable[[dict[str, Any]], Any],
+    require_approval: bool = False,
+    checkpointer: Any | None = None,
+    resuming: bool = False,
 ):
     leader = snapshot.leader
     assert leader is not None
@@ -182,6 +234,48 @@ def _build_graph(
             _draft("agent.status", {"agentId": leader.agent_id, "status": "idle"})
         )
         return {"tasks": tasks}
+
+    async def approve_node(state: MissionState) -> MissionState:
+        """Put the plan in front of the user before any of it is paid for.
+
+        This gate is here rather than at the end because it is the only point
+        where stopping still saves anything: after the work runs, the money is
+        already spent.
+        """
+        if not require_approval:
+            return {}
+
+        tasks = state.get("tasks") or []
+        summary = "\n".join(
+            f"{i + 1}. {t['title']} (seat {t['assignee_seat']})"
+            for i, t in enumerate(tasks)
+        )
+        ask = ask_to_approve(
+            agent_id=leader.agent_id,
+            request_id=new_request_id(),
+            summary=summary,
+        )
+        # Resuming re-executes this node from the top: everything above an
+        # `interrupt()` runs a second time, because the node's writes were never
+        # committed. Emitting again puts a second question on the log carrying a
+        # fresh id that nothing is waiting on - a live client would raise a modal
+        # whose answer comes back 409, and a replay would show the leader asking
+        # twice and being answered once. Seen on a real run, at seq 11.
+        if not resuming:
+            # Recorded before the pause: a replay has to show the question even
+            # if nobody ever answers it.
+            await emit(_draft("agent.request", ask.to_payload()))
+            await emit(
+                _draft(
+                    "agent.status",
+                    {"agentId": leader.agent_id, "status": "waiting"},
+                )
+            )
+
+        answer = pause(ask)
+        if answer.strip().lower() != APPROVE:
+            raise PlanRejected(answer)
+        return {}
 
     async def work_node(state: MissionState) -> MissionState:
         tasks = state.get("tasks") or []
@@ -340,13 +434,22 @@ def _build_graph(
 
     builder = StateGraph(MissionState)
     builder.add_node("plan", plan_node)
+    builder.add_node("approve", approve_node)
     builder.add_node("work", work_node)
     builder.add_node("summarise", summarise_node)
     builder.add_edge(START, "plan")
-    builder.add_edge("plan", "work")
+    builder.add_edge("plan", "approve")
+    builder.add_edge("approve", "work")
     builder.add_edge("work", "summarise")
     builder.add_edge("summarise", END)
-    return builder.compile()
+    return builder.compile(checkpointer=checkpointer)
 
 
-__all__ = ["run_team_mission", "MissionState", "BudgetExceeded", "PlanningFailed"]
+__all__ = [
+    "run_team_mission",
+    "MissionState",
+    "Paused",
+    "BudgetExceeded",
+    "PlanningFailed",
+    "PlanRejected",
+]

@@ -30,7 +30,7 @@ interface MissionState {
   /** Every blocking finding from a refused launch, not just the first (§5.2). */
   rejected: string[] | null;
 
-  launch: (team: Team, goal: string) => Promise<void>;
+  launch: (team: Team, goal: string, requireApproval?: boolean) => Promise<void>;
   loadMission: (missionId: string) => Promise<void>;
   nameOf: (agentId: string) => string;
   clear: () => void;
@@ -44,12 +44,13 @@ export const useMissionStore = create<MissionState>((set, get) => ({
   launching: false,
   rejected: null,
 
-  launch: async (team, goal) => {
+  launch: async (team, goal, requireApproval = false) => {
     set({ launching: true, rejected: null });
     try {
       const { missionId } = await api.startMission({
         team_id: team.id,
         content: goal,
+        require_approval: requireApproval,
       });
       // Subscribe from 0: mission.started and user.message were published
       // before this response landed, and the replay covers them.

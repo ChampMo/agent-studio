@@ -13,8 +13,18 @@ from typing import Any
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
 from .agents.runner import MissionRunner
-from .api import agents, chat, settings as settings_api, teams, tools, ws
+from .api import (
+    agents,
+    chat,
+    hitl,
+    settings as settings_api,
+    teams,
+    tools,
+    ws,
+)
 from .api.deps import require_token
 from .core.config import ALLOWED_ORIGINS, Settings, get_settings
 from .core.events import EventBus
@@ -34,19 +44,29 @@ def create_app(*, settings: Settings | None = None, db: Database | None = None) 
         app.state.settings = settings
         app.state.db = database
         app.state.bus = bus
-        runner = MissionRunner(database, bus)
-        app.state.runner = runner
-        # Before anything can read the table: a mission left `running` by a
-        # process that no longer exists is not running, and saying otherwise is
-        # the timeline lying about the present rather than the past.
-        reaped = await runner.reap_orphans()
-        if reaped:
-            log.warning("closed %d mission(s) orphaned by a previous process", reaped)
-        try:
-            yield
-        finally:
-            if owned:
-                await database.dispose()
+        # One saver for the process, backed by its own file. A mission paused
+        # on a person has to be resumable by a *later* process, so the pause
+        # cannot live in memory (brief section 12, M6).
+        async with AsyncSqliteSaver.from_conn_string(
+            str(settings.data_dir / "checkpoints.db")
+        ) as checkpointer:
+            runner = MissionRunner(database, bus, checkpointer=checkpointer)
+            app.state.runner = runner
+
+            # Before anything can read the table: a mission left `running` by a
+            # process that no longer exists is not running, and saying otherwise
+            # is the timeline lying about the present rather than the past.
+            reaped = await runner.reap_orphans()
+            if reaped:
+                log.warning(
+                    "closed %d mission(s) orphaned by a previous process", reaped
+                )
+
+            try:
+                yield
+            finally:
+                if owned:
+                    await database.dispose()
 
     app = FastAPI(
         title="Agent Studio backend",
@@ -81,6 +101,7 @@ def create_app(*, settings: Settings | None = None, db: Database | None = None) 
     app.include_router(teams.router)
     app.include_router(settings_api.router)
     app.include_router(chat.router)
+    app.include_router(hitl.router)
     app.include_router(tools.router)
     app.include_router(ws.router)
     return app

@@ -159,6 +159,73 @@ backstory, and the 2.5D scene in M5 reflecting real event-stream state — never
 we made up. An invented score makes the UI lie, which §1 already forbids. Do not propose
 level, exp, MP or HP back in.
 
+**M6 — approval, artifacts, replay: done, verified live.** `interrupt()` against an
+`AsyncSqliteSaver`, `agent.request` / `agent.request.resolved` on the log, the artifact
+store, `GET /requests/pending`, the mission list and `GET /missions/{id}/events`. Backend
+206 pytest; frontend adds the approval modal, the History tab with replay, and the
+artifact viewer. 41 vitest green.
+
+The milestone's criterion, done for real rather than simulated: a mission was launched
+with the gate on, the whole app was killed at the pause — both processes — and after a
+fresh start the question was on screen again before any tab was opened. Approving it
+resumed the work, which finished and wrote `final-answer.md`. Opening the run from
+History replayed it with the roster frozen at launch and the file readable.
+
+### `return` does not skip `finally`
+
+`_run_team` handled `Paused` by parking the mission and returning. The `finally` block
+below it scheduled the finaliser anyway — with `reason` still holding its initial
+`"completed"` — so a mission ended, with a summary, seconds after asking its question.
+The pause itself had worked perfectly; the row said `ended` because of a `return`.
+
+A `parked` flag now suppresses the ending explicitly. Anything that means "this is not an
+ending" has to say so in the `finally`, not by leaving the block.
+
+### Resuming rebuilt the graph without the gate
+
+`resolve_request` called `_run_team(..., resume=answer)` and left `require_approval` at
+its default, so `approve_node` returned before it read anything. The graph continued
+either way: approval passed by accident, and **a rejected plan ran to completion**. Only
+the reject test caught it — the approve test was green for the wrong reason the whole
+time.
+
+`require_approval = require_approval or resume is not None`: the gate is the only thing
+that pauses a mission, so a resume implies it was there.
+
+### Everything above `interrupt()` runs twice
+
+LangGraph re-executes the interrupted node from the top on resume — the node's writes
+were never committed, so there is nothing to pick up from mid-body. `approve_node`
+published its question again, with a **fresh request id nothing was waiting on**: a live
+client would raise a modal whose answer comes back 409, and a replay would show the
+leader asking twice and being answered once. Found by reading the log of a real run
+(seq 8 asked, seq 10 answered, seq 11 asked again).
+
+The node takes `resuming` and skips the emits. Worth remembering for any future gate:
+side effects belong *after* the `interrupt()`, and an LLM call above one is paid for
+twice. `plan_node` is safe only because its writes were checkpointed before the gate ran.
+
+### The client has to ask what is waiting, not only listen
+
+The question is published as an event, and the process that published it is gone by the
+time anyone reopens the app. `approvalStore` therefore has two sources: `refresh()` over
+REST on mount, and `observe()` off the stream while the app is open. Neither alone works
+— listening misses everything asked before this window existed, and polling alone makes
+a live question wait for the next poll.
+
+Replayed events are deliberately excluded from `observe()`. A mission cancelled while
+waiting leaves an unanswered `agent.request` on its log forever; treating that like a
+live one would put a dead run's modal in front of someone who is only reading, and
+answering it returns 409 from a backend that agrees the question is gone.
+
+### A replay is the same pipeline, not a second renderer
+
+`eventStore.replay()` fetches `/missions/{id}/events` and pushes each row through the
+same `decodeFrame` and the same `ingest` the socket feeds. The timeline and the scene
+cannot disagree with a live run because there is only one derivation (§2.1) — and the
+test asserts exactly that: `deriveSceneState` over replayed events equals the same
+function over the live ones.
+
 ---
 
 ## Decisions made while building
@@ -430,3 +497,12 @@ the forward-compat test points.
   this empirically via `GET /v1/models`; no model id is hardcoded anywhere.
 - Haiku 4.5 has two ids in circulation (`claude-haiku-4-5` vs
   `claude-haiku-4-5-20251001`). Same resolution: ask the endpoint, don't guess.
+- **The tool registry is still empty.** `GET /tools` returns `[]`, every agent carries
+  `tools: []`, and no `agent.tool.*` event has ever been published — so an agent's only
+  source of information is its model weights, and it will state stale things confidently.
+  Nothing in the code claims otherwise, but nothing in the UI says so either. Deferred
+  past M6 by choice; two questions open if it proceeds: which search API, and whether its
+  key goes in the keychain alongside the provider keys (§9.1 says it must).
+
+Next: M7 — scene polish (walking, speech bubbles, sound, camera) and PyInstaller sidecar
+packaging.

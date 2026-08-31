@@ -23,7 +23,9 @@ from ..core.budget import BudgetExceeded, BudgetLimits, BudgetTracker, resolve_l
 from ..core.events import EventBus
 from ..db.models import Agent, Mission, ProviderProfile, Team, TeamMember
 from ..db.session import Database
-from ..orchestrator.graph import run_team_mission
+from ..artifacts.store import ArtifactStore
+from ..orchestrator.graph import Paused, run_team_mission
+from ..orchestrator.hitl import PlanRejected
 from ..orchestrator.planner import PlanningFailed
 from ..providers import registry
 from ..providers.base import (
@@ -44,6 +46,14 @@ from .runtime import is_ephemeral, run_agent_turn
 CHAT_AGENT_ID = "chat-agent"
 
 
+class RequestNotFound(LookupError):
+    """No mission is waiting on that request.
+
+    Distinct from a wrong answer: it means the question was already answered, or
+    the mission ended, and the caller needs to know which.
+    """
+
+
 class MissionRejected(ValueError):
     """The team cannot run. Carries every blocking finding, because one reason at
     a time turns fixing a team into a guessing game (§5.2)."""
@@ -54,13 +64,23 @@ class MissionRejected(ValueError):
 
 
 class MissionRunner:
-    def __init__(self, db: Database, bus: EventBus) -> None:
+    def __init__(
+        self, db: Database, bus: EventBus, checkpointer: Any | None = None
+    ) -> None:
         self._db = db
         self._bus = bus
+        #: Where a paused graph is written so a different process can resume it.
+        #: Optional: without one the app still runs, approvals simply cannot
+        #: survive a restart, and tests inject an in-memory saver.
+        self._checkpointer = checkpointer
         self._tasks: dict[str, asyncio.Task] = {}
         #: Finalisation runs in its own task so that cancelling a mission cannot
         #: cancel the work that records the cancellation. See `_run`.
         self._finishers: dict[str, asyncio.Task] = {}
+        self._artifacts = ArtifactStore(db)
+        #: What each paused mission needs in order to be resumed. Rebuilt from
+        #: the database on restart, because the process that paused is gone.
+        self._paused: dict[str, dict[str, Any]] = {}
 
     async def reap_orphans(self) -> int:
         """Close out missions left `running` by a process that is gone.
@@ -73,6 +93,9 @@ class MissionRunner:
         Run once at startup, before anything can read the table.
         """
         async with self._db.session() as s:
+            # Only `running`. A mission with status `waiting` has no task by
+            # design - it is paused on a person - and closing those would
+            # destroy exactly the missions M6 promises survive a restart.
             orphans = list(
                 (await s.execute(select(Mission).where(Mission.status == "running")))
                 .scalars()
@@ -146,6 +169,7 @@ class MissionRunner:
         team_id: str,
         goal: str,
         budget: dict[str, Any] | None = None,
+        require_approval: bool = False,
     ) -> str:
         """Launch a team (§7).
 
@@ -221,7 +245,9 @@ class MissionRunner:
         )
 
         task = asyncio.create_task(
-            self._run_team(mission_id, roster, goal, limits),
+            self._run_team(
+                mission_id, roster, goal, limits, require_approval=require_approval
+            ),
             name=f"mission:{mission_id}",
         )
         self._track(mission_id, task)
@@ -233,10 +259,19 @@ class MissionRunner:
         roster: RosterSnapshot,
         goal: str,
         limits: BudgetLimits,
+        *,
+        require_approval: bool = False,
+        resume: str | None = None,
     ) -> None:
         budget = BudgetTracker(limits)
         opened: dict[str, LLMProvider] = {}
         reason, summary = "completed", ""
+        parked = False
+        # The gate is the only thing that pauses a mission, so a resume implies
+        # it was there. Rebuilding without it made `approve_node` return before
+        # it read the answer: the graph carried on either way, and a rejected
+        # plan ran to completion.
+        require_approval = require_approval or resume is not None
 
         # Provider profiles are looked up from the snapshot's provider_id, never
         # from the agent row: past the launch boundary the snapshot is the only
@@ -267,6 +302,9 @@ class MissionRunner:
                 goal=goal,
                 budget=budget,
                 provider_for=provider_for,
+                checkpointer=self._checkpointer,
+                require_approval=require_approval,
+                resume=resume,
             ):
                 # The same routing split a chat uses (§7.1), in the same place.
                 if is_ephemeral(item):
@@ -276,9 +314,23 @@ class MissionRunner:
                     if item["type"] == "agent.message":
                         summary = item["payload"]["content"][:2000]
 
+        except Paused as paused:
+            # Not an ending. The mission stops here, keeps its row, and waits -
+            # possibly past the life of this process (§12 M6).
+            #
+            # `parked` rather than an early `return`: `finally` runs through a
+            # return, so returning here still scheduled the finaliser and the
+            # mission was recorded as `completed` seconds after asking its
+            # question. A pause has to suppress the ending explicitly.
+            parked = True
+            await self._park(mission_id, roster, goal, limits, paused, opened)
         except asyncio.CancelledError:
             reason, summary = "cancelled", "stopped by the user"
             raise
+        except PlanRejected as exc:
+            # A decision, not a failure. Recorded as such so the timeline does
+            # not describe the user changing their mind as something breaking.
+            reason, summary = "cancelled", f"the plan was rejected: {exc.note}"
         except BudgetExceeded as exc:
             reason = "budget_exceeded"
             summary = f"stopped at the {exc.kind} limit ({exc.used}/{exc.limit})"
@@ -292,6 +344,11 @@ class MissionRunner:
             reason, summary = "crashed", f"{type(exc).__name__}: {exc}"
             await self._publish_error(mission_id, "internal_error", summary, False)
         finally:
+            # A parked mission has not ended - it is waiting on a person, and
+            # finalising it here would close it seconds after it asked its
+            # question, with `completed` still sitting in `reason`.
+            if parked:
+                return
             # Scheduled, never awaited here: this block also runs while the task
             # is being cancelled, and an await would be cancelled with it.
             self._finishers[mission_id] = asyncio.create_task(
@@ -331,7 +388,184 @@ class MissionRunner:
                 pass
         if reason == "completed":
             await self._credit_missions(roster)
+            await self._save_answer(mission_id, roster, summary)
         await self._finish(mission_id, reason, summary)
+
+    async def _save_answer(
+        self, mission_id: str, roster: RosterSnapshot, summary: str
+    ) -> None:
+        """Keep the mission's answer as a file the user can open (§12 M6).
+
+        A run that produced nothing gets no artifact: an empty document in the
+        viewer would suggest work happened that did not.
+        """
+        if not summary.strip():
+            return
+        leader = roster.leader
+        try:
+            artifact = await self._artifacts.write_text(
+                mission_id=mission_id,
+                agent_id=leader.agent_id if leader else None,
+                title="Final answer",
+                text=summary,
+            )
+        except Exception as exc:  # noqa: BLE001 - the mission still completed
+            await self._publish_error(
+                mission_id, "artifact_write_failed", str(exc), True
+            )
+            return
+
+        await self._bus.publish(
+            mission_id,
+            {
+                "type": "artifact.created",
+                "payload": {
+                    "agentId": artifact.agent_id or "",
+                    "artifactId": artifact.id,
+                    "path": artifact.path,
+                    "kind": artifact.kind,
+                },
+            },
+        )
+
+    # ---- human in the loop --------------------------------------------
+
+    async def _park(
+        self,
+        mission_id: str,
+        roster: RosterSnapshot,
+        goal: str,
+        limits: BudgetLimits,
+        paused: Paused,
+        opened: dict[str, LLMProvider],
+    ) -> None:
+        """Record the pause and stand down.
+
+        The providers are closed: waiting for a person can take days, and a held
+        HTTP connection is not how you wait for one. Resuming builds fresh ones.
+        """
+        for provider in opened.values():
+            try:
+                await provider.aclose()
+            except Exception:  # noqa: BLE001
+                pass
+
+        self._paused[mission_id] = {
+            "roster": roster,
+            "goal": goal,
+            "limits": limits,
+            "request_id": paused.ask.request_id,
+        }
+
+        async with self._db.session() as s:
+            mission = (
+                await s.execute(select(Mission).where(Mission.id == mission_id))
+            ).scalar_one_or_none()
+            if mission is not None:
+                mission.status = "waiting"
+                mission.pending_request = paused.ask.request_id
+                await s.commit()
+
+    async def resolve_request(
+        self, request_id: str, answer: str, *, resolved_by: str = "user"
+    ) -> str:
+        """Answer a waiting mission and let it carry on.
+
+        Looked up in the database rather than in memory, so an answer works
+        after a restart - which is the criterion this whole path exists for.
+        """
+        async with self._db.session() as s:
+            mission = (
+                await s.execute(
+                    select(Mission).where(Mission.pending_request == request_id)
+                )
+            ).scalar_one_or_none()
+        if mission is None:
+            raise RequestNotFound(request_id)
+
+        # Published before the resume: a replay must show the question, then the
+        # answer, then what followed from it (§6.2).
+        await self._bus.publish(
+            mission.id,
+            {
+                "type": "agent.request.resolved",
+                "payload": {
+                    "requestId": request_id,
+                    "answer": answer,
+                    "resolvedBy": resolved_by,
+                },
+            },
+        )
+
+        roster = RosterSnapshot.from_json(mission.roster_snapshot)
+        limits = resolve_limits(mission=mission.budget)
+        async with self._db.session() as s:
+            row = (
+                await s.execute(select(Mission).where(Mission.id == mission.id))
+            ).scalar_one()
+            row.status = "running"
+            row.pending_request = None
+            await s.commit()
+        self._paused.pop(mission.id, None)
+
+        task = asyncio.create_task(
+            self._run_team(
+                mission.id, roster, mission.goal, limits, resume=answer
+            ),
+            name=f"mission:{mission.id}",
+        )
+        self._track(mission.id, task)
+        return mission.id
+
+    async def pending_requests(self) -> list[dict[str, Any]]:
+        """What is waiting for the user, across every mission.
+
+        A restarted frontend has to find these: the question was published as an
+        event long ago, and a client that reconnects to nothing would leave the
+        mission stuck for ever with nobody aware of it.
+        """
+        async with self._db.session() as s:
+            rows = await s.execute(
+                select(Mission).where(Mission.status == "waiting")
+            )
+            missions = list(rows.scalars().all())
+
+        out: list[dict[str, Any]] = []
+        for mission in missions:
+            question = await self._last_request(mission.id, mission.pending_request)
+            out.append(
+                {
+                    "missionId": mission.id,
+                    "requestId": mission.pending_request,
+                    "goal": mission.goal,
+                    "askedAt": mission.started_at.isoformat(),
+                    **(question or {}),
+                }
+            )
+        return out
+
+    async def _last_request(
+        self, mission_id: str, request_id: str | None
+    ) -> dict[str, Any] | None:
+        """The question itself, read back off the append-only log.
+
+        The log is the record; `pending_request` is only the index into it.
+        """
+        if not request_id:
+            return None
+        for event in await self._bus.history(mission_id, 0, 10**9):
+            draft = event["draft"]
+            if (
+                draft["type"] == "agent.request"
+                and draft["payload"].get("requestId") == request_id
+            ):
+                return {
+                    "question": draft["payload"].get("question", ""),
+                    "kind": draft["payload"].get("kind", "question"),
+                    "options": draft["payload"].get("options"),
+                    "agentId": draft["payload"].get("agentId"),
+                }
+        return None
 
     async def _credit_missions(self, roster: RosterSnapshot) -> None:
         """`total_missions` counts runs that actually finished (§1.1).

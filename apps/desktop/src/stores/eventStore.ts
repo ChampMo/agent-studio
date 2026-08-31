@@ -7,7 +7,9 @@
  * slightly different interpretations of it.
  */
 import { create } from "zustand";
-import type { Decoded } from "../transport/decode";
+import { decodeFrame, type Decoded } from "../transport/decode";
+import { api } from "../transport/rest";
+import { useApprovalStore } from "./approvalStore";
 import type { EventEnvelope } from "../transport/events.generated";
 import { EventSocket, type ConnectionState } from "../transport/ws";
 
@@ -32,8 +34,12 @@ interface EventState {
   /** Partial text per messageId, assembled from deltas while a reply streams. */
   streaming: Record<string, string>;
   endReason: string | null;
+  /** True while showing a finished run read back off the log, not a live one.
+   *  The events are identical; what differs is that nothing more will arrive. */
+  replaying: boolean;
 
   attach: (missionId: string) => void;
+  replay: (missionId: string) => Promise<void>;
   detach: () => void;
   reset: () => void;
   ingest: (decoded: Decoded) => void;
@@ -48,15 +54,33 @@ export const useEventStore = create<EventState>((set, get) => ({
   malformed: [],
   streaming: {},
   endReason: null,
+  replaying: false,
 
   attach: (missionId) => {
     get().reset();
-    set({ missionId });
+    set({ missionId, replaying: false });
     socket ??= new EventSocket({
       onDecoded: (decoded) => get().ingest(decoded),
       onState: (connection) => set({ connection }),
     });
     socket.connect(missionId, 0);
+  },
+
+  /**
+   * Show a finished mission by reading its events back off the log (§12 M6).
+   *
+   * Deliberately the *same* pipeline as live: every row goes through
+   * `decodeFrame` and `ingest`, so the timeline and the scene derive a replay
+   * exactly as they derive a running mission. A separate "replay renderer"
+   * would be a second interpretation of the same events, and the two would
+   * drift (§2.1).
+   */
+  replay: async (missionId) => {
+    socket?.disconnect();
+    get().reset();
+    set({ missionId, replaying: true, connection: "closed" });
+    const { events } = await api.missionEvents(missionId);
+    for (const raw of events) get().ingest(decodeFrame(raw));
   },
 
   detach: () => {
@@ -99,6 +123,14 @@ export const useEventStore = create<EventState>((set, get) => ({
       }
       return next;
     });
+
+    // A question and its answer are events like any other, so the waiting list
+    // is derived here rather than polled. Replayed history is skipped: those
+    // questions were answered long ago, and re-raising them would put a dead
+    // run's modal in front of a user who is only reading (§12 M6).
+    if (!get().replaying) {
+      useApprovalStore.getState().observe(event, get().missionId);
+    }
   },
 }));
 

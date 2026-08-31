@@ -15,6 +15,7 @@ export const strings = {
     roster: "Roster",
     teams: "Teams",
     mission: "Mission",
+    history: "History",
     timeline: "Timeline",
     settings: "Settings",
   },
@@ -37,6 +38,43 @@ export const strings = {
     stop: "Stop",
     newRun: "New run",
     endedPrefix: "Mission ended",
+    approvalLabel: "Show me the plan before the team starts",
+    approvalHint:
+      "The mission pauses after planning and waits for you. The only point where stopping still saves the cost of the work.",
+  },
+
+  approval: {
+    approvalTitle: "Approve this plan?",
+    questionTitle: "The team needs an answer",
+    option: {
+      approve: "Start the work",
+      reject: "Do not run this",
+    } as Record<string, string>,
+    replyPlaceholder: "Your answer…",
+    send: "Send",
+    sending: "Sending…",
+    later: "Later",
+    more: (n: number) => `${n} more waiting`,
+    footnote: "The mission is paused until this is answered — closing the app is safe.",
+    waiting: (n: number) => (n === 1 ? "1 question waiting" : `${n} questions waiting`),
+    reopen: "Answer",
+  },
+
+  history: {
+    title: "History",
+    refresh: "Refresh",
+    loading: "Loading…",
+    empty: "No missions yet.",
+    noGoal: "(no goal recorded)",
+    members: "members",
+    live: "live",
+    replaying: "Replayed from the log",
+  },
+
+  artifacts: {
+    title: "Files produced",
+    none: "This mission produced no files.",
+    close: "Close",
   },
 
   teams: {

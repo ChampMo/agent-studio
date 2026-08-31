@@ -153,6 +153,8 @@ export const api = {
     team_id: string;
     content: string;
     budget?: Record<string, number>;
+    /** Stop after planning and wait for the user before any of it is paid for. */
+    require_approval?: boolean;
   }) =>
     request<{ missionId: string; sinceSeq: number }>("/missions", {
       method: "POST",
@@ -167,6 +169,37 @@ export const api = {
   getMission: (id: string) => request<Record<string, unknown>>(`/missions/${id}`),
 
   listTools: () => request<{ tools: unknown[] }>("/tools"),
+
+  // ---- waiting on a person (§12 M6) --------------------------------------
+
+  /** What is waiting for an answer, across every mission.
+   *
+   *  Asked for on startup, not only when an event arrives: the question may
+   *  have been published in a session that has since been closed, and a client
+   *  that only listened would leave that mission stranded. */
+  pendingRequests: () =>
+    request<{ requests: PendingRequest[] }>("/requests/pending"),
+
+  resolveRequest: (requestId: string, answer: string) =>
+    request<{ missionId: string; resumed: boolean }>(
+      `/requests/${requestId}/resolve`,
+      { method: "POST", body: JSON.stringify({ answer }) },
+    ),
+
+  // ---- history and artifacts ---------------------------------------------
+
+  listMissions: (limit = 50) =>
+    request<{ missions: MissionSummary[] }>(`/missions?limit=${limit}`),
+
+  /** The replay source: the append-only log, exactly as it was written. */
+  missionEvents: (missionId: string) =>
+    request<{ events: unknown[] }>(`/missions/${missionId}/events`),
+
+  missionArtifacts: (missionId: string) =>
+    request<{ artifacts: Artifact[] }>(`/missions/${missionId}/artifacts`),
+
+  readArtifact: (artifactId: string) =>
+    request<Artifact & { text: string }>(`/artifacts/${artifactId}`),
 
   // ---- roster ----------------------------------------------------------
 
@@ -229,6 +262,45 @@ export const api = {
       { method: "POST", body: JSON.stringify(document) },
     ),
 };
+
+// ---- waiting, history and artifact types --------------------------------
+
+export interface PendingRequest {
+  missionId: string;
+  requestId: string;
+  goal: string;
+  askedAt: string;
+  question?: string;
+  kind?: "question" | "approval";
+  options?: string[] | null;
+  agentId?: string | null;
+}
+
+export interface MissionSummary {
+  id: string;
+  kind: string;
+  goal: string;
+  status: string;
+  endReason: string | null;
+  startedAt: string;
+  endedAt: string | null;
+  pendingRequest: string | null;
+  memberCount: number;
+  /** Whether *this* backend process is running it. A mission from a previous
+   *  launch is history even if its row still looks recent. */
+  running: boolean;
+}
+
+export interface Artifact {
+  id: string;
+  missionId: string;
+  agentId: string | null;
+  title: string;
+  path: string;
+  kind: string;
+  bytes: number;
+  createdAt: string;
+}
 
 // ---- roster types -------------------------------------------------------
 

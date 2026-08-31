@@ -36,6 +36,8 @@ class MissionIn(BaseModel):
     system: str | None = None
     #: mission only
     team_id: str | None = None
+    #: Pause after planning and wait for the user before any work is paid for.
+    require_approval: bool = False
     content: str = Field(min_length=1)
     budget: BudgetIn | None = None
 
@@ -52,7 +54,10 @@ async def start_mission(request: Request, body: MissionIn) -> dict[str, Any]:
             )
         try:
             mission_id = await runner.start_mission(
-                team_id=body.team_id, goal=body.content, budget=budget
+                team_id=body.team_id,
+                goal=body.content,
+                budget=budget,
+                require_approval=body.require_approval,
             )
         except MissionRejected as exc:
             # 409, not 400: the request is well-formed, the team is not ready.

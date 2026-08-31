@@ -1,6 +1,6 @@
 """SQLAlchemy models.
 
-`artifacts` arrives with M6 — but `missions` already carries the columns
+All tables the app uses live here — but `missions` already carries the columns
 those milestones depend on (`kind`, `roster_snapshot`, `end_reason`), because by
 then the table holds real rows and adding them is a data migration rather than a
 schema edit (PROJECT_BRIEF.md §5.1).
@@ -46,6 +46,10 @@ class Mission(Base):
     #: While a mission runs, nothing may read `agents` or `team_members` — only
     #: this. Otherwise an edit mid-flight makes the timeline lie (§5.1).
     roster_snapshot: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+
+    #: The question this mission is blocked on, if any. Lets an answer be
+    #: routed without replaying the event log to find what was asked (§12 M6).
+    pending_request: Mapped[str | None] = mapped_column(String, nullable=True)
 
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -217,4 +221,32 @@ class TeamMember(Base):
             "role_in_team IN ('leader', 'member')", name="ck_team_members_role"
         ),
         CheckConstraint("seat_index >= 0", name="ck_team_members_seat_non_negative"),
+    )
+
+
+class Artifact(Base):
+    """Something a mission produced and the user can open (§5).
+
+    `path` is relative to the artifact root and never absolute. A viewer that
+    could be handed an absolute path would turn "see what the agent made" into
+    "read any file on this machine", on a process that holds the keychain.
+    """
+
+    __tablename__ = "artifacts"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    mission_id: Mapped[str] = mapped_column(
+        String, ForeignKey("missions.id", ondelete="RESTRICT"), nullable=False
+    )
+    agent_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    path: Mapped[str] = mapped_column(String, nullable=False)
+    title: Mapped[str] = mapped_column(String, nullable=False, default="")
+    bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("kind IN ('code', 'doc', 'image')", name="ck_artifacts_kind"),
+        UniqueConstraint("mission_id", "path", name="uq_artifacts_path"),
+        Index("ix_artifacts_mission", "mission_id"),
     )
