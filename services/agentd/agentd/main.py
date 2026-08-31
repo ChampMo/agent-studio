@@ -13,7 +13,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .agents.runner import MissionRunner
-from .api import chat, settings as settings_api, tools, ws
+from .api import agents, chat, settings as settings_api, tools, ws
 from .api.deps import require_token
 from .core.config import ALLOWED_ORIGINS, Settings, get_settings
 from .core.events import EventBus
@@ -67,6 +67,7 @@ def create_app(*, settings: Settings | None = None, db: Database | None = None) 
     async def health() -> dict[str, Any]:
         return {"ok": await app.state.db.healthcheck(), "version": app.version}
 
+    app.include_router(agents.router)
     app.include_router(settings_api.router)
     app.include_router(chat.router)
     app.include_router(tools.router)

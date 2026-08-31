@@ -12,8 +12,56 @@ export const strings = {
   },
   nav: {
     chat: "Chat",
+    roster: "Roster",
     timeline: "Timeline",
     settings: "Settings",
+  },
+
+  roster: {
+    title: "Roster",
+    create: "New agent",
+    empty: "No agents yet. Create one from a short prompt.",
+    showArchived: "Show archived",
+    archived: "Archived",
+    missions: "missions",
+    edit: "Edit prompt",
+    saveEdit: "Save",
+    duplicate: "Duplicate",
+    archive: "Archive",
+    restore: "Restore",
+  },
+
+  creator: {
+    title: "Create an agent",
+    intro:
+      "Describe the role and the model drafts a character. Nothing is saved until you review it and press Save.",
+    providerLabel: "Generate with",
+    roleLabel: "Role",
+    roleHint: "One line. What is this agent for?",
+    rolePlaceholder: "research analyst who checks sources",
+    briefLabel: "Notes (optional)",
+    briefPlaceholder: "Anything else that should shape the character.",
+    generate: "Generate profile",
+    generating: "Generating…",
+    corrected: (attempts: number) =>
+      `The model needed ${attempts} attempts. What was corrected:`,
+    reviewTitle: "Review",
+    reviewBadge: "nothing is saved until you press Save",
+    nameLabel: "Name",
+    titleLabel: "Title",
+    roleFieldLabel: "Role",
+    traitsLabel: "Personality traits",
+    traitsHint: "Comma separated.",
+    backstoryLabel: "Backstory",
+    systemPromptLabel: "System prompt",
+    systemPromptHint: "This is what the agent will actually run under.",
+    avatarLabel: "Avatar",
+    avatarHint:
+      "Assembled from assets that exist — the scene draws from this same list.",
+    samplingIgnored:
+      "This model rejects sampling parameters, so any temperature set here would be dropped.",
+    save: "Save to roster",
+    cancel: "Cancel",
   },
   onboarding: {
     title: "Connect a model provider",

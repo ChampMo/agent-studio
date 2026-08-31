@@ -155,4 +155,94 @@ export const api = {
   getMission: (id: string) => request<Record<string, unknown>>(`/missions/${id}`),
 
   listTools: () => request<{ tools: unknown[] }>("/tools"),
+
+  // ---- roster ----------------------------------------------------------
+
+  avatarAssets: () => request<{ slots: Record<string, string[]> }>("/avatar-assets"),
+
+  listAgents: (includeArchived = false) =>
+    request<{ agents: Agent[] }>(`/agents?include_archived=${includeArchived}`),
+
+  createAgent: (body: AgentInput) =>
+    request<Agent>("/agents", { method: "POST", body: JSON.stringify(body) }),
+
+  updateAgent: (id: string, body: Partial<AgentInput>) =>
+    request<Agent>(`/agents/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+
+  duplicateAgent: (id: string) =>
+    request<Agent>(`/agents/${id}/duplicate`, { method: "POST" }),
+
+  /** Archive, not delete: teams and finished missions still point at the row. */
+  archiveAgent: (id: string) => request<Agent>(`/agents/${id}`, { method: "DELETE" }),
+
+  restoreAgent: (id: string) =>
+    request<Agent>(`/agents/${id}/restore`, { method: "POST" }),
+
+  /** Drafts a profile and returns it. Saves nothing: the user edits first. */
+  generateAgent: (body: { provider_id: string; role: string; brief?: string }) =>
+    request<GenerateResult>("/agents/generate", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 };
+
+// ---- roster types -------------------------------------------------------
+
+export type AvatarConfig = Record<string, string>;
+
+export interface GeneratedProfile {
+  name: string;
+  title: string;
+  role: string;
+  backstory: string;
+  personality_traits: string[];
+  system_prompt: string;
+  avatar_config: AvatarConfig;
+}
+
+export interface GenerateResult {
+  profile: GeneratedProfile;
+  attempts: number;
+  /** Problems the generator corrected on the way. Shown, not hidden: a profile
+   *  that took three tries says something about the model the user picked. */
+  recoveredFrom: string[];
+  usage: { inputTokens: number; outputTokens: number; costUsd?: number };
+}
+
+export interface AgentInput {
+  name: string;
+  title?: string;
+  role?: string;
+  backstory?: string;
+  personality_traits?: string[];
+  system_prompt?: string;
+  provider_id?: string | null;
+  model?: string | null;
+  sampling?: Record<string, unknown> | null;
+  tools?: string[];
+  avatar_config?: AvatarConfig;
+}
+
+export interface Agent {
+  id: string;
+  name: string;
+  title: string;
+  role: string;
+  backstory: string;
+  personalityTraits: string[];
+  systemPrompt: string;
+  providerId: string | null;
+  model: string | null;
+  sampling: Record<string, unknown> | null;
+  tools: string[];
+  avatarConfig: AvatarConfig;
+  totalMissions: number;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  /** Derived from exp by the backend; there is no level column (§5). */
+  level: number;
+  exp: number;
+  into_level: number;
+  level_span: number;
+}

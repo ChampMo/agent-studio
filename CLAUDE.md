@@ -54,7 +54,33 @@ decoder with the §8 forward-compat tests, resuming socket client, Zustand store
 onboarding gate, chat with a stop button, raw timeline. 70 pytest + 13 vitest green;
 `npm run dev` brings up both processes and the onboarding screen renders.
 
-**M1.5 — Tauri shell + secret hygiene: in progress.** `src-tauri/` builds the window in
+**M1 — complete.** All thirteen criteria verified, the last one (the Tauri window showing
+the same UI) confirmed by screenshot: chat streams, usage reads `84 in · 23 out`, probe
+shows 4/4 with `structured: json_object`.
+
+**M2 — agents: backend and UI done, generation awaiting a live run.** `agents` table,
+CRUD with soft delete and duplicate, derived level, the closed avatar catalogue, and
+`profile_gen` with validate-and-retry. 156 pytest green. Roster cards, the creator flow
+and the avatar picker verified in the running app; the Generate button itself has not
+been fired against the real endpoint yet.
+
+### The avatar catalogue is closed, and that is the point
+
+§11 says an avatar is chosen from assets that exist. `agents/avatar.py` is the single
+list: the prompt shows it to the model, `GeneratedProfile` rejects anything outside it,
+`AgentService` re-checks on create *and* on edit — because the generator is not the only
+door into the table — and the picker fetches the same list rather than keeping a copy. A
+model that invents `hair: "silver_mane"` gets a correction naming the legal values; a
+picker with its own hardcoded list would drift and only fail in M5 when a sprite did not
+load.
+
+### What the model is not allowed to decide
+
+`GeneratedProfile` omits `provider_id`, `model`, `tools`, `exp` and `total_missions`, and
+a test asserts it. The model has no idea which endpoints this machine has configured, the
+tool registry is still empty so any tool it named would be fiction, and exp is earned.
+
+### M1.5 — Tauri shell + secret hygiene `src-tauri/` builds the window in
 `setup()` rather than declaring it in the config, because the handshake has to go in as
 an `initialization_script` — it must run before any page script, and `eval` after load
 would be a race the frontend would have to code around.
