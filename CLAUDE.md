@@ -57,6 +57,31 @@ onboarding gate, chat with a stop button, raw timeline. 70 pytest + 13 vitest gr
 Next: enter a provider key in the running app to finish M1's manual criteria, then M1.5
 (Tauri shell + the secret-hygiene test).
 
+### Redaction matched substrings and ate the token counts
+
+`inputTokens` contains "token". The secret-key regex was a substring match, so the
+bus wrote `{"inputTokens": "[redacted]", "outputTokens": "[redacted]"}` into the table
+— destroying the exact numbers the cost and MP features are built on (§6.2), in a table
+that cannot be corrected. One row in the local database still carries it.
+
+`is_secret_key()` now splits camelCase and snake_case and matches whole words, with two
+deliberate asymmetries, both documented in the code: plural `tokens` is a count and is
+never secret (while plural `credentials` is), and any key containing a counting word
+(`count`, `used`, `limit`, `total`, `remaining`, …) is a measurement regardless. Over-
+redaction is the more expensive direction of error here, because it is irreversible.
+
+Invisible until a real message went through the UI: no test sent `usage` through the
+bus, and `tests/test_events.py` only ever checked that secrets *were* removed.
+
+### SQLite has no timezone, so replay disagreed with live
+
+`DateTime(timezone=True)` writes a naive string on SQLite and reads one back. Live
+events carried `+00:00`; replayed ones carried no offset, so the browser read them as
+local time. The same seven events showed up split across a seven-hour gap in the
+timeline depending on which path delivered them — exactly the failure §1 rules out.
+
+`_wire()` labels a naive timestamp as UTC, which is what the bus wrote.
+
 ### A capability probe must have three outcomes, not two
 
 The structured-output check ran with `max_tokens=128`. DeepSeek spent 137 tokens

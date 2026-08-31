@@ -41,11 +41,67 @@ TRUNCATABLE: dict[str, str] = {
 }
 
 #: Key names whose values never belong in an append-only table.
-_SECRET_KEY_RE = re.compile(
-    r"(api[-_]?key|secret|passwd|password|token|authorization|bearer|credential)",
-    re.IGNORECASE,
+#:
+#: Matched as whole words, never as substrings. A substring match on "token"
+#: also matches `inputTokens`, `outputTokens` and `max_tokens`, and it wrote
+#: `{"inputTokens": "[redacted]"}` into the table — destroying, permanently, the
+#: exact numbers the cost and budget features are built on.
+#:
+#: Note the asymmetry: "credential**s**" is here, "token**s**" is not. Plural
+#: `tokens` is overwhelmingly a count, plural `credentials` never is. Guessing
+#: wrong in this direction loses data that cannot be recovered, so the plural
+#: count form is deliberately treated as safe.
+_SECRET_WORDS = frozenset(
+    {
+        "auth",
+        "authorization",
+        "bearer",
+        "credential",
+        "credentials",
+        "passwd",
+        "password",
+        "secret",
+        "token",
+    }
 )
+#: Words that make a key a quantity, and a quantity is never a credential.
+#: `token_count` and `tokensUsed` are measurements; `access_token` is not.
+#: Over-redaction is the more expensive mistake here, because the table cannot
+#: be corrected afterwards.
+_COUNT_WORDS = frozenset(
+    {
+        "count",
+        "counts",
+        "len",
+        "length",
+        "limit",
+        "max",
+        "min",
+        "num",
+        "remaining",
+        "size",
+        "total",
+        "totals",
+        "usage",
+        "used",
+    }
+)
+_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+_NON_ALNUM = re.compile(r"[^a-z0-9]")
 _REDACTED = "[redacted]"
+
+
+def is_secret_key(key: object) -> bool:
+    """Whether a payload key names a credential rather than data."""
+    spaced = _CAMEL_BOUNDARY.sub(" ", str(key))
+    words = {w for w in re.split(r"[\s_\-.]+", spaced.lower()) if w}
+    if words & _COUNT_WORDS:
+        return False
+    if words & _SECRET_WORDS:
+        return True
+    # `apiKey`, `api_key` and `x-api-key` all squash to contain "apikey", while
+    # neither "api" nor "key" is secret enough to match on its own.
+    return "apikey" in _NON_ALNUM.sub("", spaced.lower())
 
 #: A slow client is disconnected rather than allowed to grow an unbounded queue.
 #: It reconnects with `since_seq` and loses nothing (§7.2).
@@ -60,8 +116,7 @@ def redact(value: Any) -> Any:
     """Mask secret-looking values anywhere in a payload, at any depth."""
     if isinstance(value, dict):
         return {
-            k: (_REDACTED if _SECRET_KEY_RE.search(str(k)) else redact(v))
-            for k, v in value.items()
+            k: (_REDACTED if is_secret_key(k) else redact(v)) for k, v in value.items()
         }
     if isinstance(value, list):
         return [redact(v) for v in value]
@@ -282,6 +337,22 @@ class EventBus:
 
     @staticmethod
     def _wire(envelope: dict[str, Any]) -> dict[str, Any]:
-        """JSON-safe copy for the socket. `ts` becomes ISO-8601."""
+        """JSON-safe copy for the socket. `ts` becomes ISO-8601, always with an
+        offset.
+
+        SQLite has no timezone type: `DateTime(timezone=True)` writes a naive
+        string and reads one back, so a replayed event arrived without an offset
+        while a live one carried `+00:00`. The browser then read the replayed
+        one as local time, and the same event showed up seven hours apart
+        depending on which path it came down. That is precisely the failure §1
+        rules out — a replay that disagrees with what happened.
+
+        The bus writes UTC, so a naive value read back is UTC and is labelled as
+        such here.
+        """
         ts = envelope["ts"]
-        return {**envelope, "ts": ts.isoformat() if isinstance(ts, datetime) else ts}
+        if isinstance(ts, datetime):
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=UTC)
+            return {**envelope, "ts": ts.isoformat()}
+        return {**envelope, "ts": ts}
