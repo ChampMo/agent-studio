@@ -1,0 +1,355 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-studio.local/events.schema.json",
+  "title": "AgentStudioEvents",
+  "description": "THE central contract (PROJECT_BRIEF.md §2.2). TypeScript types and Pydantic models are BOTH generated from this file — never hand-write either side.\n\nThree shapes live here:\n  * EventDraft    — what agents/runtime.py yields. NO seq/ts/id: those belong to the bus alone (§2.3, §4.1).\n  * EventEnvelope — what the bus persists and broadcasts. Maps 1:1 onto the mission_events table.\n  * EphemeralFrame — the delta channel. NOT persisted, NO seq, never enters the bus (§7.1).\n\nForward compatibility (§8): additive changes ONLY — new optional fields, new event types, new enum values. Never remove, never repurpose. `additionalProperties` is deliberately left open so a v(N) producer's extra fields do not break a v(N-1) consumer.",
+
+  "$defs": {
+    "Usage": {
+      "title": "Usage",
+      "description": "Token accounting for one LLM call. cacheRead and cacheWrite are billed at different rates in different directions, so they can never be collapsed into one field (§6.2).",
+      "type": "object",
+      "properties": {
+        "inputTokens": { "type": "integer", "minimum": 0, "description": "Input tokens NOT served from cache." },
+        "outputTokens": { "type": "integer", "minimum": 0 },
+        "cacheReadTokens": { "type": "integer", "minimum": 0, "description": "Served from cache — cheaper than input." },
+        "cacheWriteTokens": { "type": "integer", "minimum": 0, "description": "Written to cache — more expensive than input." },
+        "costUsd": { "type": "number", "minimum": 0, "description": "Optional. Leave unset when the model has no entry in pricing.json — never guess." }
+      },
+      "required": ["inputTokens", "outputTokens"]
+    },
+
+    "Recipient": {
+      "title": "Recipient",
+      "description": "An object, not a magic string, so an agent id can never collide with the literal \"user\" (§6.2).",
+      "oneOf": [
+        {
+          "title": "RecipientAgent",
+          "type": "object",
+          "properties": { "kind": { "const": "agent" }, "id": { "type": "string" } },
+          "required": ["kind", "id"]
+        },
+        {
+          "title": "RecipientUser",
+          "type": "object",
+          "properties": { "kind": { "const": "user" } },
+          "required": ["kind"]
+        },
+        {
+          "title": "RecipientBroadcast",
+          "type": "object",
+          "properties": { "kind": { "const": "broadcast" } },
+          "required": ["kind"]
+        }
+      ]
+    },
+
+    "ToolError": {
+      "title": "ToolError",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "description": "Stable machine-readable class, e.g. \"timeout\", \"not_found\", \"provider_400\"." },
+        "message": { "type": "string" }
+      },
+      "required": ["code", "message"]
+    },
+
+    "PayloadMissionStarted": {
+      "title": "PayloadMissionStarted",
+      "type": "object",
+      "properties": {
+        "kind": { "enum": ["chat", "mission"] },
+        "teamId": { "type": "string", "description": "Absent when kind is \"chat\" (degenerate mission)." },
+        "goal": { "type": "string" }
+      },
+      "required": ["kind", "goal"]
+    },
+
+    "PayloadMissionProgress": {
+      "title": "PayloadMissionProgress",
+      "description": "Counters, not a percentage — no honest percentage exists for an agent workflow (§15 row 7).",
+      "type": "object",
+      "properties": {
+        "taskId": { "type": "string" },
+        "label": { "type": "string" },
+        "state": { "enum": ["pending", "running", "done", "failed"] },
+        "done": { "type": "integer", "minimum": 0 },
+        "total": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["taskId", "label", "state", "done", "total"]
+    },
+
+    "PayloadMissionEnded": {
+      "title": "PayloadMissionEnded",
+      "type": "object",
+      "properties": {
+        "reason": { "enum": ["completed", "failed", "budget_exceeded", "cancelled", "crashed"] },
+        "summary": { "type": "string" }
+      },
+      "required": ["reason", "summary"]
+    },
+
+    "PayloadAgentStatus": {
+      "title": "PayloadAgentStatus",
+      "type": "object",
+      "properties": {
+        "agentId": { "type": "string" },
+        "status": {
+          "enum": ["idle", "thinking", "working", "waiting", "blocked"],
+          "description": "The scene MUST fall back to a default pose on an unrecognised value (§8)."
+        }
+      },
+      "required": ["agentId", "status"]
+    },
+
+    "PayloadAgentThought": {
+      "title": "PayloadAgentThought",
+      "description": "The agent's OWN scratchpad from the ReAct loop — not the model's hidden chain of thought, which most providers do not return (§6.2).",
+      "type": "object",
+      "properties": {
+        "agentId": { "type": "string" },
+        "text": { "type": "string" }
+      },
+      "required": ["agentId", "text"]
+    },
+
+    "PayloadAgentMessage": {
+      "title": "PayloadAgentMessage",
+      "type": "object",
+      "properties": {
+        "agentId": { "type": "string" },
+        "messageId": { "type": "string", "description": "Ties this message back to its ephemeral deltas." },
+        "to": { "$ref": "#/$defs/Recipient" },
+        "content": { "type": "string" },
+        "usage": { "$ref": "#/$defs/Usage" }
+      },
+      "required": ["agentId", "messageId", "to", "content"]
+    },
+
+    "PayloadAgentToolStart": {
+      "title": "PayloadAgentToolStart",
+      "type": "object",
+      "properties": {
+        "agentId": { "type": "string" },
+        "callId": { "type": "string" },
+        "tool": { "type": "string" },
+        "input": { "description": "Arbitrary JSON. Redacted and truncated to 8KB by the bus before it ever reaches this field (§9.3)." },
+        "truncated": { "type": "boolean" }
+      },
+      "required": ["agentId", "callId", "tool", "input"]
+    },
+
+    "PayloadAgentToolEnd": {
+      "title": "PayloadAgentToolEnd",
+      "type": "object",
+      "properties": {
+        "agentId": { "type": "string" },
+        "callId": { "type": "string" },
+        "ok": { "type": "boolean" },
+        "summary": { "type": "string" },
+        "durationMs": { "type": "integer", "minimum": 0 },
+        "error": { "$ref": "#/$defs/ToolError" },
+        "usage": { "$ref": "#/$defs/Usage" },
+        "truncated": { "type": "boolean" }
+      },
+      "required": ["agentId", "callId", "ok", "summary", "durationMs"]
+    },
+
+    "PayloadUserMessage": {
+      "title": "PayloadUserMessage",
+      "description": "The human's own turn. Without this the replay shows agents reacting to nothing.",
+      "type": "object",
+      "properties": { "content": { "type": "string" } },
+      "required": ["content"]
+    },
+
+    "PayloadAgentRequest": {
+      "title": "PayloadAgentRequest",
+      "type": "object",
+      "properties": {
+        "agentId": { "type": "string" },
+        "requestId": { "type": "string" },
+        "kind": { "enum": ["question", "approval"], "description": "Approval is a kind of request, not a separate event family (§6.2)." },
+        "question": { "type": "string" },
+        "options": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["agentId", "requestId", "kind", "question"]
+    },
+
+    "PayloadAgentRequestResolved": {
+      "title": "PayloadAgentRequestResolved",
+      "type": "object",
+      "properties": {
+        "requestId": { "type": "string" },
+        "answer": { "type": "string" },
+        "resolvedBy": { "enum": ["user", "timeout", "cancelled"] }
+      },
+      "required": ["requestId", "answer", "resolvedBy"]
+    },
+
+    "PayloadArtifactCreated": {
+      "title": "PayloadArtifactCreated",
+      "type": "object",
+      "properties": {
+        "agentId": { "type": "string" },
+        "artifactId": { "type": "string", "description": "Links this event to the artifacts table row." },
+        "path": { "type": "string", "description": "Sandbox-relative. Never an absolute host path." },
+        "kind": { "enum": ["code", "doc", "image"] }
+      },
+      "required": ["agentId", "artifactId", "path", "kind"]
+    },
+
+    "PayloadBudgetWarning": {
+      "title": "PayloadBudgetWarning",
+      "description": "Fired once per kind per mission at 80% (§10.1).",
+      "type": "object",
+      "properties": {
+        "kind": { "enum": ["tokens", "llm_calls", "supersteps", "time"] },
+        "used": { "type": "number", "minimum": 0 },
+        "limit": { "type": "number", "minimum": 0 }
+      },
+      "required": ["kind", "used", "limit"]
+    },
+
+    "PayloadError": {
+      "title": "PayloadError",
+      "type": "object",
+      "properties": {
+        "agentId": { "type": "string" },
+        "code": { "type": "string", "description": "Stable machine-readable class so the UI can react, e.g. \"sampling_dropped\", \"provider_auth\", \"provider_rate_limit\"." },
+        "message": { "type": "string" },
+        "recoverable": { "type": "boolean" }
+      },
+      "required": ["code", "message", "recoverable"]
+    },
+
+    "DraftMissionStarted": {
+      "title": "DraftMissionStarted", "type": "object",
+      "properties": { "type": { "const": "mission.started" }, "payload": { "$ref": "#/$defs/PayloadMissionStarted" } },
+      "required": ["type", "payload"]
+    },
+    "DraftMissionProgress": {
+      "title": "DraftMissionProgress", "type": "object",
+      "properties": { "type": { "const": "mission.progress" }, "payload": { "$ref": "#/$defs/PayloadMissionProgress" } },
+      "required": ["type", "payload"]
+    },
+    "DraftMissionEnded": {
+      "title": "DraftMissionEnded", "type": "object",
+      "properties": { "type": { "const": "mission.ended" }, "payload": { "$ref": "#/$defs/PayloadMissionEnded" } },
+      "required": ["type", "payload"]
+    },
+    "DraftAgentStatus": {
+      "title": "DraftAgentStatus", "type": "object",
+      "properties": { "type": { "const": "agent.status" }, "payload": { "$ref": "#/$defs/PayloadAgentStatus" } },
+      "required": ["type", "payload"]
+    },
+    "DraftAgentThought": {
+      "title": "DraftAgentThought", "type": "object",
+      "properties": { "type": { "const": "agent.thought" }, "payload": { "$ref": "#/$defs/PayloadAgentThought" } },
+      "required": ["type", "payload"]
+    },
+    "DraftAgentMessage": {
+      "title": "DraftAgentMessage", "type": "object",
+      "properties": { "type": { "const": "agent.message" }, "payload": { "$ref": "#/$defs/PayloadAgentMessage" } },
+      "required": ["type", "payload"]
+    },
+    "DraftAgentToolStart": {
+      "title": "DraftAgentToolStart", "type": "object",
+      "properties": { "type": { "const": "agent.tool.start" }, "payload": { "$ref": "#/$defs/PayloadAgentToolStart" } },
+      "required": ["type", "payload"]
+    },
+    "DraftAgentToolEnd": {
+      "title": "DraftAgentToolEnd", "type": "object",
+      "properties": { "type": { "const": "agent.tool.end" }, "payload": { "$ref": "#/$defs/PayloadAgentToolEnd" } },
+      "required": ["type", "payload"]
+    },
+    "DraftUserMessage": {
+      "title": "DraftUserMessage", "type": "object",
+      "properties": { "type": { "const": "user.message" }, "payload": { "$ref": "#/$defs/PayloadUserMessage" } },
+      "required": ["type", "payload"]
+    },
+    "DraftAgentRequest": {
+      "title": "DraftAgentRequest", "type": "object",
+      "properties": { "type": { "const": "agent.request" }, "payload": { "$ref": "#/$defs/PayloadAgentRequest" } },
+      "required": ["type", "payload"]
+    },
+    "DraftAgentRequestResolved": {
+      "title": "DraftAgentRequestResolved", "type": "object",
+      "properties": { "type": { "const": "agent.request.resolved" }, "payload": { "$ref": "#/$defs/PayloadAgentRequestResolved" } },
+      "required": ["type", "payload"]
+    },
+    "DraftArtifactCreated": {
+      "title": "DraftArtifactCreated", "type": "object",
+      "properties": { "type": { "const": "artifact.created" }, "payload": { "$ref": "#/$defs/PayloadArtifactCreated" } },
+      "required": ["type", "payload"]
+    },
+    "DraftBudgetWarning": {
+      "title": "DraftBudgetWarning", "type": "object",
+      "properties": { "type": { "const": "budget.warning" }, "payload": { "$ref": "#/$defs/PayloadBudgetWarning" } },
+      "required": ["type", "payload"]
+    },
+    "DraftError": {
+      "title": "DraftError", "type": "object",
+      "properties": { "type": { "const": "error" }, "payload": { "$ref": "#/$defs/PayloadError" } },
+      "required": ["type", "payload"]
+    },
+
+    "EventDraft": {
+      "title": "EventDraft",
+      "description": "What runtime.py yields. The caller — never the runtime — hands this to the bus (§4.1).",
+      "discriminator": { "propertyName": "type" },
+      "oneOf": [
+        { "$ref": "#/$defs/DraftMissionStarted" },
+        { "$ref": "#/$defs/DraftMissionProgress" },
+        { "$ref": "#/$defs/DraftMissionEnded" },
+        { "$ref": "#/$defs/DraftAgentStatus" },
+        { "$ref": "#/$defs/DraftAgentThought" },
+        { "$ref": "#/$defs/DraftAgentMessage" },
+        { "$ref": "#/$defs/DraftAgentToolStart" },
+        { "$ref": "#/$defs/DraftAgentToolEnd" },
+        { "$ref": "#/$defs/DraftUserMessage" },
+        { "$ref": "#/$defs/DraftAgentRequest" },
+        { "$ref": "#/$defs/DraftAgentRequestResolved" },
+        { "$ref": "#/$defs/DraftArtifactCreated" },
+        { "$ref": "#/$defs/DraftBudgetWarning" },
+        { "$ref": "#/$defs/DraftError" }
+      ]
+    },
+
+    "EventEnvelope": {
+      "title": "EventEnvelope",
+      "description": "What the bus persists then broadcasts, in that order (\u00a77.2). Maps 1:1 onto mission_events: the meta fields are columns, draft.type is the `type` column, draft.payload is the `payload` column.\n\nThe draft is nested rather than flattened on purpose. It makes the \u00a74.1 rule structural instead of conventional \u2014 an envelope is exactly the draft the runtime yielded, untouched, plus the five fields only the bus may assign. It is also the only shape both code generators render correctly: flattening via allOf makes datamodel-codegen overwrite the `type` const with the class name, which silently breaks the discriminator.",
+      "type": "object",
+      "properties": {
+        "v": { "type": "integer", "minimum": 1, "description": "Schema version. Present since the very first event \u2014 the table is append-only forever." },
+        "id": { "type": "string", "description": "UUID. Clients dedupe on this when resuming (\u00a77.2)." },
+        "missionId": { "type": "string" },
+        "seq": { "type": "integer", "minimum": 1, "description": "Gapless per mission. Assigned by the bus alone (\u00a72.3)." },
+        "ts": { "type": "string", "format": "date-time", "description": "Stamped by the bus, never by the producer \u2014 clocks differ across processes (\u00a72.3)." },
+        "draft": { "$ref": "#/$defs/EventDraft" }
+      },
+      "required": ["v", "id", "missionId", "seq", "ts", "draft"]
+    },
+
+    "EphemeralFrame": {
+      "title": "EphemeralFrame",
+      "description": "The delta channel (§7.1). Never persisted, never given a seq, never routed through the bus — if a delta consumed a seq, a resuming client would see a gap and believe it had missed an event.",
+      "type": "object",
+      "properties": {
+        "channel": { "const": "ephemeral" },
+        "type": { "const": "agent.message.delta" },
+        "missionId": { "type": "string" },
+        "agentId": { "type": "string" },
+        "messageId": { "type": "string", "description": "Matches the messageId of the agent.message that will follow." },
+        "index": { "type": "integer", "minimum": 0, "description": "Monotonic within one messageId. Not a seq." },
+        "text": { "type": "string" }
+      },
+      "required": ["channel", "type", "missionId", "agentId", "messageId", "index", "text"]
+    }
+  },
+
+  "oneOf": [
+    { "$ref": "#/$defs/EventEnvelope" },
+    { "$ref": "#/$defs/EphemeralFrame" }
+  ]
+}

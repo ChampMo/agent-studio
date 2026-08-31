@@ -1,0 +1,24 @@
+{
+  "name": "agent-studio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/desktop",
+    "packages/shared"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "codegen": "node packages/shared/codegen/generate.mjs && uv run --project services/agentd python packages/shared/codegen/generate.py",
+    "codegen:check": "node packages/shared/codegen/generate.mjs --check && uv run --project services/agentd python packages/shared/codegen/generate.py --check",
+    "test:py": "uv run --project services/agentd pytest services/agentd",
+    "test:web": "npm --workspace apps/desktop run test",
+    "test": "npm run codegen:check && npm run test:py && npm run test:web"
+  },
+  "devDependencies": {
+    "json-schema-to-typescript": "^15.0.4"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
