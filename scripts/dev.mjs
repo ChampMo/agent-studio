@@ -161,8 +161,14 @@ function start() {
   );
   // The token goes in on stdin and nowhere else: argv is world-readable in the
   // process list, and an env var would be inherited by every child.
+  //
+  // The pipe is then deliberately left open. The backend reads the end of its
+  // stdin as "my parent is gone" and shuts down — the only signal that survives
+  // a forced kill on Windows, where no handler in this process gets to run
+  // (see `watch_parent` in agentd/__main__.py). Calling `end()` here closed it
+  // a millisecond after the token went in, and the backend stopped itself
+  // before the first request could arrive.
   child.stdin.write(token + "\n");
-  child.stdin.end();
   child.on("exit", (code) => {
     if (restarting || cleaningUp) return;
     if (code !== 0 && code !== null) console.error(`\n[dev] backend exited (${code})`);

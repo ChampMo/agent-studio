@@ -319,6 +319,15 @@ forced kill — which matters most on Windows, where a terminated process runs n
 handler of its own. `scripts/build-sidecar.mjs` now also names the lock instead
 of printing an `EBUSY` stack trace.
 
+That makes an open pipe part of the contract, and `scripts/dev.mjs` was breaking
+it: it called `child.stdin.end()` immediately after writing the token, so the
+backend read EOF and stopped itself before the first request. It survived by
+accident when launched from an interactive shell and died when launched without
+one, which is exactly the shape of bug that gets blamed on the harness. **A
+parent must hold the pipe open for as long as it wants the backend alive** —
+Tauri does, and dev.mjs does now. The reward is that dev gets the same
+guarantee: kill the launcher however you like, and the backend goes with it.
+
 ### Two things that looked like bugs and were not
 
 A probe of the frozen backend returned 401 for the token it had just handed
