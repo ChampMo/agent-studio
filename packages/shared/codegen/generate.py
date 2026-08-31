@@ -96,7 +96,10 @@ def main() -> int:
         return 0
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(generated, encoding="utf-8")
+    # newline="" so Windows does not translate \n to \r\n: .gitattributes pins
+    # this file to LF, and a CRLF working copy shows up as permanently dirty.
+    with OUT.open("w", encoding="utf-8", newline="") as fh:
+        fh.write(generated)
     print(f"wrote {OUT}")
     return 0
 
