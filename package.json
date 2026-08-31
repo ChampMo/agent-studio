@@ -13,9 +13,14 @@
     "codegen:check": "node packages/shared/codegen/generate.mjs --check && uv run --project services/agentd python packages/shared/codegen/generate.py --check",
     "test:py": "uv run --project services/agentd pytest services/agentd",
     "test:web": "npm --workspace apps/desktop run test",
-    "test": "npm run codegen:check && npm run test:py && npm run test:web"
+    "test": "npm run codegen:check && npm run test:py && npm run test:web && npm run test:rs",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "test:rs": "cargo test --manifest-path src-tauri/Cargo.toml --lib"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.1.0",
     "json-schema-to-typescript": "^15.0.4"
   },
   "engines": {

@@ -24,6 +24,11 @@ dist/
 # --- rust / tauri ---
 target/
 src-tauri/target/
+src-tauri/gen/
+# NOTE: src-tauri/icons/* is committed on purpose. tauri-build requires
+# icon.ico on Windows and icon.icns on macOS at compile time, so ignoring
+# them would make a fresh clone fail to build until someone re-ran
+# `npx tauri icon`.
 
 # --- os / editor ---
 .DS_Store

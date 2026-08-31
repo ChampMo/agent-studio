@@ -54,8 +54,34 @@ decoder with the §8 forward-compat tests, resuming socket client, Zustand store
 onboarding gate, chat with a stop button, raw timeline. 70 pytest + 13 vitest green;
 `npm run dev` brings up both processes and the onboarding screen renders.
 
-Next: enter a provider key in the running app to finish M1's manual criteria, then M1.5
-(Tauri shell + the secret-hygiene test).
+**M1.5 — Tauri shell + secret hygiene: in progress.** `src-tauri/` builds the window in
+`setup()` rather than declaring it in the config, because the handshake has to go in as
+an `initialization_script` — it must run before any page script, and `eval` after load
+would be a race the frontend would have to code around.
+
+Verified live in the app: chat streams token by token, the stop button ends a run with
+`reason: "cancelled"` and closes the upstream HTTPS connection, and every mission in the
+database has exactly one `mission.ended` matching its `end_reason`.
+
+### An unknown value is not the only thing the scene has to survive
+
+A cancelled run ends with the agent's last status still `thinking` — the runtime is
+closed before it can yield `idle`. The record is correct: the agent really was thinking
+when the user stopped it. So `scene/bindings` must treat `mission.ended` as the terminal
+reset signal rather than waiting for a final `agent.status`, or a replayed cancellation
+leaves a sprite stuck mid-thought forever.
+
+Deliberately not fixed by emitting a synthetic `agent.status idle` on cancel: that would
+be the runner inventing an event no agent produced, and §1 rules that out.
+
+### A test that walks routes has to descend into included routers
+
+`test_secret_hygiene.py` asserts no endpoint can return a key. FastAPI 0.141 does not
+flatten `include_router` into `app.routes` — each becomes a `_IncludedRouter` keeping its
+real routes on `original_router` — so the first version inspected `/health` alone and
+passed while checking nothing. It was the *positive* assertions ("the PUT door exists",
+"`GET /providers` was reached") that caught it. Any test that scans a collection needs
+one.
 
 ### Redaction matched substrings and ate the token counts
 

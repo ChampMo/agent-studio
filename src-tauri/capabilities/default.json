@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Everything the M1 shell is allowed to do. Deliberately almost nothing: the window renders the frontend and the frontend talks to the backend over HTTP, so no Tauri command surface is needed yet. Permissions get added when a feature needs one, never pre-emptively.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
