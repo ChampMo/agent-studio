@@ -49,7 +49,30 @@ table. 35 pytest green, no network in any of them.
 `MissionRunner`, provider/mission/tools REST, the event socket with `since_seq` resume,
 `POST /missions/{id}/cancel`. 55 pytest green.
 
-Next: M1.4 (frontend: onboarding, chat, timeline) — see the M1 plan.
+**M1.4 — frontend: done (pending a real key).** Vite + React + Tailwind v4, pure
+decoder with the §8 forward-compat tests, resuming socket client, Zustand stores,
+onboarding gate, chat with a stop button, raw timeline. 70 pytest + 13 vitest green;
+`npm run dev` brings up both processes and the onboarding screen renders.
+
+Next: enter a provider key in the running app to finish M1's manual criteria, then M1.5
+(Tauri shell + the secret-hygiene test).
+
+### CORS had to be added, and it is not the security boundary
+
+The frontend runs on another port in dev and another scheme under Tauri, so the browser
+blocked every REST call until `CORSMiddleware` landed. Worth being precise about what
+that changed: nothing about who may call the backend. A non-browser client ignores CORS
+entirely — the session token is what keeps callers out. CORS only decides whether a
+*page* may read a response it managed to provoke, so the origin list is explicit rather
+than `*`, and `tests/test_api_auth.py` pins that an allowed origin is still 401 without a
+token.
+
+### A zustand selector must not build a new object
+
+`useEventStore(selectTurns)` built a fresh array on every call, so the store saw a new
+snapshot each render and React hit "Maximum update depth exceeded" immediately. Derived
+views now subscribe to the raw slices and `useMemo` on top. Anything that maps or
+filters store state is the same trap.
 
 ### The WebSocket subscribes before it accepts
 

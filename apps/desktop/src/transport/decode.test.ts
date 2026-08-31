@@ -1,0 +1,184 @@
+/**
+ * M1 proof #6: the frontend degrades, it does not crash (PROJECT_BRIEF.md §8).
+ *
+ * §8 says this must be a test case rather than a comment, and §13 keeps
+ * component tests out until M4 — which is exactly why the rule lives in a pure
+ * function. These run with no DOM and no React.
+ *
+ * The scenario being defended against is not hypothetical: mission_events is
+ * append-only forever, so this build will eventually read rows written by a
+ * newer one.
+ */
+import { describe, expect, it } from "vitest";
+import {
+  AGENT_POSES,
+  DEFAULT_POSE,
+  KNOWN_EVENT_TYPES,
+  KNOWN_SCHEMA_VERSION,
+  decodeFrame,
+  describe as describeEvent,
+  poseFromEvent,
+  toEnum,
+  toPose,
+} from "./decode";
+
+function envelope(overrides: Record<string, unknown> = {}) {
+  return {
+    v: KNOWN_SCHEMA_VERSION,
+    id: "evt-1",
+    missionId: "m-1",
+    seq: 1,
+    ts: "2026-08-31T00:00:00Z",
+    draft: { type: "agent.thought", payload: { agentId: "a1", text: "hm" } },
+    ...overrides,
+  };
+}
+
+describe("the known-type list comes from the contract", () => {
+  it("is derived from the schema, not hand-maintained", () => {
+    // A copied list is a second source of truth and drifts the first time
+    // someone adds an event type (§2.2).
+    expect(KNOWN_EVENT_TYPES.has("agent.message")).toBe(true);
+    expect(KNOWN_EVENT_TYPES.has("mission.ended")).toBe(true);
+    expect(KNOWN_EVENT_TYPES.has("agent.request.resolved")).toBe(true);
+    expect(KNOWN_EVENT_TYPES.size).toBe(14);
+  });
+});
+
+describe("unknown event types", () => {
+  it("decode as valid but unknown, so the timeline can show a fallback row", () => {
+    const result = decodeFrame(
+      envelope({ draft: { type: "agent.teleported", payload: { to: "mars" } } }),
+    );
+    expect(result.kind).toBe("sequenced");
+    if (result.kind !== "sequenced") return;
+    expect(result.known).toBe(false);
+    // Crucially it is not dropped: something real happened and the record of it
+    // must survive even when this build cannot name it.
+    expect(result.event.seq).toBe(1);
+  });
+
+  it("still produce a readable line", () => {
+    const result = decodeFrame(
+      envelope({ draft: { type: "agent.teleported", payload: {} } }),
+    );
+    if (result.kind !== "sequenced") throw new Error("expected sequenced");
+    expect(describeEvent(result.event)).toBe("agent.teleported");
+  });
+});
+
+describe("unknown enum values", () => {
+  it("fall back to the default pose instead of throwing", () => {
+    expect(toPose("dancing")).toBe(DEFAULT_POSE);
+    expect(toPose(undefined)).toBe(DEFAULT_POSE);
+    expect(toPose(42)).toBe(DEFAULT_POSE);
+    for (const pose of AGENT_POSES) expect(toPose(pose)).toBe(pose);
+  });
+
+  it("fall back through poseFromEvent, which is what the scene will call", () => {
+    const result = decodeFrame(
+      envelope({
+        draft: { type: "agent.status", payload: { agentId: "a1", status: "vibing" } },
+      }),
+    );
+    if (result.kind !== "sequenced") throw new Error("expected sequenced");
+    expect(poseFromEvent(result.event)).toBe(DEFAULT_POSE);
+  });
+
+  it("fall back to a neutral value for any enum", () => {
+    const reasons = ["completed", "failed", "cancelled"] as const;
+    expect(toEnum("teleported", reasons, "failed")).toBe("failed");
+    expect(toEnum("completed", reasons, "failed")).toBe("completed");
+  });
+});
+
+describe("a newer schema version", () => {
+  it("is flagged but still rendered from its known fields", () => {
+    const result = decodeFrame(
+      envelope({
+        v: KNOWN_SCHEMA_VERSION + 5,
+        draft: {
+          type: "agent.message",
+          payload: {
+            agentId: "a1",
+            messageId: "m",
+            to: { kind: "user" },
+            content: "hello",
+            // A field this build has never heard of must not break the ones it has.
+            sentiment: "cheerful",
+          },
+        },
+      }),
+    );
+    expect(result.kind).toBe("sequenced");
+    if (result.kind !== "sequenced") return;
+    expect(result.futureVersion).toBe(true);
+    expect(result.known).toBe(true);
+    expect(describeEvent(result.event)).toBe("hello");
+  });
+
+  it("does not flag the current version", () => {
+    const result = decodeFrame(envelope());
+    if (result.kind !== "sequenced") throw new Error("expected sequenced");
+    expect(result.futureVersion).toBe(false);
+  });
+});
+
+describe("ephemeral frames", () => {
+  it("decode without a seq, because they never have one", () => {
+    const result = decodeFrame({
+      channel: "ephemeral",
+      type: "agent.message.delta",
+      missionId: "m-1",
+      agentId: "a1",
+      messageId: "msg-1",
+      index: 0,
+      text: "hi",
+    });
+    expect(result.kind).toBe("ephemeral");
+    if (result.kind !== "ephemeral") return;
+    expect(result.frame.messageId).toBe("msg-1");
+    expect("seq" in result.frame).toBe(false);
+  });
+
+  it("are checked before seq, or every delta would look malformed", () => {
+    // Regression guard: ordering the checks the other way round classifies the
+    // entire delta channel as broken (§7.1).
+    const result = decodeFrame({
+      channel: "ephemeral",
+      type: "agent.message.delta",
+      missionId: "m",
+      agentId: "a",
+      messageId: "x",
+      index: 3,
+      text: "chunk",
+    });
+    expect(result.kind).not.toBe("malformed");
+  });
+});
+
+describe("malformed frames", () => {
+  it("are reported, never thrown", () => {
+    // One bad frame must not be able to tear down a live stream.
+    for (const bad of [null, undefined, 42, "text", [], {}, { seq: "one" }]) {
+      expect(() => decodeFrame(bad)).not.toThrow();
+      expect(decodeFrame(bad).kind).toBe("malformed");
+    }
+  });
+
+  it("include a reason so the cause is visible rather than guessed", () => {
+    const result = decodeFrame({ id: "x", seq: 1, v: 1, missionId: "m", ts: "t" });
+    if (result.kind !== "malformed") throw new Error("expected malformed");
+    expect(result.reason).toContain("draft.type");
+  });
+});
+
+describe("describe()", () => {
+  it("never throws on a payload missing its fields", () => {
+    for (const type of KNOWN_EVENT_TYPES) {
+      const result = decodeFrame(envelope({ draft: { type, payload: {} } }));
+      if (result.kind !== "sequenced") throw new Error(`expected sequenced for ${type}`);
+      expect(() => describeEvent(result.event)).not.toThrow();
+    }
+  });
+});

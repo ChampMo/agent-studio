@@ -45,6 +45,7 @@ mkdirSync(DATA_DIR, { recursive: true });
 writeFileSync(HANDSHAKE, JSON.stringify({ port, token }, null, 2), { mode: 0o600 });
 
 let child = null;
+let vite = null;
 let restarting = false;
 
 function start() {
@@ -58,11 +59,25 @@ function start() {
       env: { ...process.env, AGENT_STUDIO_PORT: String(port) },
     }
   );
+  // The token goes in on stdin and nowhere else: argv is world-readable in the
+  // process list, and an env var would be inherited by every child.
   child.stdin.write(token + "\n");
   child.stdin.end();
   child.on("exit", (code) => {
     if (restarting) return;
     if (code !== 0 && code !== null) console.error(`\n[dev] backend exited (${code})`);
+    cleanup(code ?? 0);
+  });
+}
+
+function startVite() {
+  vite = spawn("npm", ["--workspace", "apps/desktop", "run", "dev"], {
+    cwd: ROOT,
+    stdio: "inherit",
+    shell: process.platform === "win32",
+  });
+  vite.on("exit", (code) => {
+    if (code !== 0 && code !== null) console.error(`\n[dev] vite exited (${code})`);
     cleanup(code ?? 0);
   });
 }
@@ -80,9 +95,12 @@ function restart() {
 
 function cleanup(code = 0) {
   try {
+    // The handshake file is per-launch. Leaving it behind would hand the next
+    // run's page a token that no longer authenticates anything.
     rmSync(HANDSHAKE, { force: true });
   } catch {}
   if (child && !child.killed) child.kill();
+  if (vite && !vite.killed) vite.kill();
   process.exit(code);
 }
 
@@ -97,4 +115,7 @@ process.on("SIGINT", () => cleanup(0));
 process.on("SIGTERM", () => cleanup(0));
 
 console.log(`[dev] handshake -> ${HANDSHAKE}`);
+console.log(`[dev] backend  -> http://127.0.0.1:${port}`);
+console.log(`[dev] frontend -> http://127.0.0.1:5173`);
 start();
+startVite();

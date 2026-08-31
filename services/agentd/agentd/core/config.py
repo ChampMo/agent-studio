@@ -65,6 +65,24 @@ class AppBudget:
     timeout_sec: int = 900
 
 
+#: Origins the browser is allowed to read our responses from.
+#:
+#: CORS is not the security boundary here — the session token is (§9.1). A
+#: non-browser client ignores CORS entirely, which is exactly why the token
+#: check exists. What this list does do is stop a page the user happens to have
+#: open from reading a response it managed to provoke, so it stays an explicit
+#: allowlist rather than "*".
+ALLOWED_ORIGINS: tuple[str, ...] = (
+    # Vite dev server.
+    "http://127.0.0.1:5173",
+    "http://localhost:5173",
+    # Tauri v2 webview origins: custom scheme on macOS/Linux, http(s) on Windows.
+    "tauri://localhost",
+    "http://tauri.localhost",
+    "https://tauri.localhost",
+)
+
+
 @dataclass(frozen=True)
 class Settings:
     data_dir: Path

@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+/* Tailwind v4 is configured in CSS; there is no tailwind.config.js by design. */
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: #0b1120;
+  color: #e2e8f0;
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
