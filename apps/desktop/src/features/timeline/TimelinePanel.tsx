@@ -8,12 +8,16 @@
  */
 import { useEventStore } from "../../stores/eventStore";
 import { describe } from "../../transport/decode";
+import { useMissionStore } from "../../stores/missionStore";
 import { strings } from "../../lib/constants/strings.en";
 import { Badge } from "../../components/ui/primitives";
 
 export function TimelinePanel() {
   const events = useEventStore((s) => s.events);
   const malformed = useEventStore((s) => s.malformed);
+  // Names come from the mission's frozen roster, never from the agents table:
+  // that is what keeps a replay showing who actually did the work (§5.1).
+  const nameOf = useMissionStore((s) => s.nameOf);
 
   return (
     <div className="flex h-full flex-col">
@@ -52,7 +56,9 @@ export function TimelinePanel() {
                   <Badge tone="warn">{strings.timeline.futureVersion}</Badge>
                 ) : null}
               </div>
-              <div className="break-words text-slate-300">{describe(event)}</div>
+              <div className="break-words text-slate-300">
+                {describe(event, nameOf)}
+              </div>
             </div>
           </div>
         ))}

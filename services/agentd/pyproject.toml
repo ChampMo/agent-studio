@@ -13,6 +13,7 @@ dependencies = [
     "keyring>=25",
     "openai>=1.55",
     "anthropic>=0.40",
+    "langgraph>=1.2.11",
 ]
 
 [dependency-groups]

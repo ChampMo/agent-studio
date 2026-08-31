@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
+from ..agents.runner import MissionRejected
 from ..db.models import Mission, ProviderProfile
 from .deps import get_db, get_runner, require_token
 
@@ -29,15 +30,43 @@ class BudgetIn(BaseModel):
 
 
 class MissionIn(BaseModel):
-    kind: Literal["chat"] = "chat"  # 'mission' arrives with the orchestrator in M4
-    provider_id: str
-    content: str = Field(min_length=1)
+    kind: Literal["chat", "mission"] = "chat"
+    #: chat only
+    provider_id: str | None = None
     system: str | None = None
+    #: mission only
+    team_id: str | None = None
+    content: str = Field(min_length=1)
     budget: BudgetIn | None = None
 
 
 @router.post("/missions", status_code=status.HTTP_202_ACCEPTED)
 async def start_mission(request: Request, body: MissionIn) -> dict[str, Any]:
+    runner = get_runner(request)
+    budget = body.budget.model_dump(exclude_none=True) if body.budget else None
+
+    if body.kind == "mission":
+        if not body.team_id:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, "a team mission needs a team_id"
+            )
+        try:
+            mission_id = await runner.start_mission(
+                team_id=body.team_id, goal=body.content, budget=budget
+            )
+        except MissionRejected as exc:
+            # 409, not 400: the request is well-formed, the team is not ready.
+            # Every blocking finding comes back, because fixing a team one
+            # rejection at a time is a guessing game (§5.2).
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                {"message": "this team cannot run", "problems": exc.problems},
+            ) from exc
+        return {"missionId": mission_id, "sinceSeq": 0}
+
+    if not body.provider_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "a chat needs a provider_id")
+
     db = get_db(request)
     async with db.session() as s:
         profile = (
@@ -48,12 +77,11 @@ async def start_mission(request: Request, body: MissionIn) -> dict[str, Any]:
     if profile is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no such provider profile")
 
-    runner = get_runner(request)
     mission_id = await runner.start_chat(
         profile=profile,
         content=body.content,
         system=body.system,
-        budget=body.budget.model_dump(exclude_none=True) if body.budget else None,
+        budget=budget,
     )
     # The client subscribes with since_seq=0 to catch the events already
     # published by the time this response lands.

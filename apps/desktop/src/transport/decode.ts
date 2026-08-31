@@ -120,10 +120,18 @@ export function poseFromEvent(event: EventEnvelope): AgentPose | null {
 /**
  * A readable line for any event, including ones this build has never heard of.
  * Falling back to the raw type keeps an unknown event legible instead of blank.
+ *
+ * `nameOf` resolves an agent id to the name recorded in the mission's frozen
+ * roster. Without it the log prints opaque ids; with the live roster instead of
+ * the snapshot, a replay would print today's names for yesterday's work (§5.1).
  */
-export function describe(event: EventEnvelope): string {
+export function describe(
+  event: EventEnvelope,
+  nameOf: (agentId: string) => string = (id) => id,
+): string {
   const { type, payload } = event.draft;
   const p = payload as Record<string, any>;
+  const who = (id: unknown) => (typeof id === "string" ? nameOf(id) : "someone");
   switch (type) {
     case "mission.started":
       return `Mission started — ${p.goal ?? ""}`;
@@ -132,19 +140,19 @@ export function describe(event: EventEnvelope): string {
     case "mission.progress":
       return `${p.label ?? p.taskId} — ${p.state} ${p.done}/${p.total}`;
     case "agent.status":
-      return `${p.agentId} is ${p.status}`;
+      return `${who(p.agentId)} is ${p.status}`;
     case "agent.thought":
-      return `${p.agentId} thinking: ${p.text}`;
+      return `${who(p.agentId)} thinking: ${p.text}`;
     case "agent.message":
-      return p.content ?? "";
+      return p.agentId ? `${who(p.agentId)}: ${p.content ?? ""}` : (p.content ?? "");
     case "user.message":
       return p.content ?? "";
     case "agent.tool.start":
-      return `${p.agentId} calls ${p.tool}`;
+      return `${who(p.agentId)} calls ${p.tool}`;
     case "agent.tool.end":
       return `${p.tool ?? "tool"} ${p.ok ? "ok" : "failed"} — ${p.summary ?? ""}`;
     case "agent.request":
-      return `${p.agentId} asks: ${p.question}`;
+      return `${who(p.agentId)} asks: ${p.question}`;
     case "agent.request.resolved":
       return `answered (${p.resolvedBy}): ${p.answer}`;
     case "artifact.created":

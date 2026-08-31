@@ -68,6 +68,11 @@ export/import. 178 pytest green. Verified live: three teams at once sharing one 
 a leaderless team saved anyway but marked `canRun: false`, an export with no
 `provider_id` and nothing key-shaped, and an import producing entirely fresh ids.
 
+**M4 — orchestration: backend done, live run pending.** LangGraph plan → work →
+summarise, the roster snapshot in use, the validator as the launch gate, budget across
+the whole team, and the Mission tab. 190 pytest + 16 vitest green. Not yet run against
+the real endpoint with three agents.
+
 **Gamification rolled back (brief §1.1, decision row 28).** `level` and `exp` are gone —
 migration `0004_drop_exp` removes the column, and a test asserts the wire form carries no
 invented score. Kept: `total_missions` (counted from runs that finished), usage and cost
@@ -82,6 +87,41 @@ level, exp, MP or HP back in.
 ---
 
 ## Decisions made while building
+
+### The snapshot is what makes a replay honest
+
+`missions.roster_snapshot` was created in migration 0001 and left unused until M4. It
+holds the *effective* config — agent merged with `team_members.overrides` — resolved once
+at launch by `teams/snapshot.py`, which is the only code that reads `agents` or
+`team_members` for a mission.
+
+Past that boundary nothing reads those tables again: not the orchestrator, not the
+runner's provider lookup, not the timeline's agent names. A test renames an agent,
+changes its model, swaps its avatar and archives a teammate after a run, then asserts the
+replay still shows `One`, `m1`, `blazer` and seat 2. Without the snapshot every one of
+those would have been rewritten retroactively, and the mission record would describe work
+that never happened that way.
+
+### The orchestrator yields; it does not publish
+
+`run_team_mission` is an async generator like `run_agent_turn`, so `MissionRunner` routes
+a team mission through the identical code path as a chat and the whole orchestrator is
+testable with no bus, no database and no network. LangGraph nodes cannot yield, so they
+push onto a queue the generator drains; closing the generator cancels the graph rather
+than leaving a detached task spending money.
+
+### The launch gate is the validator, not a second opinion
+
+`start_mission` calls `validate()` and refuses on any `error`, returning **every**
+blocking finding as a 409. One rejection at a time turns fixing a team into a guessing
+game, and a separate list of launch preconditions is exactly the drift decision row 13
+warns about.
+
+### `total_missions` is credited only on `completed`
+
+A cancelled or crashed run is not a mission the agent completed. Counting it would make
+the one number on the card that is supposed to be a fact into something slightly untrue,
+which is the whole reason it survived the gamification rollback.
 
 ### The leader rule needs both halves, in different places
 

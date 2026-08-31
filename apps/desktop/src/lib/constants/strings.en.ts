@@ -14,8 +14,24 @@ export const strings = {
     chat: "Chat",
     roster: "Roster",
     teams: "Teams",
+    mission: "Mission",
     timeline: "Timeline",
     settings: "Settings",
+  },
+
+  mission: {
+    title: "Mission",
+    teamLabel: "Team",
+    noRunnableTeam: "No team is ready to run — check the Teams tab.",
+    goalLabel: "Goal",
+    goalHint: "One instruction for the whole team. The leader breaks it into tasks.",
+    goalPlaceholder: "Research X and summarise the tradeoffs",
+    launch: "Send the team",
+    launching: "Starting…",
+    rejected: "This team cannot run:",
+    stop: "Stop",
+    newRun: "New run",
+    endedPrefix: "Mission ended",
   },
 
   teams: {

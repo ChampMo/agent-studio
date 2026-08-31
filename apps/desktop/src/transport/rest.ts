@@ -147,6 +147,18 @@ export const api = {
       body: JSON.stringify({ kind: "chat", ...body }),
     }),
 
+  /** Launch a team. Rejected with 409 and every blocking finding when the
+   *  team cannot run — the same findings the builder showed (§5.2). */
+  startMission: (body: {
+    team_id: string;
+    content: string;
+    budget?: Record<string, number>;
+  }) =>
+    request<{ missionId: string; sinceSeq: number }>("/missions", {
+      method: "POST",
+      body: JSON.stringify({ kind: "mission", ...body }),
+    }),
+
   cancelMission: (id: string) =>
     request<{ missionId: string; cancelled: boolean }>(`/missions/${id}/cancel`, {
       method: "POST",

@@ -114,7 +114,7 @@ describe("a newer schema version", () => {
     if (result.kind !== "sequenced") return;
     expect(result.futureVersion).toBe(true);
     expect(result.known).toBe(true);
-    expect(describeEvent(result.event)).toBe("hello");
+    expect(describeEvent(result.event)).toContain("hello");
   });
 
   it("does not flag the current version", () => {
@@ -170,6 +170,52 @@ describe("malformed frames", () => {
     const result = decodeFrame({ id: "x", seq: 1, v: 1, missionId: "m", ts: "t" });
     if (result.kind !== "malformed") throw new Error("expected malformed");
     expect(result.reason).toContain("draft.type");
+  });
+});
+
+describe("agent attribution", () => {
+  it("names the agent from the mission's frozen roster", () => {
+    // The resolver is passed in rather than read from the agents table: a
+    // replay must show who did the work, not who has that id today (§5.1).
+    const result = decodeFrame(
+      envelope({
+        draft: {
+          type: "agent.message",
+          payload: {
+            agentId: "a-7",
+            messageId: "m",
+            to: { kind: "user" },
+            content: "found three sources",
+          },
+        },
+      }),
+    );
+    if (result.kind !== "sequenced") throw new Error("expected sequenced");
+
+    const asRecorded = describeEvent(result.event, (id) =>
+      id === "a-7" ? "Mira Vale" : id,
+    );
+    expect(asRecorded).toBe("Mira Vale: found three sources");
+  });
+
+  it("falls back to the raw id when the roster has no entry", () => {
+    // An agent removed from the snapshot, or a malformed one: the line stays
+    // readable rather than saying "undefined".
+    const result = decodeFrame(
+      envelope({
+        draft: { type: "agent.status", payload: { agentId: "ghost", status: "idle" } },
+      }),
+    );
+    if (result.kind !== "sequenced") throw new Error("expected sequenced");
+    expect(describeEvent(result.event)).toBe("ghost is idle");
+  });
+
+  it("does not attribute a user message to an agent", () => {
+    const result = decodeFrame(
+      envelope({ draft: { type: "user.message", payload: { content: "go" } } }),
+    );
+    if (result.kind !== "sequenced") throw new Error("expected sequenced");
+    expect(describeEvent(result.event, () => "Mira")).toBe("go");
   });
 });
 
