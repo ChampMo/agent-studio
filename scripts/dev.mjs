@@ -12,15 +12,32 @@
  * child process that cannot inherit the stdin we already consumed, so the token
  * would be lost on every reload. Restarting the whole process keeps one code
  * path for the handshake.
+ *
+ * ## Why Vite runs in this process rather than as a child
+ *
+ * Windows cannot intercept a forced kill. When something kills this launcher —
+ * a supervisor, a closed terminal, Stop-Process — no SIGTERM handler runs, so
+ * no cleanup code executes, and any grandchild survives holding its port. That
+ * is not a bug that can be fixed by better cleanup: the cleanup never gets to
+ * run. Spawning `npm run dev` was three processes deep (cmd.exe -> npm -> vite)
+ * and left an orphan on every hard kill, until the next start failed with
+ * "Port 5173 is already in use" and blamed Vite for it.
+ *
+ * Running Vite through its Node API removes the layer entirely. The dev server
+ * is this process, so it cannot outlive it. The backend stays a child because
+ * it needs the token on stdin, but it listens on an ephemeral port, so an
+ * orphaned one blocks nothing.
  */
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { createServer, createConnection } from "node:net";
+import { createServer as createSocket, createConnection } from "node:net";
 import { mkdirSync, writeFileSync, rmSync, watch } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import { createServer as createViteServer } from "vite";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const WEB_ROOT = resolve(ROOT, "apps/desktop");
 const DATA_DIR = resolve(ROOT, ".data");
 const HANDSHAKE = resolve(DATA_DIR, "dev-handshake.json");
 const WATCH_DIR = resolve(ROOT, "services/agentd/agentd");
@@ -29,7 +46,7 @@ const IS_WIN = process.platform === "win32";
 
 const freePort = () =>
   new Promise((res, rej) => {
-    const srv = createServer();
+    const srv = createSocket();
     srv.once("error", rej);
     srv.listen(0, "127.0.0.1", () => {
       const { port } = srv.address();
@@ -48,22 +65,51 @@ const portInUse = (port) =>
   });
 
 /**
- * Kill a child and everything it started.
+ * Reclaim the web port if — and only if — a leftover of ours is holding it.
  *
- * On Windows `spawn(..., { shell: true })` runs cmd.exe, which runs npm, which
- * runs the actual server. `child.kill()` reaches only cmd.exe: the grandchildren
- * survive, keep holding their ports, and the next `npm run dev` dies on "Port
- * 5173 is already in use". One run of this script left eight orphaned backends
- * behind before this existed.
+ * Older builds of this script could orphan a Vite; one may still be running
+ * from before the in-process switch. The owner's command line is checked
+ * against this repository first, so an unrelated program that happens to use
+ * 5173 is reported rather than killed.
  */
+function reclaimWebPort() {
+  if (!IS_WIN) return false;
+  const owners = spawnSync(
+    "powershell",
+    [
+      "-NoProfile",
+      "-Command",
+      `Get-NetTCPConnection -LocalPort ${WEB_PORT} -State Listen -ErrorAction SilentlyContinue |` +
+        ` ForEach-Object { $p = Get-CimInstance Win32_Process -Filter ("ProcessId=" + $_.OwningProcess);` +
+        ` "$($p.ProcessId)|$($p.CommandLine)" }`,
+    ],
+    { encoding: "utf8" },
+  );
+
+  let reclaimed = false;
+  for (const line of (owners.stdout || "").split("\n")) {
+    const [pid, ...rest] = line.trim().split("|");
+    const cmd = rest.join("|");
+    if (!pid || !cmd) continue;
+    const ours = cmd.includes("agent-studio") || cmd.includes("vite.js");
+    if (!ours) {
+      console.error(`[dev] port ${WEB_PORT} is held by pid ${pid}, which is not ours:`);
+      console.error(`      ${cmd.trim()}`);
+      continue;
+    }
+    console.log(`[dev] reclaiming port ${WEB_PORT} from a leftover dev server (pid ${pid})`);
+    spawnSync("taskkill", ["/pid", pid, "/T", "/F"], { stdio: "ignore" });
+    reclaimed = true;
+  }
+  return reclaimed;
+}
+
+/** Kill a child and everything it started. */
 function killTree(child) {
   if (!child || child.exitCode !== null || child.signalCode !== null) return;
   if (IS_WIN) {
-    spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
-      stdio: "ignore",
-    });
+    spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
   } else {
-    // Spawned detached below, so the negative pid addresses the whole group.
     try {
       process.kill(-child.pid, "SIGTERM");
     } catch {
@@ -73,15 +119,18 @@ function killTree(child) {
 }
 
 if (await portInUse(WEB_PORT)) {
-  console.error(
-    `\n[dev] port ${WEB_PORT} is already in use.\n` +
-      `      Usually a dev server from an earlier run that outlived its parent.\n` +
-      (IS_WIN
-        ? `      Free it with:  Get-NetTCPConnection -LocalPort ${WEB_PORT} -State Listen | ` +
-          `ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }\n`
-        : `      Free it with:  lsof -ti tcp:${WEB_PORT} | xargs kill -9\n`),
-  );
-  process.exit(1);
+  reclaimWebPort();
+  await new Promise((r) => setTimeout(r, 300));
+  if (await portInUse(WEB_PORT)) {
+    console.error(
+      `\n[dev] port ${WEB_PORT} is still in use and is not ours to reclaim.\n` +
+        (IS_WIN
+          ? `      Free it with:  Get-NetTCPConnection -LocalPort ${WEB_PORT} -State Listen | ` +
+            `ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }\n`
+          : `      Free it with:  lsof -ti tcp:${WEB_PORT} | xargs kill -9\n`),
+    );
+    process.exit(1);
+  }
 }
 
 const token = randomBytes(32).toString("hex");
@@ -121,20 +170,6 @@ function start() {
   });
 }
 
-function startVite() {
-  vite = spawn("npm", ["--workspace", "apps/desktop", "run", "dev"], {
-    cwd: ROOT,
-    stdio: "inherit",
-    shell: IS_WIN,
-    detached: !IS_WIN,
-  });
-  vite.on("exit", (code) => {
-    if (cleaningUp) return;
-    if (code !== 0 && code !== null) console.error(`\n[dev] vite exited (${code})`);
-    cleanup(code ?? 0);
-  });
-}
-
 function restart() {
   if (!child || restarting) return;
   restarting = true;
@@ -155,7 +190,8 @@ function cleanup(code = 0) {
     rmSync(HANDSHAKE, { force: true });
   } catch {}
   killTree(child);
-  killTree(vite);
+  // Vite lives in this process, so exiting takes it with us either way.
+  vite?.close().catch(() => {});
   process.exit(code);
 }
 
@@ -168,8 +204,6 @@ watch(WATCH_DIR, { recursive: true }, (_e, file) => {
 
 process.on("SIGINT", () => cleanup(0));
 process.on("SIGTERM", () => cleanup(0));
-// A crash must not leak the children either: without this the orphans hold
-// their ports and the next run cannot start.
 process.on("uncaughtException", (err) => {
   console.error("[dev]", err);
   cleanup(1);
@@ -177,6 +211,12 @@ process.on("uncaughtException", (err) => {
 
 console.log(`[dev] handshake -> ${HANDSHAKE}`);
 console.log(`[dev] backend  -> http://127.0.0.1:${port}`);
-console.log(`[dev] frontend -> http://127.0.0.1:${WEB_PORT}`);
+
 start();
-startVite();
+
+vite = await createViteServer({
+  root: WEB_ROOT,
+  configFile: resolve(WEB_ROOT, "vite.config.ts"),
+});
+await vite.listen();
+console.log(`[dev] frontend -> http://127.0.0.1:${WEB_PORT}`);
