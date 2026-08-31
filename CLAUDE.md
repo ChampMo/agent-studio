@@ -45,7 +45,26 @@ from argv, migration creates all three tables.
 and Anthropic adapters on their own SDKs, registry, 4-step capability probe, pricing
 table. 35 pytest green, no network in any of them.
 
-Next: M1.3 (agent runtime + REST/WS routes) — see the M1 plan.
+**M1.3 — runtime and routes: done.** `run_agent_turn` (yields, never publishes),
+`MissionRunner`, provider/mission/tools REST, the event socket with `since_seq` resume,
+`POST /missions/{id}/cancel`. 55 pytest green.
+
+Next: M1.4 (frontend: onboarding, chat, timeline) — see the M1 plan.
+
+### The WebSocket subscribes before it accepts
+
+Found by a test that was checking something else. `accept()` is what unblocks the
+client's connect call, so subscribing *after* it leaves a window where the client
+believes it is listening and the bus has never heard of it.
+
+Sequenced events survive that window — they are on disk, and the next reconnect
+replays them. **Ephemeral deltas do not.** They are fire-and-forget, so they vanish, and
+nothing downstream can tell they ever existed. The reproduction printed
+`subscribers: {}` at the moment a delta was broadcast.
+
+`api/ws.py` now registers with the bus first and accepts second. Anything published in
+between waits in the queue and is delivered after the history replay, so ordering still
+holds.
 
 ---
 
