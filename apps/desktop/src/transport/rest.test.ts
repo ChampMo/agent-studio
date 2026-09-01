@@ -1,0 +1,53 @@
+/**
+ * What a request says when it never arrives.
+ *
+ * The browser's own words for a dead port are "Failed to fetch", which tell a
+ * user nothing about the one thing that actually fixes it. This page is handed
+ * its port and token at load time and the dev launcher takes a fresh port on
+ * every start, so a tab left open across a restart calls an address nobody is
+ * listening on — for the rest of its life.
+ */
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("./handshake", () => ({
+  requireHandshake: () => ({ apiBase: "http://127.0.0.1:49265", token: "t" }),
+}));
+
+const { api, ApiError } = await import("./rest");
+
+beforeEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe("a backend that is not there", () => {
+  it("says so, and says what to do about it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("Failed to fetch");
+      }),
+    );
+
+    const failure = await api.health().catch((e) => e);
+    expect(failure).toBeInstanceOf(ApiError);
+    // Status 0: it never reached an HTTP conversation at all.
+    expect(failure.status).toBe(0);
+    expect(failure.message).toContain("127.0.0.1:49265");
+    expect(failure.message).toContain("reload");
+    // The original is kept, so a console still shows what the browser said.
+    expect((failure as Error).cause).toBeInstanceOf(TypeError);
+  });
+
+  it("leaves a real HTTP error alone", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ detail: "no" }), { status: 401 })),
+    );
+
+    const failure = await api.health().catch((e) => e);
+    // A 401 is a different problem with a different fix — a stale token, not a
+    // missing backend — and must not be dressed up as one.
+    expect(failure.status).toBe(401);
+    expect(failure.message).toBe("no");
+  });
+});

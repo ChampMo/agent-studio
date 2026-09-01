@@ -7,25 +7,44 @@
 import { requireHandshake } from "./handshake";
 
 export class ApiError extends Error {
+  /** `0` when the request never reached the backend at all. */
   constructor(
     public status: number,
     message: string,
+    options?: ErrorOptions,
   ) {
-    super(message);
+    super(message, options);
     this.name = "ApiError";
   }
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const { apiBase, token } = requireHandshake();
-  const res = await fetch(`${apiBase}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      "X-Agent-Studio-Token": token,
-      ...(init.headers ?? {}),
-    },
-  });
+
+  let res: Response;
+  try {
+    res = await fetch(`${apiBase}${path}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        "X-Agent-Studio-Token": token,
+        ...(init.headers ?? {}),
+      },
+    });
+  } catch (cause) {
+    // A network-level failure, not an HTTP one. On this app it means one thing
+    // in practice: this page was loaded against a backend that is no longer
+    // there. The port and token are injected at page load and the dev launcher
+    // takes a fresh port every start, so a tab left open across a restart keeps
+    // calling an address nobody is listening on — and the browser's own words
+    // for that are "Failed to fetch", which say nothing about what to do.
+    throw new ApiError(
+      0,
+      `The backend is not reachable at ${apiBase}. If it was restarted, reload ` +
+        "this page — the port and session token are handed to the page when it loads.",
+      { cause },
+    );
+  }
 
   if (!res.ok) {
     let detail = res.statusText;
