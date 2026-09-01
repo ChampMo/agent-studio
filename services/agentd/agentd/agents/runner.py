@@ -28,6 +28,8 @@ from ..orchestrator.graph import Paused, run_team_mission
 from ..orchestrator.hitl import PlanRejected
 from ..orchestrator.planner import PlanningFailed
 from ..tools import registry as tool_registry
+from ..tools.base import ToolContext
+from ..tools.execution import ToolBox
 from ..tools.workspace import WorkspaceRejected, WorkspaceStore
 from ..tools.workspace import check as workspace_check
 from ..providers import registry
@@ -84,6 +86,13 @@ class MissionRunner:
         #: What each paused mission needs in order to be resumed. Rebuilt from
         #: the database on restart, because the process that paused is gone.
         self._paused: dict[str, dict[str, Any]] = {}
+        #: Tool approvals a *live* turn is waiting on: request id -> (mission,
+        #: future). Unlike a plan approval these do not survive the process
+        #: (§16.4). There is no checkpoint in the middle of a turn, so if this
+        #: process dies the mission is crashed and the tool never ran - which
+        #: is the safe direction to fail in.
+        self._awaiting: dict[str, tuple[str, asyncio.Future[str]]] = {}
+        self._marks: set[asyncio.Task] = set()
 
     async def reap_orphans(self) -> int:
         """Close out missions left `running` by a process that is gone.
@@ -328,6 +337,32 @@ class MissionRunner:
                 )
                 profiles = {p.id: p for p in rows.scalars().all()}
 
+        def tools_for(member: SnapshotMember) -> ToolBox | None:
+            """The tools this member may use, scoped to this mission.
+
+            Everything here comes from the frozen snapshot: which tools, how
+            much the agent is trusted, and which folder it may touch (§5.1).
+            Nothing is read from the `agents` table mid-flight, so an edit made
+            while a mission runs cannot widen what it is allowed to do.
+            """
+            specs = [
+                spec
+                for tool_id in member.tools
+                if (spec := tool_registry.get(tool_id)) is not None
+            ]
+            if not specs:
+                return None
+            return ToolBox(
+                specs=specs,
+                context=ToolContext(
+                    mission_id=mission_id,
+                    agent_id=member.agent_id,
+                    workspace_root=roster.workspace_root,
+                ),
+                autonomy=member.autonomy,
+                gate=self,
+            )
+
         def provider_for(member: SnapshotMember) -> tuple[LLMProvider, Capabilities]:
             profile = profiles.get(member.provider_id or "")
             if profile is None:
@@ -345,6 +380,7 @@ class MissionRunner:
                 goal=goal,
                 budget=budget,
                 provider_for=provider_for,
+                tools_for=tools_for,
                 checkpointer=self._checkpointer,
                 require_approval=require_approval,
                 resume=resume,
@@ -424,6 +460,7 @@ class MissionRunner:
         reason: str,
         summary: str,
     ) -> None:
+        self._abandon_waiting(mission_id)
         for provider in providers:
             try:
                 await provider.aclose()
@@ -509,14 +546,83 @@ class MissionRunner:
                 mission.pending_request = paused.ask.request_id
                 await s.commit()
 
+    # ---- tool approvals (§16.4) ----------------------------------------
+
+    def open(self, mission_id: str, request_id: str) -> asyncio.Future[str]:
+        """Start waiting for an answer, before the question is published.
+
+        Synchronous on purpose. The runtime registers here and *then* yields the
+        `agent.request`, so there is no window in which an answer arrives for a
+        question nobody is waiting on - the same ordering rule as subscribing to
+        the bus before accepting a WebSocket.
+        """
+        future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+        self._awaiting[request_id] = (mission_id, future)
+
+        # The row is updated in the background: `pending_request` is what a
+        # client that reconnects reads, and the answer path does not depend on
+        # it having landed.
+        task = asyncio.create_task(self._mark_pending(mission_id, request_id))
+        self._marks.add(task)
+        task.add_done_callback(self._marks.discard)
+        return future
+
+    async def _mark_pending(self, mission_id: str, request_id: str) -> None:
+        async with self._db.session() as s:
+            mission = (
+                await s.execute(select(Mission).where(Mission.id == mission_id))
+            ).scalar_one_or_none()
+            if mission is not None and mission.status == "running":
+                mission.pending_request = request_id
+                await s.commit()
+
+    async def _clear_pending(self, mission_id: str) -> None:
+        async with self._db.session() as s:
+            mission = (
+                await s.execute(select(Mission).where(Mission.id == mission_id))
+            ).scalar_one_or_none()
+            if mission is not None and mission.pending_request:
+                mission.pending_request = None
+                await s.commit()
+
+    def _abandon_waiting(self, mission_id: str) -> None:
+        """Nobody is coming back to these: the mission is over."""
+        for request_id, (owner, future) in list(self._awaiting.items()):
+            if owner != mission_id:
+                continue
+            self._awaiting.pop(request_id, None)
+            if not future.done():
+                future.cancel()
+
     async def resolve_request(
         self, request_id: str, answer: str, *, resolved_by: str = "user"
     ) -> str:
         """Answer a waiting mission and let it carry on.
 
-        Looked up in the database rather than in memory, so an answer works
-        after a restart - which is the criterion this whole path exists for.
+        Two shapes of pause end here, and they are answered the same way from
+        the outside - same event, same endpoint, same modal (§15 row 30). A tool
+        approval is a live turn holding a future; a plan approval is a graph
+        checkpoint that may have been written by a process that no longer
+        exists. Only the second can be resumed after a restart.
         """
+        if (waiting := self._awaiting.pop(request_id, None)) is not None:
+            mission_id, future = waiting
+            await self._bus.publish(
+                mission_id,
+                {
+                    "type": "agent.request.resolved",
+                    "payload": {
+                        "requestId": request_id,
+                        "answer": answer,
+                        "resolvedBy": resolved_by,
+                    },
+                },
+            )
+            await self._clear_pending(mission_id)
+            if not future.done():
+                future.set_result(answer)
+            return mission_id
+
         async with self._db.session() as s:
             mission = (
                 await s.execute(

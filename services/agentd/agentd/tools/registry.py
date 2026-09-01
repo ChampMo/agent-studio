@@ -155,6 +155,53 @@ SPECS: tuple[ToolSpec, ...] = (
             ["pattern"],
         ),
     ),
+    ToolSpec(
+        id="write_file",
+        title="Create a file",
+        description=(
+            "Create a NEW file in the workspace. Fails if the file already "
+            "exists — use edit_file to change one that does."
+        ),
+        risk="guarded",
+        requires=("workspace",),
+        handler=fs.write_file,
+        # The whole file would otherwise be copied into an append-only table,
+        # forever (§9.3). The log keeps the path and the size.
+        redact_fields=("content",),
+        keep_details=("path", "bytes"),
+        input_schema=_schema(
+            {
+                "path": {"type": "string", "description": "Path relative to the workspace."},
+                "content": {"type": "string", "description": "The complete file contents."},
+            },
+            ["path", "content"],
+        ),
+    ),
+    ToolSpec(
+        id="edit_file",
+        title="Edit a file",
+        description=(
+            "Replace an exact passage in a file. `old_str` must appear exactly "
+            "once: quote enough surrounding text to make it unique. Read the "
+            "file first."
+        ),
+        risk="guarded",
+        requires=("workspace",),
+        handler=fs.edit_file,
+        redact_fields=("old_str", "new_str"),
+        keep_details=("path", "byteDelta"),
+        input_schema=_schema(
+            {
+                "path": {"type": "string"},
+                "old_str": {
+                    "type": "string",
+                    "description": "The exact text to replace. Must match once.",
+                },
+                "new_str": {"type": "string", "description": "What to put in its place."},
+            },
+            ["path", "old_str", "new_str"],
+        ),
+    ),
 )
 
 BY_ID: dict[str, ToolSpec] = {spec.id: spec for spec in SPECS}

@@ -19,6 +19,7 @@ by a model-name check:
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -74,7 +75,7 @@ class AnthropicProvider:
 
         kwargs: dict[str, Any] = {
             "model": req.model,
-            "messages": [{"role": m.role, "content": m.content} for m in req.messages],
+            "messages": _messages(req),
             "max_tokens": req.max_tokens,
             **sampling,
         }
@@ -201,6 +202,60 @@ def _merge_usage(current: Usage, raw: Any) -> Usage:
         cache_write_tokens=int(getattr(raw, "cache_creation_input_tokens", 0) or 0)
         or current.cache_write_tokens,
     )
+
+
+def _messages(req: ChatRequest) -> list[dict[str, Any]]:
+    """Render the conversation the way this API writes a tool round trip.
+
+    Nothing like the OpenAI shape: a call is a `tool_use` block inside the
+    assistant's content, and its result is a `tool_result` block inside a
+    **user** message. There is no `tool` role here at all. Trying to serve both
+    APIs from one renderer is what §15 row 17 warns about — the shapes differ,
+    and the difference is silent until a tool loop stops working.
+    """
+    out: list[dict[str, Any]] = []
+    for message in req.messages:
+        if message.tool_results:
+            out.append(
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": result.call_id,
+                            "content": result.content,
+                            **({"is_error": True} if result.is_error else {}),
+                        }
+                        for result in message.tool_results
+                    ],
+                }
+            )
+            continue
+
+        if message.tool_calls:
+            blocks: list[dict[str, Any]] = []
+            if message.content:
+                blocks.append({"type": "text", "text": message.content})
+            for call in message.tool_calls:
+                try:
+                    arguments = json.loads(call.arguments_json or "{}")
+                except json.JSONDecodeError:
+                    # Never executed with unparseable arguments, so this only
+                    # happens if a caller replays something it should not have.
+                    arguments = {}
+                blocks.append(
+                    {
+                        "type": "tool_use",
+                        "id": call.call_id,
+                        "name": call.name,
+                        "input": arguments,
+                    }
+                )
+            out.append({"role": "assistant", "content": blocks})
+            continue
+
+        out.append({"role": message.role, "content": message.content})
+    return out
 
 
 def _normalise(exc: Exception) -> ProviderError:

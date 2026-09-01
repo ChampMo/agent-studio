@@ -15,7 +15,9 @@ from .base import (
     NoticeChunk,
     ProviderError,
     TextChunk,
+    ToolCall,
     ToolCallChunk,
+    ToolOutcome,
     ToolSpec,
     Usage,
 )
@@ -30,7 +32,9 @@ __all__ = [
     "NoticeChunk",
     "ProviderError",
     "TextChunk",
+    "ToolCall",
     "ToolCallChunk",
+    "ToolOutcome",
     "ToolSpec",
     "Usage",
 ]

@@ -265,3 +265,95 @@ async def grep(
         truncated=truncated,
         details={"matches": len(hits), "filesScanned": scanned},
     )
+
+
+async def write_file(ctx: ToolContext, *, path: str, content: str) -> ToolResult:
+    """Create a new file. Never overwrite one (§15 row 35).
+
+    Overwriting is deleting work nobody saw a diff of. `edit_file` exists for
+    changing a file that is already there, and it makes the agent say what it
+    expects to find first.
+    """
+    root = canonical(ctx.require_workspace())
+    try:
+        target = resolve_within(root, path)
+    except PathRejected as exc:
+        raise _rejected(exc) from exc
+
+    if target.exists():
+        raise ToolFailed(
+            "already_exists",
+            f"{path} already exists; use edit_file to change a file that is there",
+        )
+
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        # newline="" so the bytes written are exactly the bytes given: letting
+        # Python translate line endings would make the file differ from what the
+        # agent said it wrote, on Windows only.
+        with open(target, "w", encoding="utf-8", newline="") as handle:
+            handle.write(content)
+    except OSError as exc:
+        raise ToolFailed("write_failed", f"could not write the file: {exc}") from exc
+
+    written = len(content.encode("utf-8"))
+    rel = _relative(root, target)
+    return ToolResult(
+        content=f"Wrote {written} bytes to {rel}.",
+        summary=f"wrote {written} bytes to {rel}",
+        details={"path": rel, "bytes": written},
+    )
+
+
+async def edit_file(
+    ctx: ToolContext, *, path: str, old_str: str, new_str: str
+) -> ToolResult:
+    """Replace one exact passage with another.
+
+    `old_str` must appear **exactly once**. Zero matches means the agent is
+    editing a file it has not read, and several means it is about to change
+    things it never looked at — both are failures rather than a best guess
+    (§16.7).
+    """
+    root = canonical(ctx.require_workspace())
+    try:
+        target = resolve_within(root, path)
+    except PathRejected as exc:
+        raise _rejected(exc) from exc
+
+    if not target.exists():
+        raise ToolFailed("not_found", f"no such file: {path}")
+    if target.is_dir():
+        raise ToolFailed("is_a_directory", f"{path} is a directory")
+    if not old_str:
+        raise ToolFailed("empty_match", "old_str cannot be empty")
+    if old_str == new_str:
+        raise ToolFailed("no_change", "old_str and new_str are identical")
+
+    text = _read_text(target)
+    occurrences = text.count(old_str)
+    if occurrences == 0:
+        raise ToolFailed(
+            "no_match",
+            f"old_str does not appear in {path}; read the file and quote it exactly",
+        )
+    if occurrences > 1:
+        raise ToolFailed(
+            "ambiguous_match",
+            f"old_str appears {occurrences} times in {path}; include enough "
+            "surrounding text to make it unique",
+        )
+
+    try:
+        with open(target, "w", encoding="utf-8", newline="") as handle:
+            handle.write(text.replace(old_str, new_str, 1))
+    except OSError as exc:
+        raise ToolFailed("write_failed", f"could not write the file: {exc}") from exc
+
+    rel = _relative(root, target)
+    delta = len(new_str.encode("utf-8")) - len(old_str.encode("utf-8"))
+    return ToolResult(
+        content=f"Edited {rel}.",
+        summary=f"edited {rel} ({delta:+d} bytes)",
+        details={"path": rel, "byteDelta": delta},
+    )

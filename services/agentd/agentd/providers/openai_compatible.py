@@ -141,10 +141,45 @@ class OpenAICompatibleProvider:
         await self._client.close()
 
 
-def _messages(req: ChatRequest) -> list[dict[str, str]]:
-    """System is a message here, unlike Anthropic where it is a top-level field."""
-    out = [{"role": "system", "content": req.system}] if req.system else []
-    out.extend({"role": m.role, "content": m.content} for m in req.messages)
+def _messages(req: ChatRequest) -> list[dict[str, Any]]:
+    """System is a message here, unlike Anthropic where it is a top-level field.
+
+    A tool round trip is written the OpenAI way: the assistant message carries
+    `tool_calls`, and each result comes back as its own message with role
+    `tool` and the id it answers. Anthropic writes the same exchange as content
+    blocks inside user and assistant messages — which is why neither adapter
+    shares this function (§15 row 17).
+    """
+    out: list[dict[str, Any]] = (
+        [{"role": "system", "content": req.system}] if req.system else []
+    )
+    for message in req.messages:
+        if message.tool_results:
+            # One message per result: the API keys them by id, not by order.
+            out.extend(
+                {
+                    "role": "tool",
+                    "tool_call_id": result.call_id,
+                    "content": result.content,
+                }
+                for result in message.tool_results
+            )
+            continue
+
+        entry: dict[str, Any] = {"role": message.role, "content": message.content}
+        if message.tool_calls:
+            entry["tool_calls"] = [
+                {
+                    "id": call.call_id,
+                    "type": "function",
+                    "function": {"name": call.name, "arguments": call.arguments_json},
+                }
+                for call in message.tool_calls
+            ]
+            # An assistant message with tool calls and no prose must send null
+            # rather than "": some endpoints reject the empty string outright.
+            entry["content"] = message.content or None
+        out.append(entry)
     return out
 
 

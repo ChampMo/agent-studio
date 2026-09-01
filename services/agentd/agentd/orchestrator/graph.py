@@ -29,12 +29,18 @@ from ..agents.runtime import is_ephemeral, run_agent_turn
 from ..core.budget import BudgetExceeded, BudgetTracker
 from ..providers.base import Capabilities, ChatRequest, LLMProvider, Message
 from ..teams.snapshot import RosterSnapshot, SnapshotMember
+from ..tools.execution import ToolBox
 from .hitl import APPROVE, Ask, PlanRejected, ask_to_approve, new_request_id, pause
 from .planner import PlanningFailed, make_plan
 
 #: Resolves a snapshot member to a live provider + capabilities. Injected so the
 #: graph never learns which vendor anything is (§3.1).
 ProviderFor = Callable[[SnapshotMember], "tuple[LLMProvider, Capabilities]"]
+
+#: Resolves a snapshot member to the tools it may use, already scoped to this
+#: mission's workspace and this agent's autonomy (§16). Injected for the same
+#: reason as `provider_for`: the graph decides nothing about permission.
+ToolsFor = Callable[[SnapshotMember], "ToolBox | None"]
 
 #: A reasoning model can spend thousands of tokens before its first visible
 #: character. At 4096 a live run produced an empty answer and a truncation
@@ -73,6 +79,7 @@ async def run_team_mission(
     goal: str,
     budget: BudgetTracker,
     provider_for: ProviderFor,
+    tools_for: ToolsFor | None = None,
     checkpointer: Any | None = None,
     require_approval: bool = False,
     resume: str | None = None,
@@ -99,6 +106,7 @@ async def run_team_mission(
         snapshot=snapshot,
         budget=budget,
         provider_for=provider_for,
+        tools_for=tools_for,
         emit=emit,
         require_approval=require_approval,
         checkpointer=checkpointer,
@@ -158,6 +166,7 @@ def _build_graph(
     snapshot: RosterSnapshot,
     budget: BudgetTracker,
     provider_for: ProviderFor,
+    tools_for: ToolsFor | None = None,
     emit: Callable[[dict[str, Any]], Any],
     require_approval: bool = False,
     checkpointer: Any | None = None,
@@ -334,6 +343,7 @@ def _build_graph(
                 mission_id=mission_id,
                 agent_id=member.agent_id,
                 budget=budget,
+                tools=tools_for(member) if tools_for else None,
             ):
                 await emit(item)
                 if is_ephemeral(item):

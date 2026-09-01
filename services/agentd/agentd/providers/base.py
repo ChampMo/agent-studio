@@ -20,15 +20,54 @@ from collections.abc import AsyncIterator
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal, Protocol, runtime_checkable
 
-Role = Literal["system", "user", "assistant"]
+Role = Literal["system", "user", "assistant", "tool"]
 StructuredOutput = Literal["schema", "json_object", "none"]
 ThinkingStyle = Literal["adaptive", "budget", "none"]
 
 
 @dataclass(frozen=True)
-class Message:
-    role: Role
+class ToolCall:
+    """A call the model asked for, as it goes back into the conversation.
+
+    Kept alongside `ToolCallChunk` rather than reusing it: the chunk is what
+    came off a stream and may be truncated, this is a finished call that was
+    actually made. Conflating them is how a half-parsed call gets replayed to
+    the model as though it had happened.
+    """
+
+    call_id: str
+    name: str
+    arguments_json: str
+
+
+@dataclass(frozen=True)
+class ToolOutcome:
+    """What a tool returned, on its way back to the model."""
+
+    call_id: str
+    name: str
     content: str
+    is_error: bool = False
+
+
+@dataclass(frozen=True)
+class Message:
+    """One turn of the conversation.
+
+    A tool round trip is two messages: the assistant's, carrying the calls it
+    asked for, and one of role `tool` carrying the results. The two APIs write
+    that completely differently — OpenAI uses a `tool` role with a
+    `tool_call_id`, Anthropic uses a `user` message containing `tool_result`
+    blocks — so this stays neutral and each adapter renders it. A shim that
+    pretended they were the same shape is exactly what §15 row 17 rules out.
+    """
+
+    role: Role
+    content: str = ""
+    #: Calls this assistant message asked for. Empty for every other role.
+    tool_calls: tuple[ToolCall, ...] = ()
+    #: Results carried by a `tool` message.
+    tool_results: tuple[ToolOutcome, ...] = ()
 
 
 @dataclass(frozen=True)
