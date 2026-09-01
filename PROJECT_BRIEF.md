@@ -56,7 +56,18 @@ Desktop app สำหรับสร้างและรันระบบ mult
 5. **API key อยู่ในฝั่ง Python เท่านั้น** ผ่าน `keyring` — Tauri ไม่เคยเห็น key
    ห้ามอยู่ใน localStorage, env var, argv, SQLite, หรือไฟล์ export
 6. **Budget guard ต้องมีตั้งแต่วันแรก** และผู้ใช้ต้องกดหยุดได้ตั้งแต่ M1
-7. **Code execution ต้องอยู่ใน sandbox** — จำกัด working directory, ไม่มี network โดย default
+7. **Code execution ไม่ได้อยู่ใน sandbox — พูดให้ตรง** สิ่งที่มีจริงคือ
+   **workspace-scoped + approval** ไม่ใช่ sandbox:
+   - fs tool ทุกตัวถูกจำกัดให้อยู่ใต้ `missions.workspace_root` โดย resolve realpath
+     แล้วเทียบ (กัน `..`, symlink, junction, และ 8.3 short name บน Windows)
+   - `bash` รันด้วย `cwd = workspace_root` **แต่ `cd` ออกไปไหนก็ได้** มี network
+     เต็มที่ และทำได้ทุกอย่างที่ผู้ใช้คนนั้นทำได้ ไม่มี container ไม่มี seccomp
+     ไม่มี user แยก
+   - สิ่งที่กั้นจริงคือ **การขออนุมัติต่อครั้ง** (§16.4) ซึ่งผู้ใช้ปิดได้ด้วย
+     `autonomy = trusted`
+   ห้ามเคลมในเอกสารหรือใน UI ว่าปลอดภัยกว่านี้ ตอนผู้ใช้เปิด `trusted` UI ต้อง
+   บอกตรง ๆ ว่ากำลังยกเลิกด่านเดียวที่มี ถ้าวันหนึ่งมี sandbox จริง
+   (container / VM) ค่อยแก้ข้อนี้พร้อมของที่ทำจริง
 8. **Forward compatibility** — ตาราง event เป็น append-only ตลอดกาล frontend ต้อง degrade
    ไม่ crash เมื่อเจอค่าที่ไม่รู้จัก ทุกที่ (ดู §8)
 9. **ห้ามแตะเลเยอร์กราฟิกก่อน M5**
@@ -298,6 +309,7 @@ frontend อ่าน port และ token จาก handshake config ทาง�
 id, name, title, role, backstory, personality_traits (json),
 system_prompt, provider_id, model, sampling (json, nullable),
 tools (json array of tool ids),
+autonomy ('ask_always'|'ask_dangerous'|'trusted', default 'ask_dangerous'),
 avatar_config (json: body, hair, outfit, palette),
 total_missions,
 created_at, updated_at, archived_at
@@ -330,8 +342,19 @@ UNIQUE (team_id) WHERE role_in_team = 'leader'                -- partial index �
 ```
 id, kind ('chat'|'mission'), team_id (nullable), goal, status,
 budget (json), roster_snapshot (json),
+workspace_root TEXT (nullable),        -- โฟลเดอร์ที่ fs tool ทำงานได้ (§16.2)
+pending_request TEXT (nullable),
 started_at, ended_at, end_reason, result_summary
 ```
+`workspace_root` ผูกกับ **mission** ไม่ใช่ agent และไม่ใช่ team — ทีมเดียวกันต้องเอาไป
+ใช้กับหลายโปรเจกต์ได้ เหมือนเปิดโฟลเดอร์ไหนก็ได้ใน editor (§15 แถว 29)
+
+### recent_workspaces
+```
+path TEXT PRIMARY KEY, last_used_at
+```
+เก็บ 10 รายการล่าสุด มีไว้ให้เลือกซ้ำเร็ว ๆ ไม่ใช่สิทธิ์ — การเลือกจาก dropdown
+ต้องผ่าน validate ตัวเดียวกับ path ที่พิมพ์มาเอง
 
 ### mission_events  — append-only ตลอดกาล
 ```
@@ -346,8 +369,12 @@ id, mission_id, agent_id, kind, path, created_at
 
 ### provider_profiles
 ```
-id, kind, base_url, model, capabilities (json), verified_at
+id, kind ('anthropic'|'openai_compatible'|'search'), base_url, model,
+capabilities (json), verified_at
 ```
+`kind = 'search'` คือ endpoint ค้นเว็บ (เริ่มที่ Tavily) key อยู่ใน keychain ที่เดียวกับ
+key ของ model ตาม §9.2 — **ไม่มี key ก็ไม่มี tool**: `web_search` หายไปจาก
+`GET /tools` เลย ไม่ใช่ขึ้นมาแล้ว fail ตอนเรียก (§16.5)
 
 ### 5.1 roster_snapshot — จุดที่สำคัญที่สุดในเอกสารนี้
 
@@ -357,8 +384,12 @@ id, kind, base_url, model, capabilities (json), verified_at
 ตอน mission เริ่ม เขียน `missions.roster_snapshot` ทันที เก็บ:
 ```json
 [{ "agent_id", "name", "avatar_config", "seat_index", "role_in_team",
-   "provider_id", "model", "tools", "system_prompt", "prompt_suffix" }]
+   "provider_id", "model", "tools", "autonomy", "system_prompt", "prompt_suffix",
+   "workspace_root" }]
 ```
+`workspace_root` และ `autonomy` อยู่ในนี้ด้วยเพราะเป็นคำถามที่ replay ต้องตอบได้:
+*ตอนนั้น agent ตัวนี้เขียนลงที่ไหน และมันต้องขออนุมัติแค่ไหน* — ทั้งสองค่าแก้ทีหลังได้
+ถ้าไม่ freeze ไว้ บันทึกจะเล่าเรื่องด้วยค่าของวันนี้
 
 **นี่คือ snapshot ของ mission ไม่ใช่ของ agent** จึงไม่ขัดกับ "อย่าทำ versioning"
 
@@ -437,7 +468,8 @@ type EventDraft =      // discriminated union ตาม type
 ```ts
 type EventPayload =
   // mission lifecycle
-  | { type: "mission.started";  kind: "chat"|"mission"; teamId?: string; goal: string }
+  | { type: "mission.started";  kind: "chat"|"mission"; teamId?: string; goal: string;
+      workspaceRoot?: string }
   | { type: "mission.progress"; taskId: string; label: string;
       state: "pending"|"running"|"done"|"failed"; done: number; total: number }
   | { type: "mission.ended";
@@ -536,7 +568,11 @@ replay ใช้ `agent.message` ตัวเต็มพอ ไม่ต้อ�
 
 - `GET /health`
 - `GET /tools` — tool registry เสิร์ฟจาก backend (frontend ไม่ต้องรู้ล่วงหน้า
-  จะได้มีสัญญาที่ต้อง sync แค่อันเดียวคือ events)
+  จะได้มีสัญญาที่ต้อง sync แค่อันเดียวคือ events) แต่ละรายการมี
+  `id, title, description, risk, requires, redact_fields, truncate_result_bytes,
+  input_schema` (§16.1)
+- `GET /workspaces/recent`, `POST /workspaces/validate` — validate ที่ backend เท่านั้น
+  path ที่ frontend ส่งมาเป็น untrusted input (§16.2)
 - `GET /providers`, `POST /providers/{id}/test`
 - `POST /missions`, `POST /missions/{id}/cancel`  ← **M1**
 - `POST /requests/{requestId}/resolve`
@@ -696,6 +732,26 @@ approval + artifact viewer + replay จาก `mission_events`
 ### M7 — ขัดและ package
 เดิน, speech bubble, เสียง, กล้อง, PyInstaller sidecar, ติดตั้งได้
 
+### M8 — Tools
+tool registry ที่รันได้จริง + workspace + การขออนุมัติ ราย­ละเอียดทั้งหมดอยู่ที่ **§16**
+
+ลำดับบังคับ: **workspace picker ก่อน fs tool ทุกตัว** — tool ที่แตะไฟล์ได้โดยยังไม่มี
+ขอบเขตที่ผู้ใช้เลือกเอง คือ tool ที่ไม่มีขอบเขต
+
+เกณฑ์:
+1. `read_file` อ่านไฟล์ใน workspace ได้ และทุกความพยายามออกนอก workspace
+   (`..`, symlink, junction, 8.3 short name) ถูกปฏิเสธ — เป็น test ไม่ใช่คำอธิบาย
+2. `write_file` ทับไฟล์ที่มีอยู่ไม่ได้, `edit_file` ที่ `old_str` ตรงมากกว่าหรือน้อยกว่า
+   หนึ่งที่ → fail
+3. agent ที่ `autonomy = ask_dangerous` เรียก `bash` แล้ว mission หยุดถาม ผ่าน
+   `agent.request` ตัวเดิมของ M6 และ modal แสดง tool + input ที่ redact แล้ว
+4. `write_file.content` ไม่ปรากฏใน `mission_events` — เหลือแค่ path + จำนวน byte
+5. ไม่มี key ของ search provider → `web_search` ไม่อยู่ใน `GET /tools`
+6. `web_fetch` ยิง localhost หรือ private IP ไม่ได้
+7. เริ่ม mission ที่มี fs tool โดยไม่เลือก workspace → ถูกบล็อก และ path ที่เลือก
+   แสดงค้างตลอดเวลาที่ mission รัน
+8. replay ของ mission เก่าบอกได้ว่าตอนนั้นทำงานที่โฟลเดอร์ไหน
+
 ---
 
 ## 13. สิ่งที่ยังไม่ต้องทำ
@@ -756,3 +812,156 @@ approval + artifact viewer + replay จาก `mission_events`
 | 26 | envelope ทรงไหน | `draft` ซ้อนข้างใน ไม่ใช่ `type`+`payload` แบน | ทรงแบน (`allOf`) ทำให้ datamodel-codegen เอาชื่อคลาสไปทับ const ของ `type` → discriminator พังเงียบ ๆ ทดสอบแล้วจริง (§6.1) |
 | 27 | pin formatter ของ codegen | `--formatters black isort` | ค่า default กำลังจะเปลี่ยน ถ้าไม่ pin วันหนึ่ง `codegen:check` จะ fail พร้อมกันทุกเครื่องโดยไม่มีใครแก้ schema |
 | 28 | **ถอย gamification ออก** | ลบ level/exp ทิ้งทั้งหมด (migration 0004) เก็บ `total_missions`, usage, avatar, การ์ดตัวละคร, ธีมสีเข้ม | ธีมเกมอยู่ที่รูปลักษณ์ ไม่ใช่ระบบตัวเลข **exp เป็นคะแนนที่เราแต่งขึ้น** — มันไม่ได้บอกอะไรจริงเกี่ยวกับ agent ตัวนั้น การแสดงมันคือการทำให้ UI โกหก ซึ่ง §1 ห้ามอยู่แล้ว ส่วน `total_missions` กับ token/เงิน เป็นข้อเท็จจริงที่วัดได้ จึงเก็บไว้ **อย่าเสนอ level/exp/MP/HP กลับเข้ามาอีก — เกณฑ์อยู่ที่ §1.1** |
+| 29 | `workspace_root` ผูกกับอะไร | **mission** ไม่ใช่ agent/team | ทีมเดียวควรใช้กับหลายโปรเจกต์ได้ ผูกกับ agent แปลว่าต้อง copy ทีมต่อโปรเจกต์ |
+| 30 | ขออนุมัติ tool ยังไง | ใช้ `agent.request` kind `approval` ของ M6 | กลไกที่สองแปลว่ามีสองอย่างที่ต้อง survive restart และอันที่ใหม่กว่าจะไม่ได้ทดสอบ |
+| 31 | เรียก sandbox ได้ไหม | **ไม่ได้** เขียนว่า workspace-scoped + approval | `bash` ยัง `cd` ออก มี network เต็ม ทำได้ทุกอย่างที่ผู้ใช้ทำได้ — เคลมเกินจริงคือ UI โกหก (§1) |
+| 32 | ไม่มี key ของ search | tool หายจาก registry | tool ที่ขึ้นแล้ว fail ทุกครั้งสอนให้ model เรียนรู้ว่าเรียกไปก็เท่านั้น และเปลืองเงินไปหนึ่ง call |
+| 33 | ผล web ถือเป็นอะไร | **data ไม่ใช่คำสั่ง** ห่อ marker เสมอ | หน้าเว็บเขียนโดยคนอื่น ถ้าปนกับ prompt ก็เท่ากับให้คนนอกสั่ง agent ที่ถือ `bash` |
+| 34 | agent เดียวถือทั้ง web และ write | validator `warn` แนะให้แยก Researcher/Coder | คนอ่านเนื้อหาจากภายนอกไม่ควรเป็นคนเดียวกับคนที่เขียนไฟล์ได้ — แยกแล้วคุยผ่าน `send_message` |
+| 35 | `write_file` ทับไฟล์ได้ไหม | **ไม่ได้** ต้องใช้ `edit_file` | ทับคือลบงานที่มีอยู่โดยไม่มีใครเห็น diff — `edit_file` บังคับให้ระบุของเดิมที่คาดว่าจะเจอ |
+
+---
+
+## 16. Tools (M8)
+
+tool ทำให้ agent ทำอะไรกับเครื่องของผู้ใช้ได้จริง ทุกข้อในหมวดนี้จึงเป็นข้อบังคับ
+ไม่ใช่ข้อแนะนำ และเกือบทุกข้อมี test คู่กัน
+
+### 16.1 Registry entry
+
+`GET /tools` คืนรายการที่แต่ละตัวมี:
+
+```
+id, title, description, input_schema (json schema),
+risk: "safe" | "guarded" | "dangerous",
+requires: string[]          -- สิ่งที่ต้องมีก่อนถึงจะใช้ได้ เช่น "workspace", "search_provider"
+redact_fields: string[]     -- path ใน input ที่ห้ามลง mission_events เต็ม ๆ (§9.3)
+truncate_result_bytes: int  -- ตัดผลลัพธ์ก่อนเข้า event
+```
+
+`risk` ไม่ได้แปลว่าอันตรายแค่ไหนในเชิงนามธรรม แต่แปลว่า **ต้องถามผู้ใช้เมื่อไหร่**
+(ดู 16.4) — เป็นค่าที่ registry เป็นเจ้าของ ไม่ใช่ prompt
+
+`redact_fields` แก้ปัญหาที่ §9.3 ตั้งไว้: `agent.tool.start.input` อยู่ในตาราง append-only
+ตลอดกาล ถ้า `write_file.content` ลงไปเต็ม ๆ ไฟล์ทั้งไฟล์จะถูกคัดลอกเข้า database
+ที่แก้ไม่ได้ ดังนั้น `write_file` ประกาศ `redact_fields: ["content"]` แล้ว event เก็บแค่
+`path` กับจำนวน byte — พอสำหรับ timeline ที่ต้องบอกว่า *เขียนอะไรลงไปที่ไหน ยาวเท่าไร*
+
+### 16.2 Workspace
+
+**ทำก่อน fs tool ทุกตัว** ไม่มี workspace = ไม่มีขอบเขต
+
+- เก็บที่ `missions.workspace_root` (§5) และเข้า `roster_snapshot` ด้วย (§5.1)
+- `mission.started` มี `workspaceRoot` → timeline และ replay บอกได้ว่าตอนนั้นทำงานที่ไหน
+- `recent_workspaces` เก็บ 10 path ล่าสุดไว้เลือกซ้ำ **แต่ไม่ใช่สิทธิ์** — เลือกจาก
+  dropdown ก็ต้อง validate ใหม่ทุกครั้ง
+
+**backend validate เท่านั้น** path ที่มาจาก frontend เป็น untrusted input:
+
+1. resolve realpath
+2. ต้องเป็น directory ที่มีอยู่จริง
+3. ห้ามเป็น system directory (`C:\Windows`, `C:\Program Files`, `/etc`, `/usr`, …)
+4. เตือน (ไม่ห้าม) ถ้าเป็น home, Desktop, Documents หรือ root ของไดรฟ์ — กว้างเกินกว่าที่
+   ตั้งใจเกือบทุกครั้ง
+
+**UI:**
+
+- เลือกผ่าน Tauri dialog plugin + dropdown ของ recent
+- path ที่เลือก **แสดงค้างตลอดเวลาที่ mission รัน** ไม่ใช่เห็นแค่ตอนเลือก
+  ผู้ใช้ต้องรู้ตลอดว่า agent เขียนลงที่ไหน (§1 observability)
+- เริ่ม mission ที่มี fs tool โดยยังไม่เลือก → บล็อกที่ launch gate เดียวกับ validator
+
+`workspace_root` ส่งถึง tool ทาง **context ของ mission** เท่านั้น ห้าม tool อ่านจาก global
+state หรือ `cwd` ของ process — สอง mission ที่รันพร้อมกันคนละโฟลเดอร์ต้องไม่ปนกัน
+
+### 16.3 Path safety
+
+fs tool ทุกตัวเรียก resolver ตัวเดียวกัน:
+
+```
+realpath(join(workspace_root, path)) ต้องอยู่ใต้ realpath(workspace_root)
+```
+
+ต้องกันให้ครบ และมี test ที่ *พยายามหนีจริง* ทุกแบบ:
+
+- `..` ทุกรูปแบบ รวมที่ซ้อนกับชื่อจริง
+- symlink ที่ชี้ออกนอก workspace
+- **Windows junction** (`mklink /J`) — ไม่ใช่ symlink คนละกลไก
+- **8.3 short name** (`PROGRA~1`) — path เดียวกันเขียนได้สองแบบ ถ้าเทียบ string ตรง ๆ
+  จะหลุด
+
+เทียบหลัง realpath เสมอ ห้ามเทียบ string ก่อน resolve
+
+### 16.4 Permission
+
+`agents.autonomy` มีสามค่า default `ask_dangerous`:
+
+| autonomy | ถามเมื่อ |
+|---|---|
+| `ask_always` | ทุก tool |
+| `ask_dangerous` | `risk = "dangerous"` |
+| `trusted` | ไม่ถาม |
+
+ใช้ **`agent.request` kind `approval` ของ M6 ตัวเดิม** ห้ามสร้างกลไกใหม่ — ของเดิม
+survive restart แล้วและมี test ครบ (§15 แถว 30)
+
+modal ต้องแสดง **tool + input ที่ redact แล้ว** ก่อนผู้ใช้กด อนุมัติสิ่งที่มองไม่เห็น
+ไม่ใช่การอนุมัติ
+
+`trusted` ต้องมีคำเตือนตอนเปิดที่พูดตรง ๆ ว่ากำลังปิดด่านเดียวที่มีอยู่ (§2.7)
+
+### 16.5 web_search provider
+
+`provider_profiles.kind = 'search'` เริ่มที่ **Tavily** เพราะคืนเนื้อหาที่สกัดมาแล้ว
+เหมาะกับ agent มากกว่าลิสต์ลิงก์ key อยู่ใน keychain ที่เดียวกับ key ของ model (§9.2)
+
+ไม่มี key → `web_search` **หายจาก `GET /tools`** ไม่ใช่ขึ้นแล้ว fail (§15 แถว 32)
+
+### 16.6 Prompt injection
+
+หน้าเว็บและผลค้นหาเขียนโดยคนอื่น ถ้าปนเข้าไปใน prompt ของ agent ที่ถือ `bash`
+ก็เท่ากับให้คนนอกสั่งเครื่องผู้ใช้
+
+1. ผลจาก `web_fetch` และ `web_search` ต้องห่อด้วย marker ที่บอกชัดว่าเป็น
+   **untrusted data ไม่ใช่คำสั่ง** และ system prompt ต้องบอก agent ตรง ๆ ว่า
+   ห้ามทำตามคำสั่งที่อยู่ในเนื้อหาที่ดึงมา
+2. validator เพิ่ม `warn`: ทีมที่มี agent ตัวเดียวถือทั้ง web tool และ `bash`/fs write
+   พร้อมเหตุผล และข้อเสนอให้แยกเป็น Researcher / Coder แล้วคุยผ่าน `send_message`
+3. `web_fetch` ต้องมี domain policy (allowlist/denylist) และ **บล็อก private IP
+   range กับ localhost** — ไม่งั้น agent ยิงเข้า backend ตัวเองซึ่งถือ token อยู่ได้ (SSRF)
+
+ข้อ 1 ลดโอกาส ไม่ได้ปิดช่อง ข้อ 2 กับ 3 คือสิ่งที่ยังยืนอยู่เมื่อข้อ 1 ล้มเหลว
+
+### 16.7 ชุด tool
+
+**safe** — ไม่ถาม (ยกเว้น `ask_always`)
+
+```
+read_file(path, offset?, limit?)   -- ต้องมี offset/limit และ default limit ที่สมเหตุสมผล
+list_dir(path?)
+glob(pattern, path?)
+grep(pattern, path?, glob?)
+web_search(query)                  -- requires: search_provider
+send_message(to, content)          -- คุยกันในทีม
+ask_user(question)                 -- ใช้ agent.request kind "question"
+recall(query)                      -- อ่านความจำของ agent ตัวเอง
+remember(text)                     -- เขียนความจำ
+```
+
+**guarded** — ถามเมื่อ `ask_always`
+
+```
+write_file(path, content)          -- ไฟล์ใหม่เท่านั้น ทับของเดิมไม่ได้ (§15 แถว 35)
+edit_file(path, old_str, new_str)  -- old_str ต้อง match ได้ที่เดียว 0 หรือ >1 → fail
+```
+
+**dangerous** — ถามเสมอ ยกเว้น `trusted`
+
+```
+bash(command, timeout)             -- cwd = workspace_root แต่ไม่ใช่ sandbox (§2.7)
+web_fetch(url)                     -- domain policy + block private IP (16.6)
+```
+
+`read_file` ที่ไม่มี `limit` จะดูดไฟล์ 50MB เข้า context แล้วชน budget ในหนึ่งเรียก
+`edit_file` ที่ match หลายที่แล้วแก้ทั้งหมดคือการแก้สิ่งที่ agent ไม่ได้ตั้งใจแก้ —
+สองข้อนี้เป็นเหตุผลเดียวกัน: tool ต้องทำสิ่งที่คนเรียกเข้าใจว่ามันจะทำ

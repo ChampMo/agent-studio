@@ -171,6 +171,7 @@ def test_overrides_are_resolved_into_the_snapshot_not_left_to_read_later():
         system_prompt = "Be careful."
         provider_id, model, sampling = "prov-1", "base-model", None
         tools = ["search", "read"]
+        autonomy = "ask_dangerous"
         avatar_config = {"body": "slim"}
 
     class FakeMember:

@@ -51,6 +51,12 @@ class Mission(Base):
     #: routed without replaying the event log to find what was asked (§12 M6).
     pending_request: Mapped[str | None] = mapped_column(String, nullable=True)
 
+    #: The only folder this mission's file tools may touch (§16.2). On the
+    #: mission rather than the team, because one team has to be usable on
+    #: several projects (§15 row 29). Null for a chat, and for a team that
+    #: carries no file tool.
+    workspace_root: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     end_reason: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -141,6 +147,14 @@ class Agent(Base):
     sampling: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
     tools: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+
+    #: When a tool call stops to ask the user (§16.4). `ask_dangerous` by
+    #: default: `bash` and `web_fetch` are the two that can do something the
+    #: user cannot undo, and the gate in front of them is the only one there is
+    #: — there is no sandbox behind it (§2.7).
+    autonomy: Mapped[str] = mapped_column(
+        String, nullable=False, default="ask_dangerous", server_default="ask_dangerous"
+    )
     avatar_config: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
 
     #: Counted from missions that actually finished. A fact, not a score.
@@ -249,4 +263,23 @@ class Artifact(Base):
         CheckConstraint("kind IN ('code', 'doc', 'image')", name="ck_artifacts_kind"),
         UniqueConstraint("mission_id", "path", name="uq_artifacts_path"),
         Index("ix_artifacts_mission", "mission_id"),
+    )
+
+
+class RecentWorkspace(Base):
+    """Folders the user has pointed a mission at before (§16.2).
+
+    A convenience, never a permission: picking one from the list runs the same
+    validation as a path typed by hand. Otherwise "it passed once" would become
+    a way around the checks — and a folder can stop being safe to write to
+    between two launches.
+    """
+
+    __tablename__ = "recent_workspaces"
+
+    #: The resolved path is the identity, so choosing the same folder twice
+    #: moves it up the list instead of growing it.
+    path: Mapped[str] = mapped_column(Text, primary_key=True)
+    last_used_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
     )

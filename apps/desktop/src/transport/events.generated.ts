@@ -80,6 +80,10 @@ export interface PayloadMissionStarted {
    */
   teamId?: string;
   goal: string;
+  /**
+   * The folder this mission's file tools are confined to (section 16.2). Absent for a mission launched without one - a chat, or a team with no fs tool. On the log so a replay can say where the work actually happened.
+   */
+  workspaceRoot?: string;
 }
 export interface DraftMissionProgress {
   type: "mission.progress";

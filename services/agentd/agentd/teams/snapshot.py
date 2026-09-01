@@ -39,6 +39,9 @@ class SnapshotMember:
     avatar_config: dict[str, Any]
     title: str = ""
     role: str = ""
+    #: When this member's tool calls stop to ask (§16.4). Frozen with the rest:
+    #: a replay has to say how much the agent was trusted *then*, not now.
+    autonomy: str = "ask_dangerous"
 
     @property
     def is_leader(self) -> bool:
@@ -58,6 +61,10 @@ class SnapshotMember:
 @dataclass
 class RosterSnapshot:
     members: list[SnapshotMember] = field(default_factory=list)
+    #: The folder this mission's file tools may touch (§16.2). Frozen here so a
+    #: replay can answer "where was it writing?" — the mission row can be read
+    #: for the live answer, but the snapshot is what the timeline is built from.
+    workspace_root: str | None = None
 
     @property
     def leader(self) -> SnapshotMember | None:
@@ -74,15 +81,31 @@ class RosterSnapshot:
         return next((m for m in self.members if m.agent_id == agent_id), None)
 
     def to_json(self) -> list[dict[str, Any]]:
-        return [m.to_json() for m in self.members]
+        """The stored form: a list of members, each carrying the workspace.
+
+        A list rather than an object because that is what `roster_snapshot` has
+        held since migration 0001 and the column is full of real missions. The
+        workspace rides on each member — repetitive, but it keeps every row
+        readable by the build that wrote it and by this one (§8).
+        """
+        return [{**m.to_json(), "workspace_root": self.workspace_root} for m in self.members]
 
     @classmethod
     def from_json(cls, data: list[dict[str, Any]] | None) -> RosterSnapshot:
-        return cls([SnapshotMember.from_json(d) for d in (data or [])])
+        rows = data or []
+        workspace = next(
+            (row.get("workspace_root") for row in rows if row.get("workspace_root")),
+            None,
+        )
+        return cls([SnapshotMember.from_json(d) for d in rows], workspace_root=workspace)
 
 
 def resolve(
-    *, team: Team, members: list[TeamMember], agents: dict[str, Agent]
+    *,
+    team: Team,
+    members: list[TeamMember],
+    agents: dict[str, Agent],
+    workspace_root: str | None = None,
 ) -> RosterSnapshot:
     """Merge agents with their per-team overrides, once, at launch.
 
@@ -121,8 +144,9 @@ def resolve(
                 model=overrides.get("model") or agent.model,
                 sampling=overrides.get("sampling", agent.sampling),
                 tools=list(tool_subset) if tool_subset is not None else list(agent.tools),
+                autonomy=overrides.get("autonomy") or agent.autonomy,
                 avatar_config=dict(agent.avatar_config),
             )
         )
 
-    return RosterSnapshot(resolved)
+    return RosterSnapshot(resolved, workspace_root=workspace_root)

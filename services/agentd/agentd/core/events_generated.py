@@ -76,6 +76,12 @@ class PayloadMissionStarted(BaseModel):
         Field(description='Absent when kind is "chat" (degenerate mission).'),
     ] = None
     goal: str
+    workspaceRoot: Annotated[
+        str | None,
+        Field(
+            description="The folder this mission's file tools are confined to (section 16.2). Absent for a mission launched without one - a chat, or a team with no fs tool. On the log so a replay can say where the work actually happened."
+        ),
+    ] = None
 
 
 class PayloadMissionProgress(BaseModel):

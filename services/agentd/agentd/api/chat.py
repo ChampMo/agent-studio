@@ -38,6 +38,9 @@ class MissionIn(BaseModel):
     team_id: str | None = None
     #: Pause after planning and wait for the user before any work is paid for.
     require_approval: bool = False
+    #: The folder this mission's file tools may touch (§16.2). Validated again
+    #: on this side: it arrives from a window, and the window can be driven.
+    workspace_root: str | None = Field(default=None, max_length=4096)
     content: str = Field(min_length=1)
     budget: BudgetIn | None = None
 
@@ -58,6 +61,7 @@ async def start_mission(request: Request, body: MissionIn) -> dict[str, Any]:
                 goal=body.content,
                 budget=budget,
                 require_approval=body.require_approval,
+                workspace_root=body.workspace_root,
             )
         except MissionRejected as exc:
             # 409, not 400: the request is well-formed, the team is not ready.

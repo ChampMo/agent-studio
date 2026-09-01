@@ -27,6 +27,9 @@ from ..artifacts.store import ArtifactStore
 from ..orchestrator.graph import Paused, run_team_mission
 from ..orchestrator.hitl import PlanRejected
 from ..orchestrator.planner import PlanningFailed
+from ..tools import registry as tool_registry
+from ..tools.workspace import WorkspaceRejected, WorkspaceStore
+from ..tools.workspace import check as workspace_check
 from ..providers import registry
 from ..providers.base import (
     Capabilities,
@@ -170,6 +173,7 @@ class MissionRunner:
         goal: str,
         budget: dict[str, Any] | None = None,
         require_approval: bool = False,
+        workspace_root: str | None = None,
     ) -> str:
         """Launch a team (§7).
 
@@ -214,7 +218,38 @@ class MissionRunner:
         if errors := blocking(findings):
             raise MissionRejected([f.message for f in errors])
 
-        roster = snapshot_mod.resolve(team=team, members=members, agents=agents)
+        # The workspace is re-checked here even though the picker checked it:
+        # the path came from a window, and this is the process that will act on
+        # it (§16.2). A folder can also stop being a directory between the two.
+        resolved_workspace: str | None = None
+        if workspace_root:
+            try:
+                resolved_workspace = workspace_check(workspace_root).path
+            except WorkspaceRejected as exc:
+                raise MissionRejected([f"workspace: {exc.reason}"]) from exc
+
+        # A team that can touch files without a folder chosen has no boundary
+        # at all, so this is a launch gate rather than a warning (§16.2).
+        if resolved_workspace is None:
+            wanted = sorted(
+                {
+                    tool
+                    for agent in agents.values()
+                    for tool in tool_registry.needs_workspace(list(agent.tools))
+                }
+            )
+            if wanted:
+                raise MissionRejected(
+                    [
+                        "choose a workspace folder before running this team: "
+                        + ", ".join(wanted)
+                        + " can only run inside one"
+                    ]
+                )
+
+        roster = snapshot_mod.resolve(
+            team=team, members=members, agents=agents, workspace_root=resolved_workspace
+        )
         limits = resolve_limits(mission=budget, team_default=team.default_budget)
         mission_id = f"mission-{uuid.uuid4()}"
 
@@ -228,17 +263,25 @@ class MissionRunner:
                     status="running",
                     budget=limits.as_dict(),
                     roster_snapshot=roster.to_json(),
+                    workspace_root=resolved_workspace,
                     started_at=datetime.now(UTC),
                 )
             )
             await s.commit()
 
+        if resolved_workspace:
+            # Remembered only once a mission actually used it, so the list is
+            # of folders that were worked in rather than folders that were
+            # browsed to (§16.2).
+            await WorkspaceStore(self._db).remember(resolved_workspace)
+
+        started: dict[str, Any] = {"kind": "mission", "teamId": team_id, "goal": goal}
+        if resolved_workspace:
+            # On the log, so a replay can say where the work happened rather
+            # than where this build would put it today (§5.1).
+            started["workspaceRoot"] = resolved_workspace
         await self._bus.publish(
-            mission_id,
-            {
-                "type": "mission.started",
-                "payload": {"kind": "mission", "teamId": team_id, "goal": goal},
-            },
+            mission_id, {"type": "mission.started", "payload": started}
         )
         await self._bus.publish(
             mission_id, {"type": "user.message", "payload": {"content": goal}}
