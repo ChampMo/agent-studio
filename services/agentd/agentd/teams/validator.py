@@ -153,6 +153,33 @@ def validate(
                 )
             )
 
+    for member in members:
+        agent = agents.get(member.agent_id)
+        if agent is None:
+            continue
+        held = set(_effective_tools(member, agent))
+        reads_web = held & WEB_TOOLS
+        changes_things = held & WRITE_TOOLS
+        if reads_web and changes_things:
+            # Not an error: a solo agent that researches and writes is a
+            # perfectly ordinary thing to want, and refusing it would be this
+            # file deciding how people work. But the two halves together are
+            # what turns a page someone else wrote into a command on this
+            # machine (§16.6 item 2), and that is worth saying once, by name.
+            findings.append(
+                Finding(
+                    "web_and_write_in_one_agent",
+                    "warn",
+                    f"{agent.name} can both read the web ({', '.join(sorted(reads_web))}) "
+                    f"and change things ({', '.join(sorted(changes_things))}). A page "
+                    "it reads can contain instructions aimed at it, and it would be "
+                    "the one holding the tools to carry them out. Consider splitting "
+                    "the roles - a researcher that only reads, a worker that only "
+                    "writes - and letting them talk with send_message.",
+                    member.agent_id,
+                )
+            )
+
     if not layouts.is_known(layout_id):
         findings.append(
             Finding(
@@ -164,6 +191,13 @@ def validate(
         )
 
     return findings
+
+
+#: Tools that bring text written by someone else into the agent's context.
+WEB_TOOLS = {"web_fetch", "web_search"}
+
+#: Tools that can act on that text - change the user's files or run commands.
+WRITE_TOOLS = {"write_file", "edit_file", "bash"}
 
 
 def _effective_tools(member: TeamMember, agent: Agent | None) -> list[str]:

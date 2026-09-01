@@ -27,7 +27,12 @@ from ..artifacts.store import ArtifactStore
 from ..orchestrator.graph import Paused, run_team_mission
 from ..orchestrator.hitl import PlanRejected
 from ..orchestrator.planner import PlanningFailed
+from ..core import secrets
 from ..tools import registry as tool_registry
+from ..tools.search import DEFAULT_ENDPOINT as DEFAULT_SEARCH_ENDPOINT
+from ..tools.search import SearchEndpoint
+from ..tools.shell import find_shell
+from ..tools.team import Mailbox
 from ..tools.base import ToolContext
 from ..tools.execution import ToolBox
 from ..tools.workspace import WorkspaceRejected, WorkspaceStore
@@ -337,6 +342,72 @@ class MissionRunner:
                 )
                 profiles = {p.id: p for p in rows.scalars().all()}
 
+        # Looked up once for the mission: the search endpoint and its key, if
+        # one is configured. A tool never reads the keychain itself (§9.2), and
+        # `web_search` is simply not offered when there is nothing behind it
+        # (§15 row 32).
+        search_endpoint: SearchEndpoint | None = None
+        for profile in profiles.values():
+            if profile.kind == "search" and (key := secrets.get_key(profile.id)):
+                search_endpoint = SearchEndpoint(
+                    api_key=key, base_url=profile.base_url or DEFAULT_SEARCH_ENDPOINT
+                )
+                break
+        if search_endpoint is None:
+            async with self._db.session() as s:
+                rows = await s.execute(
+                    select(ProviderProfile).where(ProviderProfile.kind == "search")
+                )
+                for profile in rows.scalars().all():
+                    if key := secrets.get_key(profile.id):
+                        search_endpoint = SearchEndpoint(
+                            api_key=key,
+                            base_url=profile.base_url or DEFAULT_SEARCH_ENDPOINT,
+                        )
+                        break
+
+        # One mailbox for the mission. Not persisted: what was said is on the
+        # event log, and a second copy would be a second thing to keep true.
+        mailbox = Mailbox({m.agent_id: m.name for m in roster.members})
+
+        async def ask(agent_id: str, question: str) -> str | None:
+            """`ask_user`, using M6's request end to end (§16.7).
+
+            The runner publishes and the runner waits, because the runner is
+            what owns the bus and the routing. Same event, same endpoint and
+            same modal as an approval - only `kind` differs.
+            """
+            request_id = f"req-{uuid.uuid4()}"
+            waiting = self.open(mission_id, request_id)
+            await self._bus.publish(
+                mission_id,
+                {
+                    "type": "agent.request",
+                    "payload": {
+                        "agentId": agent_id,
+                        "requestId": request_id,
+                        "kind": "question",
+                        "question": question,
+                    },
+                },
+            )
+            await self._bus.publish(
+                mission_id,
+                {"type": "agent.status", "payload": {"agentId": agent_id, "status": "waiting"}},
+            )
+            try:
+                return await waiting
+            except asyncio.CancelledError:
+                # The mission ended while the question was on screen. Reported
+                # to the tool as unanswered rather than swallowed.
+                return None
+
+        met_requirements = {"workspace"} if roster.workspace_root else set()
+        if search_endpoint is not None:
+            met_requirements.add("search_provider")
+        if find_shell() is not None:
+            met_requirements.add("shell")
+
         def tools_for(member: SnapshotMember) -> ToolBox | None:
             """The tools this member may use, scoped to this mission.
 
@@ -349,6 +420,10 @@ class MissionRunner:
                 spec
                 for tool_id in member.tools
                 if (spec := tool_registry.get(tool_id)) is not None
+                # A tool whose requirement is not met is left out rather than
+                # offered and failing: a model that calls it learns nothing and
+                # has already paid for the round.
+                and set(spec.requires) <= met_requirements
             ]
             if not specs:
                 return None
@@ -358,6 +433,12 @@ class MissionRunner:
                     mission_id=mission_id,
                     agent_id=member.agent_id,
                     workspace_root=roster.workspace_root,
+                    extras={
+                        "db": self._db,
+                        "mailbox": mailbox,
+                        "ask": ask,
+                        **({"search": search_endpoint} if search_endpoint else {}),
+                    },
                 ),
                 autonomy=member.autonomy,
                 gate=self,

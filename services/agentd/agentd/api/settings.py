@@ -28,7 +28,7 @@ router = APIRouter(dependencies=[Depends(require_token)])
 
 class ProfileIn(BaseModel):
     name: str = Field(min_length=1, max_length=100)
-    kind: Literal["openai_compatible", "anthropic"]
+    kind: Literal["openai_compatible", "anthropic", "search"]
     model: str = Field(min_length=1)
     base_url: str | None = None
 

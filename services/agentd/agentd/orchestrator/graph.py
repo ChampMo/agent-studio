@@ -326,10 +326,32 @@ def _build_graph(
             )
 
             provider, caps = provider_for(member)
+            box = tools_for(member) if tools_for else None
+            # An agent that can pull in text written by someone else is told, in
+            # its own system prompt, that such text is data (§16.6). Added here
+            # rather than saved into the agent's prompt: it depends on which
+            # tools this mission gave it, and a stored copy would drift.
+            system = member.system_prompt
+            if box and (rule := box.system_addendum()):
+                system = "\n\n".join([system, rule]).strip()
+
+            # Anything a teammate left for this member, delivered now rather
+            # than merely logged: splitting a researcher from a writer (§16.6)
+            # is only advice worth taking if the two can actually hand work
+            # over.
+            instruction = task["instruction"]
+            mailbox = box.context.extras.get("mailbox") if box else None
+            if mailbox is not None and (waiting := mailbox.collect(member.agent_id)):
+                delivered = "\n\n".join(
+                    "\n".join([f"{mailbox.name_of(sender)} says:", content])
+                    for sender, content in waiting
+                )
+                instruction = "\n\n".join([delivered, "---", instruction])
+
             request = ChatRequest(
                 model=member.model or "",
-                messages=[Message("user", task["instruction"])],
-                system=member.system_prompt,
+                messages=[Message("user", instruction)],
+                system=system,
                 max_tokens=MAX_TOKENS_PER_TASK,
                 sampling=member.sampling,
             )
@@ -343,7 +365,7 @@ def _build_graph(
                 mission_id=mission_id,
                 agent_id=member.agent_id,
                 budget=budget,
-                tools=tools_for(member) if tools_for else None,
+                tools=box,
             ):
                 await emit(item)
                 if is_ephemeral(item):

@@ -283,3 +283,28 @@ class RecentWorkspace(Base):
     last_used_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
+
+
+class AgentMemory(Base):
+    """Something an agent wrote down for itself (§16.7).
+
+    Per agent rather than per mission: a note that vanished at the end of the
+    run would be a scratchpad, and the conversation is already that. Searched by
+    keyword, which is what `recall` says it does — `sqlite-vec` is in the stack
+    but nothing embeds anything yet, and a search that implied it understood
+    meaning would be the app claiming more than it has (§1).
+    """
+
+    __tablename__ = "agent_memories"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    agent_id: Mapped[str] = mapped_column(
+        String, ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    #: Where it was written. Not a scope: a replay should be able to say which
+    #: run produced a note.
+    mission_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (Index("ix_agent_memories_agent", "agent_id"),)
