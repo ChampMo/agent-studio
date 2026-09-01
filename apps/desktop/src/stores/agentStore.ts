@@ -22,6 +22,8 @@ interface AgentState {
   update: (id: string, changes: Partial<AgentInput>) => Promise<Agent>;
   duplicate: (id: string) => Promise<void>;
   archive: (id: string) => Promise<void>;
+  /** Permanent. Replays are unaffected; the agent's team seats are not. */
+  remove: (id: string) => Promise<void>;
   restore: (id: string) => Promise<void>;
 }
 
@@ -71,6 +73,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
   archive: async (id) => {
     await api.archiveAgent(id);
+    await get().load();
+  },
+
+  remove: async (id) => {
+    await api.deleteAgent(id);
     await get().load();
   },
 

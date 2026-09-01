@@ -30,6 +30,7 @@ interface TeamState {
   update: (id: string, changes: Partial<TeamInput>) => Promise<Team>;
   duplicate: (id: string) => Promise<void>;
   archive: (id: string) => Promise<void>;
+  remove: (id: string) => Promise<void>;
   restore: (id: string) => Promise<void>;
   exportTeam: (id: string) => Promise<TeamExport>;
   importTeam: (document: TeamExport) => Promise<void>;
@@ -77,6 +78,11 @@ export const useTeamStore = create<TeamState>((set, get) => ({
 
   duplicate: async (id) => {
     await api.duplicateTeam(id);
+    await get().load();
+  },
+
+  remove: async (id) => {
+    await api.deleteTeam(id);
     await get().load();
   },
 

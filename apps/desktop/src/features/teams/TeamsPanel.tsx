@@ -12,8 +12,9 @@ import type { Team } from "../../transport/rest";
 import { TeamBuilder } from "./TeamBuilder";
 
 function TeamCard({ team, onEdit }: { team: Team; onEdit: () => void }) {
-  const { duplicate, archive, restore, exportTeam } = useTeamStore();
+  const { duplicate, archive, restore, remove, exportTeam } = useTeamStore();
   const archived = team.archivedAt !== null;
+  const [confirming, setConfirming] = useState(false);
   const errors = team.findings.filter((f) => f.severity === "error");
   const warnings = team.findings.filter((f) => f.severity === "warn");
 
@@ -101,7 +102,26 @@ function TeamCard({ team, onEdit }: { team: Team; onEdit: () => void }) {
             {strings.teams.archive}
           </Button>
         )}
+        <Button variant="ghost" onClick={() => setConfirming((v) => !v)}>
+          {strings.teams.delete}
+        </Button>
       </div>
+
+      {confirming ? (
+        <div className="space-y-2 rounded-md border border-red-900/60 bg-red-950/30 p-3">
+          {/* The agents are not touched, and neither are the runs: a mission
+              froze its roster at launch (§5.1). What goes is the arrangement. */}
+          <p className="text-xs text-red-300">{strings.teams.deleteWarning}</p>
+          <div className="flex gap-2">
+            <Button variant="danger" onClick={() => remove(team.id)}>
+              {strings.teams.deleteConfirm}
+            </Button>
+            <Button variant="ghost" onClick={() => setConfirming(false)}>
+              {strings.teams.close}
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

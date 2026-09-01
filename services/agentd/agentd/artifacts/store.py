@@ -124,6 +124,27 @@ class ArtifactStore:
                 await s.execute(select(Artifact).where(Artifact.id == artifact_id))
             ).scalar_one_or_none()
 
+    async def remove(self, artifact: Artifact) -> None:
+        """Delete the file this row points at, if it is still there.
+
+        The row is the caller's to delete; this is only the file. A missing one
+        is not an error — the data directory may have been cleaned — and
+        refusing to continue would leave a mission half deleted.
+        """
+        try:
+            path = _safe(artifact.mission_id, artifact.path)
+        except ArtifactRejected:
+            # A stored path that no longer resolves inside the artifact root is
+            # not ours to delete, whatever it is.
+            return
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            # Locked by something else, or on a volume that has gone. The row
+            # still goes; a file left behind is tidier than a delete that stops
+            # half way.
+            return
+
     async def read_text(self, artifact: Artifact) -> str:
         path = _safe(artifact.mission_id, artifact.path)
         if not path.is_file():

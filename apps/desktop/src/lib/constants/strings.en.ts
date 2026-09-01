@@ -118,6 +118,11 @@ export const strings = {
     members: "members",
     live: "live",
     replaying: "Replayed from the log",
+    delete: "Delete",
+    deleteConfirm: "Delete this run",
+    deleteWarning:
+      "This removes the run, everything on its timeline, and the files it produced. There is no undo, and nothing else keeps a copy.",
+    deleteRunning: "Stop the run before deleting it.",
   },
 
   artifacts: {
@@ -141,6 +146,10 @@ export const strings = {
     duplicate: "Duplicate",
     archive: "Archive",
     restore: "Restore",
+    delete: "Delete",
+    deleteConfirm: "Delete permanently",
+    deleteWarning:
+      "This cannot be undone. The agents stay in your roster and the missions this team ran keep their record — what goes is the team itself and its seats.",
     importedBefore:
       "You have imported this team before. A separate copy was made — importing never overwrites what you have edited.",
 
@@ -170,15 +179,23 @@ export const strings = {
     showArchived: "Show archived",
     archived: "Archived",
     missions: "missions",
-    edit: "Edit prompt",
+    edit: "Edit",
     saveEdit: "Save",
     duplicate: "Duplicate",
     archive: "Archive",
     restore: "Restore",
+    delete: "Delete",
+    deleteConfirm: "Delete permanently",
+    deleteWarning:
+      "This cannot be undone. Missions this agent ran keep their own record of it, so the history stays true — but its seat on any team goes, and so do its notes. Archive instead if you only want it out of the way.",
   },
 
   creator: {
     title: "Create an agent",
+    editTitle: "Edit agent",
+    editIntro:
+      "Everything about this agent, on one page — including what it can do and when it stops to ask.",
+    saveEdit: "Save changes",
     intro:
       "Describe the role and the model drafts a character. Nothing is saved until you review it and press Save.",
     providerLabel: "Generate with",

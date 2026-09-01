@@ -6,9 +6,9 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
-from ..db.models import Agent
+from ..db.models import Agent, AgentMemory, TeamMember
 from ..db.session import Database
 from .avatar import default_avatar, validate_avatar
 
@@ -182,3 +182,29 @@ class AgentService:
                 "avatar_config": dict(source.avatar_config),
             }
         )
+
+    async def delete(self, agent_id: str) -> None:
+        """Remove the row for good.
+
+        Archiving is the right default and stays the default (§5.2): a team
+        points at this row, and a half-built team is the normal state. But an
+        agent someone created by mistake is theirs to be rid of, and a roster
+        that can only ever grow is a roster people stop trusting.
+
+        What makes this safe is the snapshot. A finished mission holds its own
+        copy of who ran it (§5.1), so deleting the agent cannot rewrite what a
+        replay says — the run still shows the name, model and avatar that did
+        the work. What a delete *does* affect is teams, so the memberships go
+        with it and the team is left saying it is short a member, which is a
+        thing the validator already knows how to report.
+        """
+        async with self._db.session() as s:
+            agent = (
+                await s.execute(select(Agent).where(Agent.id == agent_id))
+            ).scalar_one_or_none()
+            if agent is None:
+                raise AgentNotFound(agent_id)
+            await s.execute(delete(TeamMember).where(TeamMember.agent_id == agent_id))
+            await s.execute(delete(AgentMemory).where(AgentMemory.agent_id == agent_id))
+            await s.delete(agent)
+            await s.commit()

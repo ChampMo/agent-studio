@@ -12,15 +12,12 @@ import { useAgentStore } from "../../stores/agentStore";
 import { Badge, Button } from "../../components/ui/primitives";
 import type { Agent } from "../../transport/rest";
 import { AgentCreator } from "../agent-creator/AgentCreator";
-import { ToolPicker } from "../agent-creator/ToolPicker";
-import type { Autonomy } from "../../transport/rest";
 
-function AgentCard({ agent }: { agent: Agent }) {
-  const { duplicate, archive, restore, update } = useAgentStore();
-  const [editing, setEditing] = useState(false);
-  const [tools, setTools] = useState<string[]>(agent.tools ?? []);
-  const [autonomy, setAutonomy] = useState<Autonomy>(agent.autonomy ?? "ask_dangerous");
-  const [prompt, setPrompt] = useState(agent.systemPrompt);
+function AgentCard({ agent, onEdit }: { agent: Agent; onEdit: () => void }) {
+  const { duplicate, archive, restore, remove } = useAgentStore();
+  // Two clicks to delete, and the second one says what it will do. There is no
+  // undo behind it, unlike archiving.
+  const [confirming, setConfirming] = useState(false);
   const archived = agent.archivedAt !== null;
 
   return (
@@ -58,7 +55,7 @@ function AgentCard({ agent }: { agent: Agent }) {
       </div>
 
       <div className="flex flex-wrap gap-1 border-t border-slate-800 pt-2">
-        <Button variant="ghost" onClick={() => setEditing((v) => !v)}>
+        <Button variant="ghost" onClick={onEdit}>
           {strings.roster.edit}
         </Button>
         {/* The sanctioned way to freeze a configuration: teams reference agents
@@ -75,38 +72,26 @@ function AgentCard({ agent }: { agent: Agent }) {
             {strings.roster.archive}
           </Button>
         )}
+        <Button variant="ghost" onClick={() => setConfirming((v) => !v)}>
+          {strings.roster.delete}
+        </Button>
       </div>
 
-      {editing ? (
-        <form
-          onSubmit={async (e) => {
-            e.preventDefault();
-            await update(agent.id, {
-              system_prompt: prompt,
-              tools,
-              autonomy,
-            });
-            setEditing(false);
-          }}
-          className="space-y-3"
-        >
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            rows={5}
-            className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 font-mono text-xs text-slate-100"
-          />
-          {/* Editable after creation, because what an agent is allowed to do is
-              the kind of decision people revisit — and because an agent made
-              before M8 carries no tools at all. */}
-          <ToolPicker
-            value={tools}
-            autonomy={autonomy}
-            onChange={setTools}
-            onAutonomyChange={setAutonomy}
-          />
-          <Button type="submit">{strings.roster.saveEdit}</Button>
-        </form>
+      {confirming ? (
+        <div className="space-y-2 rounded-md border border-red-900/60 bg-red-950/30 p-3">
+          {/* Says what actually happens, including the part people would not
+              guess: finished missions keep their own copy of who ran them
+              (§5.1), so the record survives. Team seats do not. */}
+          <p className="text-xs text-red-300">{strings.roster.deleteWarning}</p>
+          <div className="flex gap-2">
+            <Button variant="danger" onClick={() => remove(agent.id)}>
+              {strings.roster.deleteConfirm}
+            </Button>
+            <Button variant="ghost" onClick={() => setConfirming(false)}>
+              {strings.teams.close}
+            </Button>
+          </div>
+        </div>
       ) : null}
     </div>
   );
@@ -116,17 +101,24 @@ export function RosterPanel() {
   const { agents, loading, error, showArchived } = useAgentStore();
   const { load, setShowArchived } = useAgentStore();
   const [creating, setCreating] = useState(false);
+  // Editing is a page, not a panel inside a card: the card had no room for the
+  // tools, the avatar or the backstory, so those could only ever be set once.
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  if (creating) {
+  const editing = agents.find((a) => a.id === editingId) ?? null;
+
+  if (creating || editing) {
     return (
       <div className="h-full overflow-y-auto">
         <AgentCreator
+          agent={editing ?? undefined}
           onDone={() => {
             setCreating(false);
+            setEditingId(null);
             void load();
           }}
         />
@@ -166,7 +158,11 @@ export function RosterPanel() {
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {agents.map((agent) => (
-            <AgentCard key={agent.id} agent={agent} />
+            <AgentCard
+              key={agent.id}
+              agent={agent}
+              onEdit={() => setEditingId(agent.id)}
+            />
           ))}
         </div>
       </div>

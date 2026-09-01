@@ -12,7 +12,9 @@ from ..agents.avatar import InvalidAvatar, catalogue
 from ..agents.profile_gen import ProfileGenerationFailed, generate_profile
 from ..agents.service import AgentNotFound, AgentService, to_json
 from ..db.models import ProviderProfile
+from ..core import secrets
 from ..providers import registry
+from ..tools import registry as tool_registry
 from ..providers.base import ProviderError
 from .deps import get_db, require_token
 
@@ -114,6 +116,21 @@ async def duplicate_agent(request: Request, agent_id: str) -> dict[str, Any]:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no such agent") from exc
 
 
+@router.delete("/agents/{agent_id}/permanent", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_agent(request: Request, agent_id: str) -> None:
+    """Really delete, on a separate path from the archiving one.
+
+    Two verbs would have been ambiguous on one route, and this is the one that
+    cannot be undone: it says so in the path so nothing reaches it by accident.
+    A replay is unaffected — a mission carries its own copy of who ran it
+    (§5.1) — but the agent's team seats and its own notes go with it.
+    """
+    try:
+        await AgentService(get_db(request)).delete(agent_id)
+    except AgentNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such agent") from exc
+
+
 @router.delete("/agents/{agent_id}")
 async def archive_agent(request: Request, agent_id: str) -> dict[str, Any]:
     """Archives rather than deletes. DELETE is the verb users reach for, but the
@@ -155,6 +172,19 @@ async def generate(request: Request, body: GenerateIn) -> dict[str, Any]:
     except ProviderError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, exc.message) from exc
 
+    # Only what this machine can actually run is offered: a model shown
+    # `web_search` on a machine with no search key would hand back an agent
+    # whose main tool is missing (§16.5).
+    has_search = False
+    async with db.session() as s:
+        rows = await s.execute(
+            select(ProviderProfile).where(ProviderProfile.kind == "search")
+        )
+        has_search = any(secrets.has_key(p.id) for p in rows.scalars().all())
+    offerable = [
+        spec.id for spec in tool_registry.available(has_search_provider=has_search)
+    ]
+
     try:
         result = await generate_profile(
             provider=provider,
@@ -162,6 +192,7 @@ async def generate(request: Request, body: GenerateIn) -> dict[str, Any]:
             model=profile_row.model,
             role=body.role,
             brief=body.brief,
+            available_tools=offerable,
         )
     except ProfileGenerationFailed as exc:
         # Every attempt is returned, not just the last. "It failed" is not

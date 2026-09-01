@@ -193,6 +193,28 @@ class TeamService:
             await s.commit()
         return team
 
+    async def delete(self, team_id: str) -> None:
+        """Remove the team and its seats.
+
+        Safe for the same reason deleting an agent is: a mission froze its
+        roster at launch (§5.1), so a replay still knows who sat where. What
+        goes is the arrangement, not the record of what it once did.
+
+        `missions.team_id` is left pointing at an id that no longer resolves.
+        That is deliberate — the mission row records which team ran it, and
+        rewriting that to null would be editing history to keep a foreign key
+        tidy.
+        """
+        async with self._db.session() as s:
+            team = (
+                await s.execute(select(Team).where(Team.id == team_id))
+            ).scalar_one_or_none()
+            if team is None:
+                raise TeamNotFound(team_id)
+            await s.execute(delete(TeamMember).where(TeamMember.team_id == team_id))
+            await s.delete(team)
+            await s.commit()
+
     async def restore(self, team_id: str) -> Team:
         async with self._db.session() as s:
             team = (

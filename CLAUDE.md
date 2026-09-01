@@ -568,10 +568,23 @@ load.
 
 ### What the model is not allowed to decide
 
-`GeneratedProfile` omits `provider_id`, `model`, `tools` and `total_missions`, and a
-test asserts it. The model has no idea which endpoints this machine has configured, the
-tool registry is still empty so any tool it named would be fiction, and `total_missions`
-is recorded from what actually happened rather than claimed.
+`GeneratedProfile` omits `provider_id`, `model` and `total_missions`, and a test asserts
+it. The model has no idea which endpoints this machine has configured, and
+`total_missions` is recorded from what actually happened rather than claimed.
+
+**`tools` used to be on that list and is not any more.** The reason it was excluded —
+"the registry is empty, so any tool it named would be fiction" — expired at M8. Now the
+model is shown the real ids with their risk and description, picks from them, and an
+invented name is refused with a correction listing the real ones: the same rule the
+avatar catalogue has always had. Only tools this machine can actually run are offered,
+so a model on a machine with no search key is never handed `web_search` to choose.
+
+Verified live: asked for "a codebase archaeologist who digs through a repository", the
+model returned `glob, grep, list_dir, read_file, send_message` on the first attempt — the
+read-only set plus a way to report back, and nothing that writes.
+
+A decision whose stated reason has expired is not a decision any more. Worth re-reading
+the rest of this file with that in mind.
 
 ### M1.5 — Tauri shell + secret hygiene
 

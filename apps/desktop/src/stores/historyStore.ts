@@ -25,10 +25,12 @@ interface HistoryState {
   load: () => Promise<void>;
   openMission: (missionId: string) => Promise<void>;
   openArtifact: (artifactId: string) => Promise<void>;
+  /** Delete a whole run, with its events and files (§2, §5). */
+  remove: (missionId: string) => Promise<void>;
   closeArtifact: () => void;
 }
 
-export const useHistoryStore = create<HistoryState>((set) => ({
+export const useHistoryStore = create<HistoryState>((set, get) => ({
   missions: [],
   loading: false,
   openId: null,
@@ -70,6 +72,23 @@ export const useHistoryStore = create<HistoryState>((set) => ({
       // blank viewer that looks like an empty document.
       set({ error: (err as Error).message });
     }
+  },
+
+  remove: async (missionId) => {
+    try {
+      await api.deleteMission(missionId);
+    } catch (err) {
+      set({ error: (err as Error).message });
+      return;
+    }
+    // If the deleted run was the one on screen, stop showing its replay: the
+    // events it was built from are gone.
+    if (get().openId === missionId) {
+      set({ openId: null, artifacts: [], open: null });
+      useEventStore.getState().reset();
+      useMissionStore.getState().clear();
+    }
+    await get().load();
   },
 
   closeArtifact: () => set({ open: null }),

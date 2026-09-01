@@ -8,7 +8,12 @@
  */
 import { useEffect, useState } from "react";
 import { strings } from "../../lib/constants/strings.en";
-import { api, type AgentInput, type GenerateResult } from "../../transport/rest";
+import {
+  api,
+  type Agent,
+  type AgentInput,
+  type GenerateResult,
+} from "../../transport/rest";
 import { useAgentStore } from "../../stores/agentStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { Badge, Button, Field, Input } from "../../components/ui/primitives";
@@ -27,22 +32,58 @@ const EMPTY: AgentInput = {
   autonomy: "ask_dangerous",
 };
 
-export function AgentCreator({ onDone }: { onDone: () => void }) {
+/**
+ * The same form, for making an agent and for changing one.
+ *
+ * Editing used to be a textarea on the roster card, which meant the fields the
+ * card had no room for — tools, autonomy, avatar, backstory — could only ever
+ * be set at creation. One form for both is the honest fix: what you can choose
+ * when you make an agent is what you can change afterwards.
+ *
+ * The generate step is only offered when there is nothing to edit yet. Asking
+ * a model to rewrite an agent someone has already tuned would throw away the
+ * tuning, and "regenerate" is a different feature with a different question.
+ */
+export function AgentCreator({
+  onDone,
+  agent,
+}: {
+  onDone: () => void;
+  /** Present when editing. Absent when creating. */
+  agent?: Agent;
+}) {
   const assets = useAgentStore((s) => s.assets);
   const createAgent = useAgentStore((s) => s.create);
+  const updateAgent = useAgentStore((s) => s.update);
   const providers = useSettingsStore((s) => s.providers);
   const active = useSettingsStore((s) => s.active());
 
   const [role, setRole] = useState("");
   const [brief, setBrief] = useState("");
-  const [draft, setDraft] = useState<AgentInput>(EMPTY);
+  const [draft, setDraft] = useState<AgentInput>(() =>
+    agent
+      ? {
+          name: agent.name,
+          title: agent.title,
+          role: agent.role,
+          backstory: agent.backstory,
+          personality_traits: agent.personalityTraits,
+          system_prompt: agent.systemPrompt,
+          tools: agent.tools,
+          autonomy: agent.autonomy,
+          avatar_config: agent.avatarConfig,
+        }
+      : EMPTY,
+  );
   const [result, setResult] = useState<GenerateResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // The provider is the user's choice, not the model's: the model has no idea
   // which endpoints this machine has configured (see schemas.py).
-  const [providerId, setProviderId] = useState<string>(active?.id ?? "");
+  const [providerId, setProviderId] = useState<string>(
+    agent?.providerId ?? active?.id ?? "",
+  );
   useEffect(() => {
     if (!providerId && active) setProviderId(active.id);
   }, [active, providerId]);
@@ -70,7 +111,11 @@ export function AgentCreator({ onDone }: { onDone: () => void }) {
         personality_traits: res.profile.personality_traits,
         system_prompt: res.profile.system_prompt,
         avatar_config: res.profile.avatar_config,
-        tools: [],
+        // What the model chose, shown for review rather than dropped. It is
+        // picked from the same registry the picker below lists, so it can be
+        // changed like anything else on this form.
+        tools: res.profile.tools ?? [],
+        autonomy: "ask_dangerous",
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -85,11 +130,21 @@ export function AgentCreator({ onDone }: { onDone: () => void }) {
     setBusy(true);
     setError(null);
     try {
-      await createAgent({
-        ...draft,
-        provider_id: providerId || null,
-        model: chosen?.model ?? null,
-      });
+      if (agent) {
+        // Only what this form owns. The provider and model are sent because
+        // they are on this form too; nothing else about the row is touched.
+        await updateAgent(agent.id, {
+          ...draft,
+          provider_id: providerId || null,
+          model: chosen?.model ?? agent.model,
+        });
+      } else {
+        await createAgent({
+          ...draft,
+          provider_id: providerId || null,
+          model: chosen?.model ?? null,
+        });
+      }
       onDone();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -102,12 +157,19 @@ export function AgentCreator({ onDone }: { onDone: () => void }) {
     <div className="mx-auto max-w-2xl space-y-6 p-6">
       <div>
         <h2 className="text-lg font-semibold text-slate-100">
-          {strings.creator.title}
+          {agent ? strings.creator.editTitle : strings.creator.title}
         </h2>
-        <p className="mt-1 text-sm text-slate-400">{strings.creator.intro}</p>
+        <p className="mt-1 text-sm text-slate-400">
+          {agent ? strings.creator.editIntro : strings.creator.intro}
+        </p>
       </div>
 
-      <section className="space-y-3 rounded-lg border border-slate-800 bg-slate-900/40 p-4">
+      {/* Only when there is nothing to lose. Regenerating over an agent
+          someone has already tuned would throw the tuning away. */}
+      <section
+        hidden={Boolean(agent)}
+        className="space-y-3 rounded-lg border border-slate-800 bg-slate-900/40 p-4"
+      >
         <Field label={strings.creator.providerLabel}>
           <select
             value={providerId}
@@ -174,7 +236,7 @@ export function AgentCreator({ onDone }: { onDone: () => void }) {
           <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
             {strings.creator.reviewTitle}
           </h3>
-          <Badge tone="warn">{strings.creator.reviewBadge}</Badge>
+          {agent ? null : <Badge tone="warn">{strings.creator.reviewBadge}</Badge>}
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -255,7 +317,7 @@ export function AgentCreator({ onDone }: { onDone: () => void }) {
 
         <div className="flex gap-2">
           <Button type="submit" disabled={busy || !draft.name.trim()}>
-            {strings.creator.save}
+            {agent ? strings.creator.saveEdit : strings.creator.save}
           </Button>
           <Button type="button" variant="ghost" onClick={onDone}>
             {strings.creator.cancel}

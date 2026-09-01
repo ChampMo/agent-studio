@@ -60,10 +60,16 @@ The object must have exactly these keys:
   "personality_traits": an ARRAY of 3 to 5 short strings, e.g. ["methodical", "blunt"]
   "system_prompt":      the instruction this agent will run under, written in
                         the second person and usable exactly as written
+  "tools":              an ARRAY of tool ids this agent should carry, chosen
+                        from the list below. Pick only what the role actually
+                        needs; an empty array is a real answer.
   "avatar_config":      an object with the four keys below
 
 The character is a specialist teammate, not a fantasy hero: `title` and `role`
 describe real work.
+
+`tools` must use ids from exactly this list, and nothing else:
+{tools}
 
 `avatar_config` must pick one value per slot from exactly these options:
 {catalogue}
@@ -122,6 +128,26 @@ def _describe(exc: ValidationError) -> str:
     return "; ".join(parts)
 
 
+def _tools_text(tool_ids: list[str] | None) -> str:
+    """The tools this machine can actually run, with what each is for.
+
+    Passed in rather than read here, for the same reason the workspace is: what
+    exists depends on keys and on the machine, and the caller is what knows
+    (§16.5). Without descriptions a model picks by the sound of the name.
+    """
+    from ..tools import registry as tool_registry
+
+    specs = [
+        spec
+        for spec in tool_registry.all_specs()
+        if tool_ids is None or spec.id in tool_ids
+    ]
+    return "\n".join(
+        f"  {spec.id:<14}{spec.risk:<10}{spec.description.splitlines()[0]}"
+        for spec in specs
+    )
+
+
 async def generate_profile(
     *,
     provider: LLMProvider,
@@ -130,9 +156,12 @@ async def generate_profile(
     role: str,
     brief: str = "",
     max_attempts: int = MAX_ATTEMPTS,
+    available_tools: list[str] | None = None,
 ) -> GenerationResult:
     """Ask for a profile, validate it, and correct the model until it fits."""
-    system = SYSTEM_PROMPT.format(catalogue=_catalogue_text())
+    system = SYSTEM_PROMPT.format(
+        catalogue=_catalogue_text(), tools=_tools_text(available_tools)
+    )
     ask = f"Role: {role}"
     if brief.strip():
         ask += f"\nNotes: {brief.strip()}"

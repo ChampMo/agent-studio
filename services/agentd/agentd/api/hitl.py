@@ -6,11 +6,11 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from ..agents.runner import RequestNotFound
 from ..artifacts.store import ArtifactRejected, ArtifactStore, to_json
-from ..db.models import Mission
+from ..db.models import Artifact, Mission, MissionEvent
 from .deps import get_db, get_runner, require_token
 
 router = APIRouter(dependencies=[Depends(require_token)])
@@ -76,6 +76,49 @@ async def list_missions(request: Request, limit: int = 50) -> dict[str, Any]:
             for m in missions
         ]
     }
+
+
+@router.delete("/missions/{mission_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_mission(request: Request, mission_id: str) -> None:
+    """Delete a whole mission: its row, its events, its files.
+
+    This is the one exception to "mission_events is append-only forever" (§2,
+    §5), and it is worth being precise about what the rule protects. The rule
+    exists so that nothing *rewrites* what happened — no UPDATE, no correcting
+    a line after the fact, because a record that can be edited is not a record.
+    Removing an entire run at the user's request does not rewrite anything: it
+    is the difference between tearing a page out and altering it.
+
+    So: whole missions only, never single events, and only when someone asks.
+    A run that is still going is refused — cancel it first, so it ends with the
+    `mission.ended` every mission is promised, rather than vanishing mid-flight.
+    """
+    runner = get_runner(request)
+    if runner.is_running(mission_id):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "this mission is still running; stop it before deleting it",
+        )
+
+    db = get_db(request)
+    store = ArtifactStore(db)
+    # The files first: a row deleted before its file is a file nothing points
+    # at, which is worse than an orphaned row.
+    for artifact in await store.for_mission(mission_id):
+        await store.remove(artifact)
+
+    async with db.session() as session:
+        mission = (
+            await session.execute(select(Mission).where(Mission.id == mission_id))
+        ).scalar_one_or_none()
+        if mission is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "no such mission")
+        await session.execute(
+            delete(MissionEvent).where(MissionEvent.mission_id == mission_id)
+        )
+        await session.execute(delete(Artifact).where(Artifact.mission_id == mission_id))
+        await session.delete(mission)
+        await session.commit()
 
 
 @router.get("/missions/{mission_id}/events")

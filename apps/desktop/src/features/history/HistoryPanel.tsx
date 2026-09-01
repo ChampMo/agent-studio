@@ -5,7 +5,7 @@
  * mission uses, so the timeline and the scene show the run as it happened —
  * with the roster frozen at launch, not today's agents (§5.1, §2.1).
  */
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { strings } from "../../lib/constants/strings.en";
 import { cn } from "../../lib/cn";
 import { useEventStore } from "../../stores/eventStore";
@@ -29,7 +29,11 @@ function tone(mission: { status: string; endReason: string | null }) {
 }
 
 export function HistoryPanel() {
-  const { missions, loading, openId, error, load, openMission } = useHistoryStore();
+  const { missions, loading, openId, error, load, openMission, remove } =
+    useHistoryStore();
+  // Which run is asking to be confirmed. One at a time, and the confirmation
+  // says what goes with it — there is no undo and no second copy.
+  const [confirming, setConfirming] = useState<string | null>(null);
   const replaying = useEventStore((s) => s.replaying);
   const roster = useMissionStore((s) => s.roster);
   const goal = useMissionStore((s) => s.goal);
@@ -59,9 +63,8 @@ export function HistoryPanel() {
 
         <div className="space-y-1">
           {missions.map((mission) => (
-            <button
-              key={mission.id}
-              onClick={() => void openMission(mission.id)}
+            <div key={mission.id} className="space-y-1">
+            <div
               className={cn(
                 "flex w-full items-center gap-3 rounded-md border px-3 py-2 text-left text-xs",
                 openId === mission.id
@@ -69,6 +72,11 @@ export function HistoryPanel() {
                   : "border-slate-800 bg-slate-900/40 hover:bg-slate-900",
               )}
             >
+              <button
+                type="button"
+                onClick={() => void openMission(mission.id)}
+                className="flex min-w-0 flex-1 items-center gap-3 text-left"
+              >
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-slate-200">
                   {mission.goal || strings.history.noGoal}
@@ -86,7 +94,44 @@ export function HistoryPanel() {
                   ? (mission.endReason ?? "ended")
                   : mission.status}
               </Badge>
-            </button>
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setConfirming((id) => (id === mission.id ? null : mission.id))
+                }
+                className="shrink-0 rounded px-2 py-1 text-[11px] text-slate-500 hover:bg-slate-800 hover:text-red-300"
+              >
+                {strings.history.delete}
+              </button>
+            </div>
+
+            {confirming === mission.id ? (
+              <div className="space-y-2 rounded-md border border-red-900/60 bg-red-950/30 p-3">
+                <p className="text-xs text-red-300">
+                  {mission.running
+                    ? strings.history.deleteRunning
+                    : strings.history.deleteWarning}
+                </p>
+                {!mission.running ? (
+                  <div className="flex gap-2">
+                    <Button
+                      variant="danger"
+                      onClick={async () => {
+                        await remove(mission.id);
+                        setConfirming(null);
+                      }}
+                    >
+                      {strings.history.deleteConfirm}
+                    </Button>
+                    <Button variant="ghost" onClick={() => setConfirming(null)}>
+                      {strings.artifacts.close}
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+            </div>
           ))}
         </div>
 

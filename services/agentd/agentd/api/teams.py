@@ -102,6 +102,16 @@ async def duplicate_team(request: Request, team_id: str) -> dict[str, Any]:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no such team") from exc
 
 
+@router.delete("/teams/{team_id}/permanent", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_team(request: Request, team_id: str) -> None:
+    """Really delete. Archiving stays on the plain DELETE, because it is the
+    one that can be taken back."""
+    try:
+        await _service(request).delete(team_id)
+    except TeamNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such team") from exc
+
+
 @router.delete("/teams/{team_id}")
 async def archive_team(request: Request, team_id: str) -> dict[str, Any]:
     service = _service(request)

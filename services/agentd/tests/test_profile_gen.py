@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 
 import pytest
+from pydantic import ValidationError
 
 from agentd.agents.avatar import AVATAR_SLOTS, InvalidAvatar, validate_avatar
 from agentd.agents.profile_gen import (
@@ -191,6 +192,11 @@ def test_json_is_recovered_from_a_wrapped_reply(raw, expected_name):
     assert json.loads(extract_json(raw))["name"] == expected_name
 
 
+def _valid_avatar() -> dict[str, str]:
+    """One legal value per slot, whatever the catalogue happens to hold."""
+    return {slot: values[0] for slot, values in AVATAR_SLOTS.items()}
+
+
 def test_the_schema_sent_to_the_provider_enumerates_the_avatar_slots():
     """So an endpoint that does enforce schemas rejects an invented asset before
     it ever reaches us."""
@@ -202,11 +208,72 @@ def test_the_schema_sent_to_the_provider_enumerates_the_avatar_slots():
 
 
 def test_the_generated_shape_excludes_what_the_model_must_not_choose():
-    """provider/model would be guesses about this machine, tools would be names
-    of things that do not exist, and total_missions is recorded from what
-    actually happened rather than claimed."""
+    """provider/model would be guesses about which endpoints this machine has,
+    and total_missions is recorded from what actually happened rather than
+    claimed."""
     fields = set(GeneratedProfile.model_fields)
-    assert not fields & {"provider_id", "model", "tools", "total_missions"}
+    assert not fields & {"provider_id", "model", "total_missions"}
+
+
+def test_the_model_may_now_choose_tools_because_they_exist():
+    """`tools` was excluded while the registry was empty: anything named would
+    have been fiction. That reason ended at M8, so the rule became the same one
+    the avatar catalogue has always had — choose from what exists."""
+    assert "tools" in GeneratedProfile.model_fields
+
+    chosen = GeneratedProfile(
+        name="Mira",
+        title="Analyst",
+        role="checks sources",
+        backstory="b",
+        personality_traits=["careful"],
+        system_prompt="You check sources.",
+        tools=["web_search", "read_file", "read_file"],
+        avatar_config=_valid_avatar(),
+    )
+    # Deduplicated and ordered: neither order nor repetition means anything.
+    assert chosen.tools == ["read_file", "web_search"]
+
+
+def test_an_invented_tool_is_refused_with_the_real_names():
+    """A correction that lists the ids costs one round trip. "Invalid tool"
+    costs as many as the model has guesses."""
+    with pytest.raises(ValidationError) as caught:
+        GeneratedProfile(
+            name="Mira",
+            title="Analyst",
+            role="r",
+            backstory="b",
+            personality_traits=["careful"],
+            system_prompt="s",
+            tools=["search_the_web"],
+            avatar_config=_valid_avatar(),
+        )
+    message = str(caught.value)
+    assert "search_the_web" in message
+    assert "web_search" in message
+
+
+def test_carrying_no_tools_is_a_real_answer():
+    # A summariser that only reads what teammates send it needs none, and
+    # forcing one would be the schema inventing a requirement.
+    profile = GeneratedProfile(
+        name="Mira",
+        title="Summariser",
+        role="r",
+        backstory="b",
+        personality_traits=["brief"],
+        system_prompt="s",
+        avatar_config=_valid_avatar(),
+    )
+    assert profile.tools == []
+
+
+def test_the_schema_sent_to_the_provider_enumerates_the_tools():
+    from agentd.tools import registry as tool_registry
+
+    tools = json_schema_for_prompt()["properties"]["tools"]
+    assert tools["items"]["enum"] == sorted(tool_registry.BY_ID)
 
 
 def test_avatar_validation_reports_every_problem_at_once():

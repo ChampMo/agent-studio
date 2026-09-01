@@ -279,6 +279,11 @@ export const api = {
   missionEvents: (missionId: string) =>
     request<{ events: unknown[] }>(`/missions/${missionId}/events`),
 
+  /** Delete a whole run: its row, its events and its files. The one exception
+   *  to the append-only rule, and only ever whole missions (§2, §5). */
+  deleteMission: (missionId: string) =>
+    request<void>(`/missions/${missionId}`, { method: "DELETE" }),
+
   missionArtifacts: (missionId: string) =>
     request<{ artifacts: Artifact[] }>(`/missions/${missionId}/artifacts`),
 
@@ -303,6 +308,11 @@ export const api = {
 
   /** Archive, not delete: teams and finished missions still point at the row. */
   archiveAgent: (id: string) => request<Agent>(`/agents/${id}`, { method: "DELETE" }),
+
+  /** Really delete. Safe for replays — a mission keeps its own copy of who ran
+   *  it (§5.1) — but the agent's team seats go with it. */
+  deleteAgent: (id: string) =>
+    request<void>(`/agents/${id}/permanent`, { method: "DELETE" }),
 
   restoreAgent: (id: string) =>
     request<Agent>(`/agents/${id}/restore`, { method: "POST" }),
@@ -334,6 +344,9 @@ export const api = {
     request<Team>(`/teams/${id}/duplicate`, { method: "POST" }),
 
   archiveTeam: (id: string) => request<Team>(`/teams/${id}`, { method: "DELETE" }),
+
+  deleteTeam: (id: string) =>
+    request<void>(`/teams/${id}/permanent`, { method: "DELETE" }),
 
   restoreTeam: (id: string) =>
     request<Team>(`/teams/${id}/restore`, { method: "POST" }),
@@ -440,6 +453,9 @@ export interface GeneratedProfile {
   backstory: string;
   personality_traits: string[];
   system_prompt: string;
+  /** Tool ids the model chose, checked against the registry on the way back
+   *  (§16.1). Empty is a real answer. */
+  tools: string[];
   avatar_config: AvatarConfig;
 }
 
