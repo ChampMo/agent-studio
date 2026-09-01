@@ -14,6 +14,7 @@ import { useMissionStore } from "../../stores/missionStore";
 import { Badge, Button } from "../../components/ui/primitives";
 import { SceneView } from "../../scene/SceneView";
 import { ArtifactViewer } from "../artifacts/ArtifactViewer";
+import { WorkspaceBanner } from "../mission/WorkspacePicker";
 
 function when(iso: string): string {
   const date = new Date(iso);
@@ -32,6 +33,7 @@ export function HistoryPanel() {
   const replaying = useEventStore((s) => s.replaying);
   const roster = useMissionStore((s) => s.roster);
   const goal = useMissionStore((s) => s.goal);
+  const workspaceRoot = useMissionStore((s) => s.workspaceRoot);
 
   useEffect(() => {
     void load();
@@ -94,6 +96,10 @@ export function HistoryPanel() {
               {strings.history.replaying}
               {goal ? ` — ${goal}` : ""}
             </p>
+
+            {/* Where that run was working. A replay that cannot say is a replay
+                that leaves out the thing files were written into (§16.2). */}
+            <WorkspaceBanner path={workspaceRoot} />
 
             {/* The same scene component, fed by the same store. Nothing here
                 knows whether the events arrived over a socket or off disk. */}

@@ -21,6 +21,9 @@ from ..db.models import ProviderProfile
 from ..providers import registry
 from ..providers.base import ProviderError
 from ..providers.probe import run_probe
+from ..tools.search import DEFAULT_ENDPOINT as DEFAULT_SEARCH_ENDPOINT
+from ..tools.search import SearchEndpoint
+from ..tools.search import probe as search_probe
 from .deps import get_db, require_token
 
 router = APIRouter(dependencies=[Depends(require_token)])
@@ -65,7 +68,11 @@ async def list_providers(request: Request) -> dict[str, Any]:
         ).scalars().all()
     return {
         "providers": [registry.profile_to_json(p) for p in rows],
-        "kinds": registry.available_kinds(),
+        # `search` is not an LLM provider and has no factory in the provider
+        # registry — it is an endpoint `web_search` uses (§16.5). Advertised
+        # here so the UI can offer it; kept out of `available_kinds()` so
+        # nothing tries to build a chat client from one.
+        "kinds": [*registry.available_kinds(), "search"],
     }
 
 
@@ -164,6 +171,44 @@ async def test_connection(request: Request, profile_id: str) -> dict[str, Any]:
     verdict would hide which of them happened.
     """
     profile = await _load(request, profile_id)
+
+    if profile.kind == "search":
+        # A different endpoint answering a different question, so a different
+        # probe: one real search, checking the key rather than the model.
+        key = secrets.get_key(profile.id)
+        if not key:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, "no key in the keychain for this endpoint"
+            )
+        ok, detail = await search_probe(
+            SearchEndpoint(api_key=key, base_url=profile.base_url or DEFAULT_SEARCH_ENDPOINT)
+        )
+        if ok:
+            db = get_db(request)
+            async with db.session() as s:
+                row = (
+                    await s.execute(
+                        select(ProviderProfile).where(ProviderProfile.id == profile_id)
+                    )
+                ).scalar_one()
+                row.verified_at = datetime.now(UTC)
+                await s.commit()
+        return {
+            "ok": ok,
+            "counts": {"passed": int(ok), "failed": int(not ok), "inconclusive": 0, "total": 1},
+            "checks": [
+                {
+                    "id": "search",
+                    "label": "Search",
+                    "status": "pass" if ok else "fail",
+                    "ok": ok,
+                    "detail": detail,
+                }
+            ],
+            "capabilities": {},
+            "conclusive": ["search"] if ok else [],
+        }
+
     try:
         provider = registry.build_from_profile(profile)
     except ProviderError as exc:

@@ -105,3 +105,29 @@ async def web_search(ctx: ToolContext, *, query: str) -> ToolResult:
         summary=f"searched for {query!r}: {len(blocks)} result(s)",
         details={"results": len(blocks)},
     )
+
+
+async def probe(endpoint: SearchEndpoint) -> tuple[bool, str]:
+    """One real search, to check the key before a mission depends on it.
+
+    The same shape as the model probe (§3.1): asked, not assumed. A key that is
+    wrong should be found here rather than three minutes into a run.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT_SEC) as client:
+            response = await client.post(
+                f"{endpoint.base_url}/search",
+                json={"api_key": endpoint.api_key, "query": "agent studio connectivity check", "max_results": 1},
+            )
+    except httpx.HTTPError as exc:
+        return False, f"could not reach the search endpoint: {exc}"
+
+    if response.status_code == 401:
+        return False, "the endpoint rejected this API key"
+    if response.status_code >= 400:
+        return False, f"the endpoint answered {response.status_code}"
+    try:
+        data = response.json()
+    except ValueError:
+        return False, "the endpoint did not return JSON"
+    return True, f"search works ({len(data.get('results') or [])} result(s) for a test query)"

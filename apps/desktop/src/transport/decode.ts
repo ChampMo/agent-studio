@@ -134,7 +134,12 @@ export function describe(
   const who = (id: unknown) => (typeof id === "string" ? nameOf(id) : "someone");
   switch (type) {
     case "mission.started":
-      return `Mission started — ${p.goal ?? ""}`;
+      // The workspace is on the line because §16.2 asks the timeline and the
+      // replay to say where the work happened, not only the panel that was on
+      // screen at the time.
+      return p.workspaceRoot
+        ? `Mission started in ${p.workspaceRoot} — ${p.goal ?? ""}`
+        : `Mission started — ${p.goal ?? ""}`;
     case "mission.ended":
       return `Mission ended (${p.reason ?? "unknown"}) — ${p.summary ?? ""}`;
     case "mission.progress":

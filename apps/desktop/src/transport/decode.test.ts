@@ -228,3 +228,27 @@ describe("describe()", () => {
     }
   });
 });
+
+describe("the workspace on the timeline", () => {
+  it("says where a mission was working", () => {
+    // §16.2: the timeline and the replay have to be able to answer "where were
+    // files being written?", not only the panel that was open at the time.
+    const line = describeEvent(
+      {
+        draft: {
+          type: "mission.started",
+          payload: { kind: "mission", goal: "Fix the tests", workspaceRoot: "C:/work/app" },
+        },
+      } as never,
+    );
+    expect(line).toContain("C:/work/app");
+    expect(line).toContain("Fix the tests");
+  });
+
+  it("says nothing extra for a mission that had no workspace", () => {
+    const line = describeEvent(
+      { draft: { type: "mission.started", payload: { kind: "chat", goal: "hello" } } } as never,
+    );
+    expect(line).toBe("Mission started — hello");
+  });
+});
