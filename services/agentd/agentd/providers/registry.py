@@ -13,6 +13,7 @@ from ..core import secrets
 from ..db.models import ProviderProfile
 from .anthropic_provider import AnthropicProvider
 from .base import Capabilities, LLMProvider, ProviderError
+from .native_search import supports_native_search
 from .openai_compatible import OpenAICompatibleProvider
 
 
@@ -52,7 +53,13 @@ def build_from_profile(profile: ProviderProfile) -> LLMProvider:
             "no_api_key",
             f"no key in the keychain for provider profile {profile.id!r}",
         )
-    return build(profile.kind, api_key=key, base_url=profile.base_url)
+    provider = build(profile.kind, api_key=key, base_url=profile.base_url)
+    # Turned on per profile, and only the Anthropic adapter knows what to do
+    # with it. Set after construction so the factory signature stays the same
+    # for every kind (§16.8).
+    if getattr(profile, "native_search", False) and hasattr(provider, "_native_search"):
+        provider._native_search = True  # noqa: SLF001 - one flag, one owner
+    return provider
 
 
 def capabilities_for(profile: ProviderProfile) -> Capabilities:
@@ -75,4 +82,8 @@ def profile_to_json(profile: ProviderProfile) -> dict[str, Any]:
         "capabilities": profile.capabilities,
         "verifiedAt": profile.verified_at.isoformat() if profile.verified_at else None,
         "hasKey": secrets.has_key(profile.id),
+        # Two different facts, and the UI needs both: whether this endpoint
+        # *can* search for itself, and whether someone turned it on (§16.8).
+        "nativeSearch": bool(getattr(profile, "native_search", False)),
+        "nativeSearchAvailable": supports_native_search(profile.base_url),
     }

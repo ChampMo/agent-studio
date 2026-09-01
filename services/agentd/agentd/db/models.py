@@ -13,6 +13,7 @@ from typing import Any
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -21,6 +22,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -104,6 +106,16 @@ class ProviderProfile(Base):
     base_url: Mapped[str | None] = mapped_column(String, nullable=True)
     model: Mapped[str] = mapped_column(String, nullable=False)
     capabilities: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+
+    #: Let the endpoint search the web itself during a completion (§16.8).
+    #:
+    #: A different trust model, not another engine: this app never sees the call
+    #: before it happens, so the approval gate cannot stop it and the input is
+    #: never redacted. Off unless someone turns it on, and only offerable on an
+    #: endpoint known to support it.
+    native_search: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
     verified_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

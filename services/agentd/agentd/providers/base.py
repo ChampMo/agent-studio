@@ -186,6 +186,27 @@ class ToolCallChunk:
 
 
 @dataclass(frozen=True)
+class ServerToolChunk:
+    """A tool the *endpoint* ran during the completion (§16.8).
+
+    Nothing here was asked for by this app. The provider searched, read what it
+    found, and told us afterwards — so this is a report, not a call. It is kept
+    as its own chunk type rather than being passed off as a `ToolCallChunk`
+    precisely so that nothing downstream can mistake one for the other: a
+    `ToolCallChunk` is a request this app may refuse, and this is not.
+
+    `results` counts what came back. The content itself is usually opaque —
+    DeepSeek returns `encrypted_content` — so there is nothing truthful to
+    record beyond the query and how many results it produced.
+    """
+
+    call_id: str
+    name: str
+    query: str
+    results: int
+
+
+@dataclass(frozen=True)
 class NoticeChunk:
     """Something the caller asked for could not be honoured.
 
@@ -205,7 +226,7 @@ class DoneChunk:
     usage: Usage = field(default_factory=Usage)
 
 
-Chunk = TextChunk | ToolCallChunk | NoticeChunk | DoneChunk
+Chunk = TextChunk | ToolCallChunk | ServerToolChunk | NoticeChunk | DoneChunk
 
 
 class ProviderError(RuntimeError):

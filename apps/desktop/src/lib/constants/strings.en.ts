@@ -260,6 +260,17 @@ export const strings = {
     hint: "Every event the backend published, in sequence. This is the same stream the scene will consume.",
   },
   settings: {
+    nativeSearchLabel: "Let this endpoint search the web itself",
+    nativeSearchHint:
+      "Supported here. The model searches during its reply instead of calling a tool this app runs.",
+    nativeSearchWarning:
+      "This search does not go through the approval gate, its query is not redacted before it is recorded, and the results come back encrypted — the timeline can say a search happened and what was asked, but not what came back. web_search through a Brave or Tavily key does all three.",
+    addSearch: "Add a web search endpoint",
+    addAnotherSearch: "Add another search endpoint",
+    searchHint:
+      "Lets agents use web_search. Without one the tool is not offered at all, rather than offered and failing.",
+    saveSearch: "Save and test",
+    savingSearch: "Testing…",
     title: "Providers",
     add: "Add provider",
     remove: "Remove",

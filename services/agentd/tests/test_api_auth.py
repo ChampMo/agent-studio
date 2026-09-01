@@ -130,6 +130,10 @@ def test_no_key_is_ever_returned_by_the_provider_api(client):
     assert created["hasKey"] is False
 
     listed = client.get("/providers", headers=headers).json()["providers"][0]
+    # The exact field set, so that adding one to the wire form is a decision
+    # someone makes here rather than something that happens by accident. The
+    # two `nativeSearch*` fields are booleans about a gate (§16.8), not
+    # anything that could carry a secret.
     assert set(listed) == {
         "id",
         "name",
@@ -139,4 +143,6 @@ def test_no_key_is_ever_returned_by_the_provider_api(client):
         "capabilities",
         "verifiedAt",
         "hasKey",
+        "nativeSearch",
+        "nativeSearchAvailable",
     }

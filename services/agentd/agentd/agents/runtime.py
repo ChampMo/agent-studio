@@ -51,6 +51,7 @@ from ..providers.base import (
     Message,
     NoticeChunk,
     ProviderError,
+    ServerToolChunk,
     TextChunk,
     ToolCall,
     ToolCallChunk,
@@ -176,6 +177,17 @@ async def run_agent_turn(
                 elif isinstance(chunk, ToolCallChunk):
                     calls.append(chunk)
 
+                elif isinstance(chunk, ServerToolChunk):
+                    # The endpoint searched the web during the completion and
+                    # told us afterwards. Recorded, because a run where the
+                    # agent read the internet and the timeline does not say so
+                    # is a timeline that leaves out the most important thing
+                    # that happened - and marked `provider`, because this app
+                    # never saw the call, could not have refused it, and cannot
+                    # read what came back (§16.8).
+                    for item in _server_tool_events(agent_id, chunk):
+                        yield item
+
                 elif isinstance(chunk, DoneChunk):
                     done = chunk
 
@@ -269,6 +281,44 @@ async def run_agent_turn(
                 "recoverable": True,
             },
         )
+
+
+def _server_tool_events(
+    agent_id: str, chunk: ServerToolChunk
+) -> list[dict[str, Any]]:
+    """A search the provider ran, written down as the pair of events it was.
+
+    Reconstructed rather than observed: there was no moment when this app could
+    have shown a modal or redacted an input, so both events carry
+    `origin: "provider"` and the end says what could not be seen.
+    """
+    return [
+        _draft(
+            "agent.tool.start",
+            {
+                "agentId": agent_id,
+                "callId": chunk.call_id,
+                "tool": chunk.name,
+                "input": {"query": chunk.query},
+                "origin": "provider",
+            },
+        ),
+        _draft(
+            "agent.tool.end",
+            {
+                "agentId": agent_id,
+                "callId": chunk.call_id,
+                "ok": True,
+                "summary": (
+                    f"the model's endpoint searched for {chunk.query!r} and used "
+                    f"{chunk.results} result(s); the contents are not visible to "
+                    "this app"
+                ),
+                "durationMs": 0,
+                "origin": "provider",
+            },
+        ),
+    ]
 
 
 async def _handle_call(
@@ -409,6 +459,9 @@ async def _handle_call(
                 "callId": requested.call_id,
                 "tool": spec.id,
                 "input": safe_input,
+                # Said explicitly rather than left to the absence of the other
+                # value: this one passed the gate and was redacted (§16.1).
+                "origin": "client",
             },
         ),
         None,

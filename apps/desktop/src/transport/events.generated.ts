@@ -190,6 +190,10 @@ export interface PayloadAgentToolStart {
     [k: string]: unknown;
   };
   truncated?: boolean;
+  /**
+   * Who ran the tool. `client` means this app did: it was in the registry, it passed the approval gate, and its input was redacted before it was recorded (section 16.1). `provider` means the model's own endpoint ran it server-side and told us afterwards - none of those three apply, and the event is reconstructed from what came back rather than observed as it happened (section 16.8). Absent means client, which is what every event written before this field existed was.
+   */
+  origin?: "client" | "provider";
 }
 export interface DraftAgentToolEnd {
   type: "agent.tool.end";
@@ -204,6 +208,10 @@ export interface PayloadAgentToolEnd {
   error?: ToolError;
   usage?: Usage;
   truncated?: boolean;
+  /**
+   * Who ran the tool. `client` means this app did: it was in the registry, it passed the approval gate, and its input was redacted before it was recorded (section 16.1). `provider` means the model's own endpoint ran it server-side and told us afterwards - none of those three apply, and the event is reconstructed from what came back rather than observed as it happened (section 16.8). Absent means client, which is what every event written before this field existed was.
+   */
+  origin?: "client" | "provider";
 }
 export interface ToolError {
   /**

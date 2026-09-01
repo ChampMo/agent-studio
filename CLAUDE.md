@@ -342,8 +342,9 @@ socket now.
 
 
 **M8 — tools: done, verified live.** Thirteen tools, a workspace bound to the
-mission, and an approval gate reusing M6 whole. 301 pytest + 63 vitest + 4 cargo
-green.
+mission, and an approval gate reusing M6 whole. Two search engines (Tavily,
+Brave) plus DeepSeek's provider-side search, kept a separate kind on purpose.
+326 pytest + 67 vitest + 4 cargo green.
 
 Verified with a real run against DeepSeek: a three-agent team read a workspace
 through `list_dir`, `grep` and `read_file` — sixteen tool calls — and answered
@@ -410,6 +411,33 @@ not the submit needs `type="button"`.
 include a live tool approval, which meant a crashed mission left a modal nobody
 could answer — the backend would 409 it. `_finish` clears `pending_request` with
 the ending.
+
+### Two search engines, and one that is not a tool at all
+
+Brave sits beside Tavily under `kind = "search"`, and which adapter runs is
+decided by the base URL's host — a profile cannot hold a URL and a separate
+"type" that disagrees with it. The difference between them reaches the model
+rather than being smoothed over: Tavily returns extracted page text, Brave
+returns a search engine's summary, and a Brave result says so and tells the
+agent to `web_fetch` before quoting. Answering from a snippet as though it were
+the page is how a confident wrong quote happens.
+
+**DeepSeek's own search is a different thing wearing the same word.** It works —
+confirmed by reading the docs for the base URL and then sending Anthropic's
+server-tool spec to `https://api.deepseek.com/anthropic` and reading the reply:
+`server_tool_use` and `web_search_tool_result` blocks came back with the search
+already done. What came back with them settles how it has to be presented: the
+results carry `encrypted_content`. We cannot read what the agent read.
+
+So it is not in the tool registry, the approval gate cannot stop it, and
+`redact_fields` never sees its input. `agent.tool.start` and `agent.tool.end`
+gained `origin`, the events for it are **synthesised from the provider's report
+rather than observed**, the timeline says "its endpoint ran web_search itself",
+and the `agent.tool.end` summary says the contents are not visible to this app.
+The switch is off by default, is only offered on an endpoint known to answer to
+it, and the UI states all three limits where it is turned on. §16.8 is the
+section for this and for every other known gap, including the tool approval that
+does not survive a restart.
 
 ### What is honest about the sandbox
 
@@ -697,10 +725,15 @@ the forward-compat test points.
   this empirically via `GET /v1/models`; no model id is hardcoded anywhere.
 - Haiku 4.5 has two ids in circulation (`claude-haiku-4-5` vs
   `claude-haiku-4-5-20251001`). Same resolution: ask the endpoint, don't guess.
-- **`web_search` needs a Tavily key to exist at all.** With none configured the tool is
-  absent from `GET /tools` and from every toolbox, which is the intended behaviour
-  (§15 row 32) — but it means the search half of M8 has never run against the real
-  endpoint. The rest of §16 has.
+- **`web_search` has not run against a real endpoint yet** — it needs a Brave or Tavily
+  key, and there is none on this machine. Both adapters are tested against their own
+  recorded response shapes, and the request each one builds is asserted (a POST with the
+  key in the body for Tavily, a GET with `X-Subscription-Token` for Brave), but nobody
+  has typed a key in. Brave's free tier is the cheapest way to close that.
+- **DeepSeek's native search has been sent once and never wired into a mission.** The
+  probe that established it works was a raw request, not a run: the adapter, the
+  `origin` field and the UI switch are all tested, but no team has been pointed at an
+  `/anthropic` profile end to end.
 - **`recall` is keyword search, not semantic.** `sqlite-vec` is in the stack and nothing
   embeds anything yet. The tool description says so, so a model that finds nothing knows
   to try other words rather than concluding it never knew the thing.

@@ -252,3 +252,34 @@ describe("the workspace on the timeline", () => {
     expect(line).toBe("Mission started — hello");
   });
 });
+
+describe("who ran a tool", () => {
+  it("says when the endpoint ran it rather than this app", () => {
+    // §16.8: a provider-side search never passed the approval gate and its
+    // input was never redacted. The line must not read like one that did.
+    const line = describeEvent(
+      {
+        draft: {
+          type: "agent.tool.start",
+          payload: { agentId: "a-1", callId: "c", tool: "web_search", origin: "provider" },
+        },
+      } as never,
+      () => "Scout",
+    );
+    expect(line).toContain("endpoint ran");
+    expect(line).not.toBe("Scout calls web_search");
+  });
+
+  it("reads normally for a tool this app ran", () => {
+    const line = describeEvent(
+      {
+        draft: {
+          type: "agent.tool.start",
+          payload: { agentId: "a-1", callId: "c", tool: "read_file", origin: "client" },
+        },
+      } as never,
+      () => "Scout",
+    );
+    expect(line).toBe("Scout calls read_file");
+  });
+});

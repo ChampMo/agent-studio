@@ -485,10 +485,12 @@ type EventPayload =
 
   // tools
   | { type: "agent.tool.start"; agentId: string; callId: string; tool: string;
-      input: unknown; truncated?: boolean }
+      input: unknown; truncated?: boolean;
+      origin?: "client"|"provider" }
   | { type: "agent.tool.end";   agentId: string; callId: string; ok: boolean;
       summary: string; durationMs: number;
-      error?: { code: string; message: string }; usage?: Usage; truncated?: boolean }
+      error?: { code: string; message: string }; usage?: Usage; truncated?: boolean;
+      origin?: "client"|"provider" }
 
   // human in the loop
   | { type: "user.message";     content: string }
@@ -819,6 +821,9 @@ tool registry ที่รันได้จริง + workspace + การข
 | 33 | ผล web ถือเป็นอะไร | **data ไม่ใช่คำสั่ง** ห่อ marker เสมอ | หน้าเว็บเขียนโดยคนอื่น ถ้าปนกับ prompt ก็เท่ากับให้คนนอกสั่ง agent ที่ถือ `bash` |
 | 34 | agent เดียวถือทั้ง web และ write | validator `warn` แนะให้แยก Researcher/Coder | คนอ่านเนื้อหาจากภายนอกไม่ควรเป็นคนเดียวกับคนที่เขียนไฟล์ได้ — แยกแล้วคุยผ่าน `send_message` |
 | 35 | `write_file` ทับไฟล์ได้ไหม | **ไม่ได้** ต้องใช้ `edit_file` | ทับคือลบงานที่มีอยู่โดยไม่มีใครเห็น diff — `edit_file` บังคับให้ระบุของเดิมที่คาดว่าจะเจอ |
+| 36 | search engine กี่ตัว | Tavily + Brave, เลือกด้วย host ของ base URL | host คือตัวตนของ API อยู่แล้ว มี field "ชนิด" แยกเมื่อไรก็ขัดกับ URL ได้เมื่อนั้น |
+| 37 | ผลของ Brave ต่างจาก Tavily ไหม | ต่าง และบอก model ตรง ๆ ว่าเป็น snippet | ตอบจากสรุปเหมือนอ่านหน้าเต็ม = คำพูดผิดที่ฟังดูมั่นใจ |
+| 38 | native search ของ DeepSeek | รองรับ แต่ **แยกชนิด** ด้วย `origin` ไม่เข้าทะเบียน tool | approval/redaction ใช้ไม่ได้และเนื้อหา encrypted — ทำให้ดูเท่ากันคือโกหก (§16.8) |
 
 ---
 
@@ -912,10 +917,20 @@ modal ต้องแสดง **tool + input ที่ redact แล้ว** �
 
 ### 16.5 web_search provider
 
-`provider_profiles.kind = 'search'` เริ่มที่ **Tavily** เพราะคืนเนื้อหาที่สกัดมาแล้ว
-เหมาะกับ agent มากกว่าลิสต์ลิงก์ key อยู่ใน keychain ที่เดียวกับ key ของ model (§9.2)
+`provider_profiles.kind = 'search'` รองรับสอง endpoint และ **host เป็นตัวบอกว่าใช้ตัวไหน**
+— profile จะถือ URL หนึ่งอย่างแล้วมี field "ชนิด" ที่ขัดกันเองไม่ได้:
 
-ไม่มี key → `web_search` **หายจาก `GET /tools`** ไม่ใช่ขึ้นแล้ว fail (§15 แถว 32)
+| endpoint | คืนอะไร | เหมาะกับ |
+|---|---|---|
+| `api.tavily.com` | เนื้อหาที่สกัดจากหน้าเว็บแล้ว | agent อ่านแล้วได้ความทันที |
+| `api.search.brave.com` | title + url + คำอธิบายสั้น | ถูกกว่ามาก มีโควตาฟรีรายเดือน เหมาะกับ dev |
+
+ความต่างนี้ **ต้องส่งถึง model** ไม่ใช่กลบให้เหมือนกัน: ผลของ Brave ติดป้ายว่าเป็น
+สรุปของ search engine ไม่ใช่ตัวหน้า และท้ายผลลัพธ์บอกให้ `web_fetch` ก่อนจะอ้างอิง
+รายละเอียด — ตอบจาก snippet เหมือนอ่านหน้าเต็มคือที่มาของคำพูดผิดที่ฟังดูมั่นใจ
+
+key อยู่ใน keychain ที่เดียวกับ key ของ model (§9.2) ไม่มี key → `web_search`
+**หายจาก `GET /tools`** ไม่ใช่ขึ้นแล้ว fail (§15 แถว 32)
 
 ### 16.6 Prompt injection
 
@@ -965,3 +980,37 @@ web_fetch(url)                     -- domain policy + block private IP (16.6)
 `read_file` ที่ไม่มี `limit` จะดูดไฟล์ 50MB เข้า context แล้วชน budget ในหนึ่งเรียก
 `edit_file` ที่ match หลายที่แล้วแก้ทั้งหมดคือการแก้สิ่งที่ agent ไม่ได้ตั้งใจแก้ —
 สองข้อนี้เป็นเหตุผลเดียวกัน: tool ต้องทำสิ่งที่คนเรียกเข้าใจว่ามันจะทำ
+
+
+### 16.8 Provider-executed search — คนละชนิดกับ tool ในทะเบียน
+
+DeepSeek ค้นเว็บให้เองได้ผ่าน `https://api.deepseek.com/anthropic` (ยืนยันสองชั้น:
+อ่านเอกสารซึ่งระบุ base URL นี้และมี `web_search_tool_result` ในตารางความเข้ากันได้
+แล้ว**ยิงจริง** — endpoint ตอบกลับมาเป็นบล็อก `server_tool_use` + `web_search_tool_result`
+โดยค้นเสร็จไปแล้ว) เปิดได้ที่ `provider_profiles.native_search` ปิดเป็นค่าเริ่มต้น
+
+**นี่ไม่ใช่ search engine อีกตัว แต่เป็นคนละ trust model** และต้องแยกให้ชัดทุกที่:
+
+| | client-executed (`web_search` ในทะเบียน) | provider-executed (`native_search`) |
+|---|---|---|
+| อยู่ใน `GET /tools` | ใช่ | **ไม่** |
+| approval gate (§16.4) | ใช้ได้ | **ใช้ไม่ได้** — เรายังไม่เห็นตอนมันเกิด |
+| redaction (§9.3) | ใช้ได้ | **ใช้ไม่ได้** — input ไม่เคยผ่านมือเรา |
+| เนื้อหาที่ได้ | อ่านได้ ห่อ marker ได้ | `encrypted_content` — **เราอ่านไม่ออก** |
+| event | สังเกตตอนเกิด | **สังเคราะห์ทีหลัง** จากสิ่งที่ provider เล่าให้ฟัง |
+
+จึงมี `origin` บน `agent.tool.start` / `agent.tool.end`: `"client"` คือแอปนี้รัน
+`"provider"` คือ endpoint รันแล้วมาเล่าทีหลัง ไม่มีค่า = client (event ทุกใบก่อนหน้านี้)
+timeline เขียนคนละแบบ และ `agent.tool.end` บอกตรง ๆ ว่าเนื้อหาที่ได้ **มองไม่เห็น**
+
+UI ต้องบอกข้อจำกัดสามข้อนี้ตอนเปิดสวิตช์ ห้ามทำให้ดูเทียบเท่ากับ `web_search` ปกติ
+เหตุผลเดียวกับ §2.7: เคลมเกินจริงคือ UI โกหก
+
+**ข้อจำกัดที่รู้อยู่และยังไม่แก้ อยู่ในหมวดเดียวกับข้อนี้:**
+
+- **tool approval ไม่รอด restart** (§16.4) — ต่างจาก plan approval ตรงที่ไม่มี checkpoint
+  กลาง turn ถ้า process ตายระหว่างรอคำตอบ mission จบเป็น `crashed` และ tool ไม่ได้รัน
+  ซึ่งเป็นทิศทางที่ปลอดภัย เจอจริงตอนทดสอบ
+- **provider-executed search ไม่มีด่านใด ๆ** — ตามตารางข้างบน ทางเดียวที่ปิดคือปิดสวิตช์
+- **`recall` เป็น keyword search ไม่ใช่ semantic** — `sqlite-vec` อยู่ใน stack แต่ยังไม่มี
+  อะไร embed คำอธิบาย tool บอกไว้แล้ว เพื่อให้ model ที่หาไม่เจอรู้ว่าให้ลองคำอื่น

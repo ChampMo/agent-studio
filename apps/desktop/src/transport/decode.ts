@@ -153,7 +153,11 @@ export function describe(
     case "user.message":
       return p.content ?? "";
     case "agent.tool.start":
-      return `${who(p.agentId)} calls ${p.tool}`;
+      // A search the model's endpoint ran for itself did not pass through this
+      // app at all, and the timeline should not imply that it did (§16.8).
+      return p.origin === "provider"
+        ? `${who(p.agentId)}'s endpoint ran ${p.tool} itself`
+        : `${who(p.agentId)} calls ${p.tool}`;
     case "agent.tool.end":
       return `${p.tool ?? "tool"} ${p.ok ? "ok" : "failed"} — ${p.summary ?? ""}`;
     case "agent.request":

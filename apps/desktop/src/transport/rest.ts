@@ -45,13 +45,20 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 export interface ProviderProfile {
   id: string;
   name: string;
-  kind: "openai_compatible" | "anthropic";
+  /** "search" is not a model endpoint: nothing runs on it, it only makes
+   *  `web_search` available (§16.5). */
+  kind: "openai_compatible" | "anthropic" | "search";
   baseUrl: string | null;
   model: string;
   capabilities: Capabilities | null;
   verifiedAt: string | null;
   /** Whether a key exists in the OS keychain. Never the key itself. */
   hasKey: boolean;
+  /** The endpoint searches the web itself during a completion (§16.8). This
+   *  app never sees the call: no approval, no redaction, opaque results. */
+  nativeSearch: boolean;
+  /** Whether this endpoint is one that can do that at all. */
+  nativeSearchAvailable: boolean;
 }
 
 export interface Capabilities {
@@ -98,10 +105,15 @@ export const api = {
   health: () => request<{ ok: boolean; version: string }>("/health"),
 
   listProviders: () =>
-    request<{ providers: ProviderProfile[]; kinds: string[] }>("/providers"),
+    request<{
+      providers: ProviderProfile[];
+      kinds: string[];
+      searchEngines: SearchEngine[];
+    }>("/providers"),
 
   createProvider: (body: {
     name: string;
+    /** "openai_compatible" | "anthropic" | "search" (§16.5). */
     kind: string;
     model: string;
     base_url?: string | null;
@@ -113,7 +125,12 @@ export const api = {
 
   updateProvider: (
     id: string,
-    body: { name?: string; model?: string; base_url?: string | null },
+    body: {
+      name?: string;
+      model?: string;
+      base_url?: string | null;
+      native_search?: boolean;
+    },
   ) =>
     request<ProviderProfile>(`/providers/${id}`, {
       method: "PATCH",
@@ -294,6 +311,13 @@ export interface Tool {
   redactFields: string[];
   truncateResultBytes: number;
   inputSchema: Record<string, unknown>;
+}
+
+export interface SearchEngine {
+  id: string;
+  name: string;
+  /** The base URL that identifies this engine to the backend (§16.5). */
+  baseUrl: string;
 }
 
 export interface WorkspaceWarning {

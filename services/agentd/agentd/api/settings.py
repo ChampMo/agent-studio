@@ -20,10 +20,13 @@ from ..core import secrets
 from ..db.models import ProviderProfile
 from ..providers import registry
 from ..providers.base import ProviderError
+from ..providers.native_search import describe as native_search_endpoints
+from ..providers.native_search import supports_native_search
 from ..providers.probe import run_probe
 from ..tools.search import DEFAULT_ENDPOINT as DEFAULT_SEARCH_ENDPOINT
 from ..tools.search import SearchEndpoint
 from ..tools.search import probe as search_probe
+from ..tools.search import supported as search_engines
 from .deps import get_db, require_token
 
 router = APIRouter(dependencies=[Depends(require_token)])
@@ -40,6 +43,10 @@ class ProfilePatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=100)
     model: str | None = Field(default=None, min_length=1)
     base_url: str | None = None
+    #: Let the endpoint search the web itself (§16.8). Refused on an endpoint
+    #: that does not support it, so the switch cannot be a setting that does
+    #: nothing.
+    native_search: bool | None = None
 
 
 class KeyIn(BaseModel):
@@ -73,6 +80,10 @@ async def list_providers(request: Request) -> dict[str, Any]:
         # here so the UI can offer it; kept out of `available_kinds()` so
         # nothing tries to build a chat client from one.
         "kinds": [*registry.available_kinds(), "search"],
+        # The search APIs this build can talk to, so the UI offers the right
+        # base URLs instead of asking someone to remember them. Which adapter
+        # runs is decided by the host (§16.5).
+        "searchEngines": search_engines(),
     }
 
 
@@ -120,6 +131,25 @@ async def update_provider(
         if body.base_url != profile.base_url:
             profile.base_url = body.base_url
             changed_target = True
+
+        if body.native_search is not None:
+            # Refused rather than stored-and-ignored on an endpoint that cannot
+            # do it: a switch that does nothing is worse than no switch, and
+            # this one is about whether a gate applies (§16.8).
+            if body.native_search and not supports_native_search(profile.base_url):
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    "this endpoint does not run web search itself; "
+                    "it is available on: "
+                    + ", ".join(e["baseUrl"] for e in native_search_endpoints()),
+                )
+            profile.native_search = body.native_search
+
+        # Turning off native search when the base URL moves away from an
+        # endpoint that supports it: the flag would otherwise stay on, pointing
+        # at something that ignores it.
+        if changed_target and not supports_native_search(profile.base_url):
+            profile.native_search = False
 
         # Capabilities describe a model at an endpoint. Change either and the
         # old readings are about something else, so they are cleared rather

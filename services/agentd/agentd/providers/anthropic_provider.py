@@ -33,6 +33,7 @@ from .base import (
     DoneChunk,
     NoticeChunk,
     ProviderError,
+    ServerToolChunk,
     TextChunk,
     ToolCallChunk,
     Usage,
@@ -44,8 +45,24 @@ from .base import (
 class AnthropicProvider:
     kind = "anthropic"
 
-    def __init__(self, *, api_key: str, base_url: str | None = None) -> None:
+    #: The server tool spec, as the endpoint expects it. Verified against
+    #: DeepSeek's `/anthropic` endpoint by sending it and reading the reply
+    #: (§3.1): it answered with `server_tool_use` and `web_search_tool_result`
+    #: blocks, having done the searching itself.
+    SEARCH_TOOL = {"type": "web_search_20250305", "name": "web_search", "max_uses": 3}
+
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        base_url: str | None = None,
+        native_search: bool = False,
+    ) -> None:
         self._client = AsyncAnthropic(api_key=api_key, base_url=base_url)
+        #: Whether to let the endpoint search the web itself (§16.8). Off unless
+        #: the profile says otherwise, because it is the one tool this app can
+        #: neither approve nor redact.
+        self._native_search = native_search
 
     async def list_models(self) -> list[str]:
         try:
@@ -83,6 +100,13 @@ class AnthropicProvider:
         if req.system:
             kwargs["system"] = req.system
 
+        offered: list[dict[str, Any]] = []
+        if self._native_search:
+            # Added regardless of whether the agent carries client tools: this
+            # is a property of the endpoint, and the model decides whether to
+            # use it. Every use is reported afterwards as `origin: "provider"`.
+            offered.append(dict(self.SEARCH_TOOL))
+
         if req.tools and caps.tool_calling:
             kwargs["tools"] = [
                 {
@@ -94,7 +118,9 @@ class AnthropicProvider:
                     "strict": True,
                 }
                 for t in req.tools
-            ]
+            ] + offered
+        elif offered:
+            kwargs["tools"] = offered
         elif req.tools:
             yield NoticeChunk(
                 code="tools_unsupported",
@@ -119,6 +145,8 @@ class AnthropicProvider:
         usage = Usage()
         stop_reason: str | None = None
         tool_blocks: dict[int, dict[str, str]] = {}
+        #: Searches the endpoint ran for itself, keyed by its own call id.
+        server_calls: dict[str, dict[str, Any]] = {}
 
         try:
             async with self._client.messages.stream(**kwargs) as stream:
@@ -155,6 +183,31 @@ class AnthropicProvider:
                 stop_reason = final.stop_reason or stop_reason
                 usage = _merge_usage(usage, final.usage)
 
+                # Read off the final message rather than the deltas: these
+                # blocks arrive complete, and what is wanted from them is the
+                # query and how many results came back. The results themselves
+                # are `encrypted_content` on this endpoint - opaque to us - so
+                # there is nothing else here that could truthfully be recorded
+                # (§16.8).
+                for block in getattr(final, "content", []) or []:
+                    btype = getattr(block, "type", None)
+                    if btype == "server_tool_use":
+                        payload = getattr(block, "input", None) or {}
+                        query = ""
+                        if isinstance(payload, dict):
+                            query = str(payload.get("query", ""))
+                        server_calls.setdefault(str(getattr(block, "id", "")), {})[
+                            "query"
+                        ] = query
+                        server_calls[str(getattr(block, "id", ""))]["name"] = str(
+                            getattr(block, "name", "web_search")
+                        )
+                    elif btype == "web_search_tool_result":
+                        call_id = str(getattr(block, "tool_use_id", ""))
+                        content = getattr(block, "content", None) or []
+                        slot = server_calls.setdefault(call_id, {})
+                        slot["results"] = len(content) if isinstance(content, list) else 0
+
                 # A refusal is HTTP 200 with an empty-ish body. Checked
                 # explicitly, because reading content without checking makes it
                 # look like the model simply had nothing to say.
@@ -178,6 +231,14 @@ class AnthropicProvider:
                 name=slot["name"],
                 arguments_json=slot["arguments"] or "{}",
                 truncated=truncated,
+            )
+
+        for call_id, call in server_calls.items():
+            yield ServerToolChunk(
+                call_id=call_id,
+                name=str(call.get("name", "web_search")),
+                query=str(call.get("query", "")),
+                results=int(call.get("results", 0)),
             )
 
         yield DoneChunk(stop_reason=stop_reason, usage=usage)

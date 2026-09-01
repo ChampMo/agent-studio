@@ -6,13 +6,21 @@
  */
 import { create } from "zustand";
 import { getHandshake } from "../transport/handshake";
-import { api, type ProbeResult, type ProviderProfile } from "../transport/rest";
+import {
+  api,
+  type ProbeResult,
+  type ProviderProfile,
+  type SearchEngine,
+} from "../transport/rest";
 
 interface SettingsState {
   ready: boolean;
   loading: boolean;
   error: string | null;
   providers: ProviderProfile[];
+  /** The search APIs this build can talk to, served by the backend so the UI
+   *  never has to remember a base URL (§16.5). */
+  searchEngines: SearchEngine[];
   activeId: string | null;
   probe: Record<string, ProbeResult>;
   probing: string | null;
@@ -32,6 +40,7 @@ interface SettingsState {
     key: string;
   }) => Promise<ProviderProfile>;
   removeProvider: (id: string) => Promise<void>;
+  setNativeSearch: (id: string, on: boolean) => Promise<void>;
   setKey: (id: string, key: string) => Promise<void>;
   test: (id: string) => Promise<ProbeResult>;
 }
@@ -41,11 +50,16 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   loading: false,
   error: null,
   providers: [],
+  searchEngines: [],
   activeId: null,
   probe: {},
   probing: null,
 
-  needsOnboarding: () => get().providers.every((p) => !p.hasKey),
+  // A search endpoint is not something to run a mission on, so it does not
+  // count towards having a provider: an app with only a Brave key still needs
+  // a model before anything can happen (§3.2).
+  needsOnboarding: () =>
+    get().providers.every((p) => !p.hasKey || p.kind === "search"),
   active: () => get().providers.find((p) => p.id === get().activeId) ?? null,
 
   waitForBackend: async () => {
@@ -70,9 +84,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   refresh: async () => {
     set({ loading: true, error: null });
     try {
-      const { providers } = await api.listProviders();
+      const { providers, searchEngines } = await api.listProviders();
       set((s) => ({
         providers,
+        searchEngines: searchEngines ?? [],
         activeId:
           s.activeId && providers.some((p) => p.id === s.activeId)
             ? s.activeId
@@ -99,6 +114,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   removeProvider: async (id) => {
     await api.deleteProvider(id);
+    await get().refresh();
+  },
+
+  setNativeSearch: async (id, on) => {
+    // The backend refuses this on an endpoint that cannot do it, so a failure
+    // here is a real answer rather than something to paper over (§16.8).
+    await api.updateProvider(id, { native_search: on });
     await get().refresh();
   },
 
