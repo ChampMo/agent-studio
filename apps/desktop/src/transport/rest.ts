@@ -18,12 +18,22 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * How long to wait before trying a read again when the backend was not there.
+ *
+ * The dev launcher restarts the backend when a `.py` file changes, and it comes
+ * back on the same port a second or so later. Without this, an edit while the
+ * app is open shows up as a wall of errors for something that fixed itself.
+ */
+const RESTART_GRACE_MS = 900;
+
+const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const { apiBase, token } = requireHandshake();
 
-  let res: Response;
-  try {
-    res = await fetch(`${apiBase}${path}`, {
+  const send = () =>
+    fetch(`${apiBase}${path}`, {
       ...init,
       headers: {
         "Content-Type": "application/json",
@@ -31,7 +41,26 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
         ...(init.headers ?? {}),
       },
     });
-  } catch (cause) {
+
+  let res: Response;
+  try {
+    res = await send();
+  } catch (first) {
+    // Only a read is retried. A write that failed at the network level may
+    // still have been delivered and acted on — the response is what went
+    // missing, not necessarily the request — and launching two missions
+    // because one reply was lost is worse than an error message.
+    const method = (init.method ?? "GET").toUpperCase();
+    if (method === "GET") {
+      await sleep(RESTART_GRACE_MS);
+      try {
+        res = await send();
+        return await unwrap<T>(res);
+      } catch {
+        // Fall through to the message below: it was not a restart.
+      }
+    }
+    const cause = first;
     // A network-level failure, not an HTTP one. On this app it means one thing
     // in practice: this page was loaded against a backend that is no longer
     // there. The port and token are injected at page load and the dev launcher
@@ -46,6 +75,10 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     );
   }
 
+  return unwrap<T>(res);
+}
+
+async function unwrap<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let detail = res.statusText;
     try {

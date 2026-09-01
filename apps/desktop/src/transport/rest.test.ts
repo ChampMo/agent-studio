@@ -51,3 +51,53 @@ describe("a backend that is not there", () => {
     expect(failure.message).toBe("no");
   });
 });
+
+describe("a backend that is coming back", () => {
+  it("rides out a restart on a read", async () => {
+    // The dev launcher restarts the backend when a .py file changes and it
+    // returns on the same port a second later. One edit should not produce a
+    // wall of errors for something that fixed itself.
+    let calls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        calls += 1;
+        if (calls === 1) throw new TypeError("Failed to fetch");
+        return new Response(JSON.stringify({ ok: true, version: "0.1.0" }), { status: 200 });
+      }),
+    );
+
+    const health = await api.health();
+    expect(health.ok).toBe(true);
+    expect(calls).toBe(2);
+  });
+
+  it("does not retry a write", async () => {
+    // A write that failed at the network level may still have arrived: the
+    // reply is what went missing, not necessarily the request. Launching two
+    // missions because one response was lost is worse than an error.
+    let calls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        calls += 1;
+        throw new TypeError("Failed to fetch");
+      }),
+    );
+
+    await expect(
+      api.startChat({ provider_id: "p", content: "hello" }),
+    ).rejects.toThrow(/not reachable/);
+    expect(calls).toBe(1);
+  });
+
+  it("gives up with the same message when it really is gone", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("Failed to fetch");
+      }),
+    );
+    await expect(api.health()).rejects.toThrow(/reload/);
+  });
+});
