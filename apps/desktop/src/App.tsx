@@ -9,7 +9,6 @@ import { TeamsPanel } from "./features/teams/TeamsPanel";
 import { MissionPanel } from "./features/mission/MissionPanel";
 import { HistoryPanel } from "./features/history/HistoryPanel";
 import { ApprovalModal } from "./features/approval/ApprovalModal";
-import { TimelinePanel } from "./features/timeline/TimelinePanel";
 import { useApprovalStore } from "./stores/approvalStore";
 import { cn } from "./lib/cn";
 
@@ -91,13 +90,12 @@ export function App() {
         </div>
       </main>
 
-      <aside className="flex min-w-0 flex-col divide-y divide-slate-800 overflow-hidden">
-        <div className="min-h-0 flex-1">
-          <TimelinePanel />
-        </div>
-        <div className="max-h-[45%] overflow-y-auto">
-          <SettingsPanel />
-        </div>
+      {/* The timeline used to live here. It moved into the working screen,
+          under the scene, because the two are views of the same events and
+          reading one while watching the other was the point (§17.1). What is
+          left here is configuration, which is looked at rarely. */}
+      <aside className="min-w-0 overflow-y-auto">
+        <SettingsPanel />
       </aside>
     </div>
   );

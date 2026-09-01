@@ -46,18 +46,29 @@ export class Scene {
   private camera: Point | null = null;
   private cameraWant: Point = { x: 0, y: 0 };
   private scaleWant = 1;
+  private sizeWatcher: ResizeObserver | null = null;
 
   async mount(host: HTMLElement): Promise<void> {
     const app = new Application();
     await app.init({
       background: 0x0b1120,
       antialias: true,
-      resizeTo: host,
+      width: host.clientWidth || 800,
+      height: host.clientHeight || 300,
       // Matches the page's device pixel ratio so the iso edges stay crisp.
       resolution: window.devicePixelRatio || 1,
       autoDensity: true,
     });
     host.appendChild(app.canvas);
+
+    // The pane changes height when the splitter moves, which is not a window
+    // resize — `resizeTo` would never hear about it (§17.1).
+    this.sizeWatcher = new ResizeObserver(([entry]) => {
+      if (!entry || !this.app) return;
+      const { width, height } = entry.contentRect;
+      if (width > 0 && height > 0) this.app.renderer.resize(width, height);
+    });
+    this.sizeWatcher.observe(host);
     app.stage.addChild(this.world);
     this.world.addChild(this.floor);
     this.app = app;
@@ -70,7 +81,27 @@ export class Scene {
     });
   }
 
+  /**
+   * Start or stop the animation loop (§17.1).
+   *
+   * Not a flag the ticker checks — the ticker itself is stopped. A callback
+   * that runs sixty times a second to decide it has nothing to do is still a
+   * callback running sixty times a second.
+   */
+  setAnimating(animating: boolean): void {
+    const ticker = this.app?.ticker;
+    if (!ticker) return;
+    if (animating && !ticker.started) ticker.start();
+    if (!animating && ticker.started) ticker.stop();
+  }
+
+  get animating(): boolean {
+    return this.app?.ticker.started ?? false;
+  }
+
   destroy(): void {
+    this.sizeWatcher?.disconnect();
+    this.sizeWatcher = null;
     this.app?.destroy(true, { children: true });
     this.app = null;
     this.actors.clear();

@@ -45,6 +45,15 @@ export const strings = {
       "The mission pauses after planning and waits for you. The only point where stopping still saves the cost of the work.",
   },
 
+  workview: {
+    splitter: "Resize the scene",
+    splitterHint:
+      "Drag, or focus it and use the arrows, PageUp/PageDown, Home, End. Enter collapses and restores.",
+    recordTabs: "What happened",
+    timeline: "Timeline",
+    artifacts: "Files",
+  },
+
   workspace: {
     title: "Workspace folder",
     required: "required by this team's tools",
