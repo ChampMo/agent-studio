@@ -447,6 +447,35 @@ it, and the UI states all three limits where it is turned on. §16.8 is the
 section for this and for every other known gap, including the tool approval that
 does not survive a restart.
 
+### A `Literal` and a CHECK constraint are two places
+
+`kind = "search"` was added to the request model, the profile serialiser, the
+tool registry and the UI — and not to the CHECK constraint written in migration
+0001. So **saving a search endpoint failed every time and had never once
+worked**, from the moment the feature was written until someone tried to use it.
+
+Nothing inserted one. The adapters are tested against recorded responses,
+`_has_search_provider` only reads, and no test created a profile through the
+API. `test_settings_api.py` does now, and it is the test that would have caught
+this the day it was written.
+
+Two things made it much harder to find than it should have been, and both are
+now fixed:
+
+**An unhandled 500 loses its CORS headers.** Starlette's error middleware sits
+*outside* `CORSMiddleware`, so a crash is answered without
+`Access-Control-Allow-Origin` — and the browser reports a CORS policy
+violation, which points at the one thing that is not wrong. A catcher added
+before the CORS middleware (making it the inner of the two) now turns a crash
+into a JSON 500 that a page can actually read. Two rounds of debugging went
+into "CORS is misconfigured" and "the port is stale" before the real error was
+visible.
+
+**A PATCH treated an absent field as null.** `if body.base_url != profile.base_url`
+cannot tell "the caller did not send this" from "the caller sent null", so
+renaming a provider erased its base URL and broke it. `model_fields_set` is the
+distinction; null is still a real value, because an Anthropic profile has none.
+
 ### What is honest about the sandbox
 
 There is not one. §2.7 now says so: file tools are workspace-scoped by a path

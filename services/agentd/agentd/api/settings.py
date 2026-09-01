@@ -122,13 +122,20 @@ async def update_provider(
         if profile is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "no such provider profile")
 
+        # Which fields the caller actually sent, not which are non-null. They
+        # are different questions for `base_url`: an Anthropic profile has none,
+        # so null is a real value someone may mean. Treating "absent" as "set to
+        # null" meant that renaming a profile erased its base URL and broke the
+        # provider — quietly, and only noticed later.
+        sent = body.model_fields_set
+
         changed_target = False
         if body.name is not None:
             profile.name = body.name
         if body.model is not None and body.model != profile.model:
             profile.model = body.model
             changed_target = True
-        if body.base_url != profile.base_url:
+        if "base_url" in sent and body.base_url != profile.base_url:
             profile.base_url = body.base_url
             changed_target = True
 

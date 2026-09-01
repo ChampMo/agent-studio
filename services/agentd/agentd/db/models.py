@@ -123,7 +123,11 @@ class ProviderProfile(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "kind IN ('openai_compatible', 'anthropic')", name="ck_provider_kind"
+            # 'search' is not a model endpoint: nothing runs on it, and it only
+            # makes `web_search` available (§16.5). It belongs here anyway,
+            # because the table is where the wrong value has to be refused.
+            "kind IN ('openai_compatible', 'anthropic', 'search')",
+            name="ck_provider_kind",
         ),
     )
 

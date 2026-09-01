@@ -10,8 +10,9 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
@@ -78,6 +79,28 @@ def create_app(*, settings: Settings | None = None, db: Database | None = None) 
         redoc_url=None,
         openapi_url=None,
     )
+
+    # Added *before* CORS, which makes it the inner of the two: a response it
+    # produces still travels back out through the CORS middleware.
+    #
+    # Without it an unhandled exception is caught by Starlette's outermost
+    # error middleware instead, above CORS, so the 500 arrives with no
+    # `Access-Control-Allow-Origin` header — and a browser reports that as a
+    # CORS policy violation. That points at the one thing which is not wrong.
+    # A database constraint failure cost two rounds of debugging today for
+    # exactly this reason.
+    @app.middleware("http")
+    async def report_crashes(request: Request, call_next):
+        try:
+            return await call_next(request)
+        except Exception:  # noqa: BLE001 - the alternative is a silent 500
+            # The traceback goes to the log, where it belongs. A stack trace in
+            # an HTTP body hands internals to whatever provoked the error.
+            log.exception("unhandled error on %s %s", request.method, request.url.path)
+            return JSONResponse(
+                status_code=500,
+                content={"detail": "the backend hit an unexpected error; see its log"},
+            )
 
     # The frontend is served from another port in dev and another scheme under
     # Tauri, so the browser needs this to let the page read a response. It is
