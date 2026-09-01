@@ -51,8 +51,6 @@ class ToolSpec:
     #: Ceiling for the result recorded on the log. The bus truncates payloads
     #: anyway; this lets a noisy tool ask for less.
     truncate_result_bytes: int = PAYLOAD_TRUNCATE_BYTES
-    #: Extra fields the tool wants on `agent.tool.end`, beyond the summary.
-    keep_details: tuple[str, ...] = ()
 
     def to_json(self) -> dict[str, Any]:
         """The wire form. Note what is absent: the handler."""
@@ -168,7 +166,6 @@ SPECS: tuple[ToolSpec, ...] = (
         # The whole file would otherwise be copied into an append-only table,
         # forever (§9.3). The log keeps the path and the size.
         redact_fields=("content",),
-        keep_details=("path", "bytes"),
         input_schema=_schema(
             {
                 "path": {"type": "string", "description": "Path relative to the workspace."},
@@ -189,7 +186,6 @@ SPECS: tuple[ToolSpec, ...] = (
         requires=("workspace",),
         handler=fs.edit_file,
         redact_fields=("old_str", "new_str"),
-        keep_details=("path", "byteDelta"),
         input_schema=_schema(
             {
                 "path": {"type": "string"},
@@ -213,7 +209,6 @@ SPECS: tuple[ToolSpec, ...] = (
         risk="dangerous",
         requires=("workspace", "shell"),
         handler=shell.bash,
-        keep_details=("exitCode",),
         input_schema=_schema(
             {
                 "command": {"type": "string", "description": "The command line to run."},
@@ -237,7 +232,6 @@ SPECS: tuple[ToolSpec, ...] = (
         ),
         risk="safe",
         handler=team.send_message,
-        keep_details=("to",),
         input_schema=_schema(
             {
                 "to": {"type": "string", "description": "The teammate's name."},
@@ -285,7 +279,6 @@ SPECS: tuple[ToolSpec, ...] = (
         ),
         risk="safe",
         handler=memory.recall,
-        keep_details=("results",),
         input_schema=_schema(
             {"query": {"type": "string", "description": "Words to look for."}},
             ["query"],
@@ -301,7 +294,6 @@ SPECS: tuple[ToolSpec, ...] = (
         risk="safe",
         requires=("search_provider",),
         handler=search.web_search,
-        keep_details=("results",),
         input_schema=_schema(
             {"query": {"type": "string", "description": "What to search for."}},
             ["query"],
@@ -316,7 +308,6 @@ SPECS: tuple[ToolSpec, ...] = (
         ),
         risk="dangerous",
         handler=web.web_fetch,
-        keep_details=("url",),
         input_schema=_schema(
             {"url": {"type": "string", "description": "An http or https URL."}},
             ["url"],
