@@ -175,6 +175,8 @@ pub fn run() {
         // Registered for the Rust side only: no capability grants the webview
         // any shell permission, so the page cannot execute anything (§9.1).
         .plugin(tauri_plugin_shell::init())
+        // The webview may open a folder picker; see capabilities/default.json.
+        .plugin(tauri_plugin_dialog::init())
         .manage(Backend::default())
         .setup(|app| {
             // The window is built here rather than declared in tauri.conf.json

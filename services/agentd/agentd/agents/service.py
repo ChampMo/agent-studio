@@ -34,6 +34,8 @@ def to_json(agent: Agent) -> dict[str, Any]:
         "model": agent.model,
         "sampling": agent.sampling,
         "tools": agent.tools,
+        #: When this agent stops to ask before a tool call (§16.4).
+        "autonomy": agent.autonomy,
         "avatarConfig": agent.avatar_config,
         #: Missions that actually finished. Shown as a plain count.
         "totalMissions": agent.total_missions,
@@ -58,6 +60,7 @@ class AgentService:
         "model",
         "sampling",
         "tools",
+        "autonomy",
         "avatar_config",
     }
 
@@ -95,6 +98,7 @@ class AgentService:
             model=fields.get("model"),
             sampling=fields.get("sampling"),
             tools=fields.get("tools") or [],
+            autonomy=fields.get("autonomy") or "ask_dangerous",
             # Validated even on the way in from the UI: the generator is not the
             # only path to this table, and an unknown asset breaks the scene in
             # M5 wherever it came from (§11).
@@ -174,6 +178,7 @@ class AgentService:
                 "model": source.model,
                 "sampling": source.sampling,
                 "tools": list(source.tools),
+                "autonomy": source.autonomy,
                 "avatar_config": dict(source.avatar_config),
             }
         )

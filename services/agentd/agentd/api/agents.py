@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
@@ -30,6 +30,9 @@ class AgentIn(BaseModel):
     model: str | None = None
     sampling: dict[str, Any] | None = None
     tools: list[str] = Field(default_factory=list)
+    #: Defaults to the cautious value: an agent created without saying stops
+    #: before `bash` and `web_fetch` rather than after (§16.4).
+    autonomy: Literal["ask_always", "ask_dangerous", "trusted"] = "ask_dangerous"
     avatar_config: dict[str, str] | None = None
 
 
@@ -44,6 +47,7 @@ class AgentPatch(BaseModel):
     model: str | None = None
     sampling: dict[str, Any] | None = None
     tools: list[str] | None = None
+    autonomy: Literal["ask_always", "ask_dangerous", "trusted"] | None = None
     avatar_config: dict[str, str] | None = None
 
 

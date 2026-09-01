@@ -11,6 +11,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@tauri-apps/plugin-dialog": "^2.7.3",
     "clsx": "^2.1.1",
     "pixi.js": "^8.20.1",
     "react": "^18.3.1",

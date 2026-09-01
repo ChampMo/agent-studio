@@ -158,3 +158,34 @@ async def test_a_used_workspace_joins_the_recent_list(db, bus, tmp_path: Path, m
 async def _do_nothing(*args, **kwargs) -> None:
     """Stand in for the run itself; these tests are about the launch."""
     return None
+
+
+async def test_a_mission_that_ends_stops_asking(db, bus):
+    """A tool approval belongs to a live turn. When the mission ends — cancelled,
+    or crashed with the process — the question goes with it, or the next client
+    to start shows a modal whose answer comes back 409."""
+    from datetime import UTC, datetime
+
+    from agentd.db.models import Mission
+
+    async with db.session() as s:
+        s.add(
+            Mission(
+                id="m-stale",
+                kind="mission",
+                team_id=None,
+                goal="g",
+                status="running",
+                budget={},
+                roster_snapshot=[],
+                pending_request="req-abandoned",
+                started_at=datetime.now(UTC),
+            )
+        )
+        await s.commit()
+
+    runner = MissionRunner(db, bus)
+    assert await runner.reap_orphans() == 1
+
+    # Nothing is waiting on anyone any more.
+    assert await runner.pending_requests() == []

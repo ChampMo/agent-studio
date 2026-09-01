@@ -15,6 +15,10 @@ import { useMissionStore } from "../../stores/missionStore";
 import { useTeamStore } from "../../stores/teamStore";
 import { Badge, Button, Field, Input } from "../../components/ui/primitives";
 import { SceneView } from "../../scene/SceneView";
+import { WorkspaceBanner, WorkspacePicker } from "./WorkspacePicker";
+import { useToolStore } from "../../stores/toolStore";
+import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { useAgentStore } from "../../stores/agentStore";
 
 interface TaskRow {
   taskId: string;
@@ -26,7 +30,13 @@ interface TaskRow {
 
 export function MissionPanel() {
   const { teams, load: loadTeams } = useTeamStore();
-  const { missionId, roster, endReason, launching, rejected } = useMissionStore();
+  const { missionId, roster, endReason, launching, rejected, workspaceRoot } =
+    useMissionStore();
+  const chosenWorkspace = useWorkspaceStore((s) => s.chosen);
+  const agents = useAgentStore((s) => s.agents);
+  const tools = useToolStore((s) => s.tools);
+  const loadTools = useToolStore((s) => s.load);
+  const loadAgents = useAgentStore((s) => s.load);
   const { launch, clear } = useMissionStore();
   const events = useEventStore((s) => s.events);
   const connection = useEventStore((s) => s.connection);
@@ -37,11 +47,28 @@ export function MissionPanel() {
 
   useEffect(() => {
     void loadTeams();
-  }, [loadTeams]);
+    void loadTools();
+    void loadAgents();
+  }, [loadTeams, loadTools, loadAgents]);
 
   const runnable = teams.filter((t) => t.canRun && !t.archivedAt);
   const team = teams.find((t) => t.id === teamId) ?? runnable[0] ?? null;
   const running = missionId !== null && endReason === null;
+
+  // Which of this team's tools cannot run without a folder. Asked of the
+  // registry rather than hardcoded here: the backend owns that list, and the
+  // launch gate refuses on the same answer (§16.2).
+  const needsWorkspace = useMemo(() => {
+    if (!team) return [];
+    const wanted = new Set(
+      team.members.flatMap(
+        (m) => agents.find((a) => a.id === m.agentId)?.tools ?? [],
+      ),
+    );
+    return tools
+      .filter((t) => t.requires.includes("workspace") && wanted.has(t.id))
+      .map((t) => t.id);
+  }, [team, agents, tools]);
 
   // One row per task, latest state wins. Counted, never a percentage: no
   // honest percentage exists for agent work (§15 row 7).
@@ -99,7 +126,10 @@ export function MissionPanel() {
             onSubmit={(e) => {
               e.preventDefault();
               if (team && goal.trim())
-                void launch(team, goal.trim(), requireApproval);
+                void launch(team, goal.trim(), {
+                  requireApproval,
+                  workspaceRoot: chosenWorkspace?.path ?? null,
+                });
             }}
             className="space-y-3 rounded-lg border border-slate-800 bg-slate-900/40 p-4"
           >
@@ -119,6 +149,15 @@ export function MissionPanel() {
                 ))}
               </select>
             </Field>
+
+            {/* Before the goal, because it is the thing that has to be
+                decided first: a file tool with no folder has no boundary. */}
+            <WorkspacePicker required={needsWorkspace.length > 0} />
+            {needsWorkspace.length > 0 && !chosenWorkspace ? (
+              <p className="text-xs text-amber-400">
+                {strings.workspace.blocked} ({needsWorkspace.join(", ")})
+              </p>
+            ) : null}
 
             <Field label={strings.mission.goalLabel} hint={strings.mission.goalHint}>
               <Input
@@ -145,7 +184,15 @@ export function MissionPanel() {
               </span>
             </label>
 
-            <Button type="submit" disabled={launching || !team || !goal.trim()}>
+            <Button
+              type="submit"
+              disabled={
+                launching ||
+                !team ||
+                !goal.trim() ||
+                (needsWorkspace.length > 0 && !chosenWorkspace)
+              }
+            >
               {launching ? strings.mission.launching : strings.mission.launch}
             </Button>
 
@@ -166,6 +213,9 @@ export function MissionPanel() {
 
         {missionId ? (
           <>
+            {/* Visible for as long as the mission runs, not only when it was
+                chosen: the user has to be able to see where files are going. */}
+            <WorkspaceBanner path={workspaceRoot} />
             {/* The scene and the list below read the same events (§2.1). If
                 they ever disagree, one of them is lying — and they cannot,
                 because both come from one derivation. */}

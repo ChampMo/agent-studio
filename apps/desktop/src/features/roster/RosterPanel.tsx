@@ -12,10 +12,14 @@ import { useAgentStore } from "../../stores/agentStore";
 import { Badge, Button } from "../../components/ui/primitives";
 import type { Agent } from "../../transport/rest";
 import { AgentCreator } from "../agent-creator/AgentCreator";
+import { ToolPicker } from "../agent-creator/ToolPicker";
+import type { Autonomy } from "../../transport/rest";
 
 function AgentCard({ agent }: { agent: Agent }) {
   const { duplicate, archive, restore, update } = useAgentStore();
   const [editing, setEditing] = useState(false);
+  const [tools, setTools] = useState<string[]>(agent.tools ?? []);
+  const [autonomy, setAutonomy] = useState<Autonomy>(agent.autonomy ?? "ask_dangerous");
   const [prompt, setPrompt] = useState(agent.systemPrompt);
   const archived = agent.archivedAt !== null;
 
@@ -77,16 +81,29 @@ function AgentCard({ agent }: { agent: Agent }) {
         <form
           onSubmit={async (e) => {
             e.preventDefault();
-            await update(agent.id, { system_prompt: prompt });
+            await update(agent.id, {
+              system_prompt: prompt,
+              tools,
+              autonomy,
+            });
             setEditing(false);
           }}
-          className="space-y-2"
+          className="space-y-3"
         >
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             rows={5}
             className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 font-mono text-xs text-slate-100"
+          />
+          {/* Editable after creation, because what an agent is allowed to do is
+              the kind of decision people revisit — and because an agent made
+              before M8 carries no tools at all. */}
+          <ToolPicker
+            value={tools}
+            autonomy={autonomy}
+            onChange={setTools}
+            onAutonomyChange={setAutonomy}
           />
           <Button type="submit">{strings.roster.saveEdit}</Button>
         </form>

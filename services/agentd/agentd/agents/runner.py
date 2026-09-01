@@ -17,7 +17,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from ..core.budget import BudgetExceeded, BudgetLimits, BudgetTracker, resolve_limits
 from ..core.events import EventBus
@@ -755,8 +755,17 @@ class MissionRunner:
         mission stuck for ever with nobody aware of it.
         """
         async with self._db.session() as s:
+            # `waiting` covers a plan approval, which parks the mission. A tool
+            # approval leaves it `running` — the process is alive and a turn is
+            # holding a future — so the column has to be checked too, or a
+            # client that reconnects mid-question sees nothing (§16.4).
             rows = await s.execute(
-                select(Mission).where(Mission.status == "waiting")
+                select(Mission).where(
+                    or_(
+                        Mission.status == "waiting",
+                        Mission.pending_request.is_not(None),
+                    )
+                )
             )
             missions = list(rows.scalars().all())
 
@@ -983,6 +992,11 @@ class MissionRunner:
                 mission.ended_at = datetime.now(UTC)
                 mission.end_reason = reason
                 mission.result_summary = summary
+                # Cleared with the ending. A question belonging to a mission
+                # that is over is a modal nobody can usefully answer: the
+                # backend would refuse the answer with a 409, and the run it
+                # belonged to is already on the record as crashed or cancelled.
+                mission.pending_request = None
                 await s.commit()
 
 

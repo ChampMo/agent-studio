@@ -10,6 +10,7 @@ and the cloud metadata endpoint.
 from __future__ import annotations
 
 import socket
+import sys
 from pathlib import Path
 
 import httpx
@@ -17,7 +18,7 @@ import pytest
 
 from agentd.tools import web
 from agentd.tools.base import ToolContext, ToolFailed
-from agentd.tools.shell import DEFAULT_TIMEOUT_SEC, bash, find_shell
+from agentd.tools.shell import DEFAULT_TIMEOUT_SEC, _runs, bash, find_shell
 
 
 @pytest.fixture
@@ -202,3 +203,15 @@ async def test_an_empty_command_is_refused(ctx: ToolContext):
 def test_the_default_timeout_is_finite():
     # A command with no timeout is a mission that stops without saying why.
     assert 0 < DEFAULT_TIMEOUT_SEC <= 600
+
+
+@pytest.mark.skipif(not sys.platform.startswith("win"), reason="the WSL stub is a Windows thing")
+def test_the_chosen_shell_is_one_that_runs():
+    """Found live: the backend picked `System32\bash.exe` — WSL's launcher —
+    and every command failed with `CreateProcessEntryCommon`, one approval at a
+    time, looking like the model's fault."""
+    shell = find_shell()
+    if shell is None:
+        pytest.skip("no shell on this machine")
+    # Existence is not the test. Running is.
+    assert _runs(shell)

@@ -131,6 +131,9 @@ async def get_mission(request: Request, mission_id: str) -> dict[str, Any]:
         "status": mission.status,
         "budget": mission.budget,
         "rosterSnapshot": mission.roster_snapshot,
+        #: Shown for as long as the mission runs: an agent writing files
+        #: somewhere the user cannot see is what §1 rules out (§16.2).
+        "workspaceRoot": mission.workspace_root,
         "startedAt": mission.started_at.isoformat(),
         "endedAt": mission.ended_at.isoformat() if mission.ended_at else None,
         "endReason": mission.end_reason,

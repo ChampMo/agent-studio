@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
+import subprocess
 import sys
 from functools import lru_cache
 from pathlib import Path
@@ -35,24 +36,54 @@ MAX_TIMEOUT_SEC = 600
 #: Output kept per stream. Enough for a test run or a build log's tail.
 MAX_OUTPUT_CHARS = 30_000
 
-#: Where Git for Windows puts its shell. Checked because it is on most
-#: developers' machines and almost never on PATH.
+#: Where Git for Windows puts its shell. Tried *before* PATH, because the
+#: `bash` on PATH is usually `C:\Windows\System32\bash.exe` — WSL's launcher.
 WINDOWS_CANDIDATES = (
     r"C:\Program Files\Git\bin\bash.exe",
+    r"C:\Program Files\Git\usr\bin\bash.exe",
     r"C:\Program Files (x86)\Git\bin\bash.exe",
 )
 
 
+def _runs(shell: str) -> bool:
+    """Whether this shell can actually run a command.
+
+    Asked rather than assumed, because of what a live run found:
+    `System32\bash.exe` exists on any Windows where the WSL feature is listed,
+    sits first on PATH, and fails every command with
+    `CreateProcessEntryCommon` when no distribution is installed. The agent
+    spent three approvals discovering that, one per attempt, and the failures
+    read like the model's fault.
+    """
+    try:
+        result = subprocess.run(
+            [shell, "-c", "exit 0"],
+            capture_output=True,
+            timeout=10,
+            stdin=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
+
 @lru_cache(maxsize=1)
 def find_shell() -> str | None:
-    """A POSIX shell to run commands with, or None if this machine has none."""
+    """A POSIX shell that works here, or None if this machine has none.
+
+    Order matters on Windows: a shell that exists is not the same as a shell
+    that runs.
+    """
+    candidates: list[str] = []
+    if sys.platform == "win32":
+        candidates += [c for c in WINDOWS_CANDIDATES if Path(c).is_file()]
     for name in ("bash", "sh"):
         if found := shutil.which(name):
-            return found
-    if sys.platform == "win32":
-        for candidate in WINDOWS_CANDIDATES:
-            if Path(candidate).is_file():
-                return candidate
+            candidates.append(found)
+
+    for candidate in candidates:
+        if _runs(candidate):
+            return candidate
     return None
 
 

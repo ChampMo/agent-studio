@@ -340,6 +340,92 @@ binds — deliberately, since the parent needs the port before the socket exists
 so waiting for the message is not waiting for the server. The probe polls the
 socket now.
 
+
+**M8 — tools: done, verified live.** Thirteen tools, a workspace bound to the
+mission, and an approval gate reusing M6 whole. 301 pytest + 63 vitest + 4 cargo
+green.
+
+Verified with a real run against DeepSeek: a three-agent team read a workspace
+through `list_dir`, `grep` and `read_file` — sixteen tool calls — and answered
+correctly, naming the file and line. A second run asked for `bash` under
+`ask_dangerous`, showed the command in the modal, ran it when approved, and when
+one attempt was rejected the agent said so and went back to the read-only tools
+instead of asking again.
+
+### The workspace is the boundary, so it comes first
+
+`missions.workspace_root`, not the team's and not the agent's (§15 row 29): one
+team has to be usable on several projects. It is frozen into the roster snapshot
+and published on `mission.started`, so a replay can say where the work happened
+rather than where this build would put it today.
+
+`tools/paths.py` is the only resolver, and the rule it enforces is **resolve
+first, compare second**. The tests build a real `..`, a real symlink, a real
+Windows junction (`mklink /J`, which needs no privileges and is not a symlink),
+a real 8.3 short name, and a drive-relative path, and check each is refused. The
+last two are the ones that would have been missed by reading about the problem
+instead of trying it.
+
+### Approval could not use `interrupt()`
+
+M6's gate is a LangGraph interrupt, and CLAUDE.md already records what that
+costs: the node re-runs from the top on resume. For a tool call the node has
+already paid for an LLM turn, so pausing there would buy it twice and publish
+its events twice.
+
+So a tool approval yields the same `agent.request`, is answered through the same
+endpoint, and appears in the same modal — but the waiting is a future the runner
+holds, not a checkpoint. The honest consequence is written into §16.4 and was
+then seen live: the backend restarted mid-question, the mission was reaped as
+`crashed`, and the tool never ran. That is the safe direction to fail in, and it
+is now the documented behaviour rather than a surprise.
+
+### Redaction has to happen where the spec is known
+
+`write_file.content` would otherwise be copied whole into `mission_events`,
+which is append-only forever (§9.3). The registry declares `redact_fields`, and
+the runtime replaces the field with its byte count before the event is built —
+so the timeline says *wrote 1,700 bytes to src/main.py*, which is what a
+timeline is for, and the file itself is not in the database.
+
+### A shell that exists is not a shell that runs
+
+`bash` on Windows PATH is usually `System32ash.exe`, WSL's launcher, and on a
+machine with no distribution installed it fails every command with
+`CreateProcessEntryCommon`. The agent discovered this three approvals in a row,
+and each failure read like the model's fault.
+
+`find_shell()` now tries Git for Windows first and *runs* each candidate before
+choosing it. Same rule as `web_search` with no key: a tool that cannot work is
+not offered (§15 row 32).
+
+### Two smaller things the live run found
+
+**A nested `<form>`.** The workspace picker was rendered inside the launch form.
+HTML has no nested forms — the parser drops the inner tag — so its buttons
+submitted the outer one and the page reloaded. Everything inside a form that is
+not the submit needs `type="button"`.
+
+**A question can outlive its mission.** `pending_requests()` was widened to
+include a live tool approval, which meant a crashed mission left a modal nobody
+could answer — the backend would 409 it. `_finish` clears `pending_request` with
+the ending.
+
+### What is honest about the sandbox
+
+There is not one. §2.7 now says so: file tools are workspace-scoped by a path
+resolver, and `bash` starts in the workspace and can leave it. The only thing in
+front of it is the approval question, which `trusted` removes — and the UI says
+exactly that where the setting is, in those words.
+
+Prompt injection is handled in three layers, and only the last two survive the
+first failing: fetched text is wrapped in untrusted-content markers and the
+agent is told what those mean; the validator warns when one agent holds both a
+web tool and a way to change things, and suggests splitting the roles; and
+`web_fetch` refuses every private address, re-checking each redirect hop,
+because the backend on loopback holds the user's keys.
+
+
 ---
 
 ## Decisions made while building
@@ -611,12 +697,17 @@ the forward-compat test points.
   this empirically via `GET /v1/models`; no model id is hardcoded anywhere.
 - Haiku 4.5 has two ids in circulation (`claude-haiku-4-5` vs
   `claude-haiku-4-5-20251001`). Same resolution: ask the endpoint, don't guess.
-- **The tool registry is still empty.** `GET /tools` returns `[]`, every agent carries
-  `tools: []`, and no `agent.tool.*` event has ever been published — so an agent's only
-  source of information is its model weights, and it will state stale things confidently.
-  Nothing in the code claims otherwise, but nothing in the UI says so either. Deferred
-  past M6 by choice; two questions open if it proceeds: which search API, and whether its
-  key goes in the keychain alongside the provider keys (§9.1 says it must).
+- **`web_search` needs a Tavily key to exist at all.** With none configured the tool is
+  absent from `GET /tools` and from every toolbox, which is the intended behaviour
+  (§15 row 32) — but it means the search half of M8 has never run against the real
+  endpoint. The rest of §16 has.
+- **`recall` is keyword search, not semantic.** `sqlite-vec` is in the stack and nothing
+  embeds anything yet. The tool description says so, so a model that finds nothing knows
+  to try other words rather than concluding it never knew the thing.
+- **A tool approval does not survive a restart**, unlike a plan approval (§16.4). There
+  is no checkpoint mid-turn: the mission is reaped as `crashed` and the tool never ran.
+  Seen live and documented rather than fixed — fixing it means checkpointing inside a
+  turn, which is a larger change than M8 was.
 - **The installers are unsigned.** Windows SmartScreen will warn on first run, and macOS
   would refuse outright without notarisation. Nothing to fix in the code — it needs a
   certificate — but anyone handing the MSI to someone else should expect the warning and
@@ -626,7 +717,7 @@ the forward-compat test points.
   `externalBin` takes a single file, so it would mean shipping the backend as a resource
   and spawning it by path instead.
 
-Every milestone in brief §12 is done: M1 through M7, each verified against a running
-build rather than a test alone. The next work is whatever is chosen next — the tool
-registry is the largest thing the app currently lacks, and it is the one that would make
-an agent's answers about the present true.
+Every milestone in brief §12 is done: M1 through M8, each verified against a running
+build rather than a test alone. An agent can now read and change files in a folder the
+user chose, run commands with a question in front of them, and search the web when a key
+is configured.

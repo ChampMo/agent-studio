@@ -13,6 +13,7 @@ import { useAgentStore } from "../../stores/agentStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { Badge, Button, Field, Input } from "../../components/ui/primitives";
 import { AvatarPicker } from "./AvatarPicker";
+import { ToolPicker } from "./ToolPicker";
 
 const EMPTY: AgentInput = {
   name: "",
@@ -22,6 +23,8 @@ const EMPTY: AgentInput = {
   personality_traits: [],
   system_prompt: "",
   tools: [],
+  //: The cautious default, and the same one the database uses (§16.4).
+  autonomy: "ask_dangerous",
 };
 
 export function AgentCreator({ onDone }: { onDone: () => void }) {
@@ -232,6 +235,13 @@ export function AgentCreator({ onDone }: { onDone: () => void }) {
             className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 font-mono text-xs text-slate-100"
           />
         </Field>
+
+        <ToolPicker
+          value={draft.tools ?? []}
+          autonomy={draft.autonomy ?? "ask_dangerous"}
+          onChange={(tools) => setDraft({ ...draft, tools })}
+          onAutonomyChange={(autonomy) => setDraft({ ...draft, autonomy })}
+        />
 
         <AvatarPicker
           assets={assets}

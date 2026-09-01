@@ -45,8 +45,46 @@ export const strings = {
       "The mission pauses after planning and waits for you. The only point where stopping still saves the cost of the work.",
   },
 
+  workspace: {
+    title: "Workspace folder",
+    required: "required by this team's tools",
+    hint: "The only folder this team's file tools may touch. Everything outside it is refused.",
+    browse: "Choose a folder…",
+    use: "Use this folder",
+    checking: "Checking…",
+    change: "Change",
+    recent: "Recent",
+    missing: "This folder is no longer there.",
+    placeholder: "C:\\path\\to\\project",
+    broadHint: "That is wider than most tasks need.",
+    working: "Working in",
+    blocked:
+      "This team has tools that read and write files, so it needs a folder before it can run.",
+  },
+
+  tools: {
+    title: "Tools",
+    none: "No tools. This agent can only answer from what the model already knows.",
+    risk: {
+      safe: "safe",
+      guarded: "changes files",
+      dangerous: "asks first",
+    } as Record<string, string>,
+    autonomy: "When to ask before acting",
+    autonomyOptions: {
+      ask_always: "Ask before every tool",
+      ask_dangerous: "Ask before running commands and fetching pages",
+      trusted: "Never ask",
+    } as Record<string, string>,
+    trustedWarning:
+      "There is no sandbox. Shell commands run as you, with your files and your network — the question is the only thing in the way, and this turns it off.",
+    needsWorkspace: "needs a workspace folder",
+  },
+
   approval: {
-    approvalTitle: "Approve this plan?",
+    // Not "approve this plan": the same modal now carries tool approvals, and
+    // the question itself already says which (§16.4).
+    approvalTitle: "Approval needed",
     questionTitle: "The team needs an answer",
     option: {
       approve: "Start the work",

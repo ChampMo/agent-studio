@@ -26,11 +26,17 @@ interface MissionState {
   goal: string;
   roster: SnapshotMember[];
   endReason: string | null;
+  /** The folder this mission's file tools may touch (§16.2). */
+  workspaceRoot: string | null;
   launching: boolean;
   /** Every blocking finding from a refused launch, not just the first (§5.2). */
   rejected: string[] | null;
 
-  launch: (team: Team, goal: string, requireApproval?: boolean) => Promise<void>;
+  launch: (
+    team: Team,
+    goal: string,
+    options?: { requireApproval?: boolean; workspaceRoot?: string | null },
+  ) => Promise<void>;
   loadMission: (missionId: string) => Promise<void>;
   nameOf: (agentId: string) => string;
   clear: () => void;
@@ -41,16 +47,18 @@ export const useMissionStore = create<MissionState>((set, get) => ({
   goal: "",
   roster: [],
   endReason: null,
+  workspaceRoot: null,
   launching: false,
   rejected: null,
 
-  launch: async (team, goal, requireApproval = false) => {
+  launch: async (team, goal, options = {}) => {
     set({ launching: true, rejected: null });
     try {
       const { missionId } = await api.startMission({
         team_id: team.id,
         content: goal,
-        require_approval: requireApproval,
+        require_approval: options.requireApproval ?? false,
+        workspace_root: options.workspaceRoot ?? null,
       });
       // Subscribe from 0: mission.started and user.message were published
       // before this response landed, and the replay covers them.
@@ -79,11 +87,13 @@ export const useMissionStore = create<MissionState>((set, get) => ({
       goal: String(mission.goal ?? ""),
       roster: (mission.rosterSnapshot as SnapshotMember[]) ?? [],
       endReason: (mission.endReason as string | null) ?? null,
+      workspaceRoot: (mission.workspaceRoot as string | null) ?? null,
     });
   },
 
   nameOf: (agentId) =>
     get().roster.find((m) => m.agent_id === agentId)?.name ?? agentId,
 
-  clear: () => set({ missionId: null, goal: "", roster: [], rejected: null }),
+  clear: () =>
+    set({ missionId: null, goal: "", roster: [], rejected: null, workspaceRoot: null }),
 }));

@@ -155,6 +155,8 @@ export const api = {
     budget?: Record<string, number>;
     /** Stop after planning and wait for the user before any of it is paid for. */
     require_approval?: boolean;
+    /** The folder this mission's file tools may touch (§16.2). */
+    workspace_root?: string | null;
   }) =>
     request<{ missionId: string; sinceSeq: number }>("/missions", {
       method: "POST",
@@ -168,7 +170,20 @@ export const api = {
 
   getMission: (id: string) => request<Record<string, unknown>>(`/missions/${id}`),
 
-  listTools: () => request<{ tools: unknown[] }>("/tools"),
+  listTools: () => request<{ tools: Tool[] }>("/tools"),
+
+  // ---- workspace (§16.2) -------------------------------------------------
+
+  /** Resolve and check a chosen folder. Validation is the backend's, always:
+   *  the path comes from a window, and a window can be driven. */
+  validateWorkspace: (path: string) =>
+    request<WorkspaceCheck>("/workspaces/validate", {
+      method: "POST",
+      body: JSON.stringify({ path }),
+    }),
+
+  recentWorkspaces: () =>
+    request<{ workspaces: RecentWorkspace[] }>("/workspaces/recent"),
 
   // ---- waiting on a person (§12 M6) --------------------------------------
 
@@ -263,6 +278,42 @@ export const api = {
     ),
 };
 
+// ---- tools and workspace types ------------------------------------------
+
+export type ToolRisk = "safe" | "guarded" | "dangerous";
+
+export interface Tool {
+  id: string;
+  title: string;
+  description: string;
+  /** What it takes to stop and ask before running (§16.4). */
+  risk: ToolRisk;
+  /** Unmet requirements keep a tool out of this list entirely, except
+   *  `workspace`, which is a per-mission choice. */
+  requires: string[];
+  redactFields: string[];
+  truncateResultBytes: number;
+  inputSchema: Record<string, unknown>;
+}
+
+export interface WorkspaceWarning {
+  code: string;
+  message: string;
+}
+
+export interface WorkspaceCheck {
+  /** The resolved path — what the backend will actually use. */
+  path: string;
+  warnings: WorkspaceWarning[];
+}
+
+export interface RecentWorkspace {
+  path: string;
+  lastUsedAt: string;
+  /** False when the folder has been moved or deleted since it was used. */
+  exists: boolean;
+}
+
 // ---- waiting, history and artifact types --------------------------------
 
 export interface PendingRequest {
@@ -325,6 +376,8 @@ export interface GenerateResult {
   usage: { inputTokens: number; outputTokens: number; costUsd?: number };
 }
 
+export type Autonomy = "ask_always" | "ask_dangerous" | "trusted";
+
 export interface AgentInput {
   name: string;
   title?: string;
@@ -336,6 +389,7 @@ export interface AgentInput {
   model?: string | null;
   sampling?: Record<string, unknown> | null;
   tools?: string[];
+  autonomy?: Autonomy;
   avatar_config?: AvatarConfig;
 }
 
@@ -351,6 +405,8 @@ export interface Agent {
   model: string | null;
   sampling: Record<string, unknown> | null;
   tools: string[];
+  /** When this agent's tool calls stop to ask (§16.4). */
+  autonomy: Autonomy;
   avatarConfig: AvatarConfig;
   /** Missions that actually finished. A fact, not a score (§1.1). */
   totalMissions: number;
