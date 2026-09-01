@@ -265,6 +265,9 @@ export const strings = {
       "Supported here. The model searches during its reply instead of calling a tool this app runs.",
     nativeSearchWarning:
       "This search does not go through the approval gate, its query is not redacted before it is recorded, and the results come back encrypted — the timeline can say a search happened and what was asked, but not what came back. web_search through a Brave or Tavily key does all three.",
+    searchFirst: "Tried first",
+    searchFallback: (n: number) =>
+      `Used ${n === 2 ? "if the one above" : "if the ones above"} run out or fail`,
     addSearch: "Add a web search endpoint",
     addAnotherSearch: "Add another search endpoint",
     searchHint:

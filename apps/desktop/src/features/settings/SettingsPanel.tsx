@@ -10,6 +10,12 @@ export function SettingsPanel() {
   const [editingKeyFor, setEditingKeyFor] = useState<string | null>(null);
   const [keyDraft, setKeyDraft] = useState("");
 
+  // Position among the search endpoints, in the order the backend will try
+  // them — which is the order they were added.
+  const searchOrder = new Map(
+    providers.filter((p) => p.kind === "search").map((p, i) => [p.id, i + 1]),
+  );
+
   return (
     <div className="space-y-4 p-4">
       <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
@@ -32,6 +38,16 @@ export function SettingsPanel() {
             >
               <div className="truncate font-medium text-slate-100">{p.name}</div>
               <div className="truncate font-mono text-xs text-slate-400">{p.model}</div>
+              {/* Search keys are tried in the order they were added, so that
+                  order has to be visible: it is what decides which allowance is
+                  spent first (§16.5). */}
+              {p.kind === "search" ? (
+                <div className="text-[11px] text-slate-500">
+                  {searchOrder.get(p.id) === 1
+                    ? strings.settings.searchFirst
+                    : strings.settings.searchFallback(searchOrder.get(p.id) ?? 1)}
+                </div>
+              ) : null}
               {p.baseUrl ? (
                 <div className="truncate text-xs text-slate-500">{p.baseUrl}</div>
               ) : null}

@@ -422,6 +422,14 @@ returns a search engine's summary, and a Brave result says so and tells the
 agent to `web_fetch` before quoting. Answering from a snippet as though it were
 the page is how a confident wrong quote happens.
 
+Several search keys can be configured at once, tried in the order they were
+added, and a key that is rate limited, out of credit or simply refused moves to
+the next one. That is the reason to have two: a free allowance is a monthly
+number and a query a second. What it is not is silent — every skipped endpoint's
+reason travels with the result the model sees and appears in the tool summary as
+`fell back past 1`, because two runs that used different engines must not look
+identical (§1).
+
 **DeepSeek's own search is a different thing wearing the same word.** It works —
 confirmed by reading the docs for the base URL and then sending Anthropic's
 server-tool spec to `https://api.deepseek.com/anthropic` and reading the reply:

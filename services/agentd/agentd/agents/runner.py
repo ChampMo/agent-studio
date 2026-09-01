@@ -342,29 +342,27 @@ class MissionRunner:
                 )
                 profiles = {p.id: p for p in rows.scalars().all()}
 
-        # Looked up once for the mission: the search endpoint and its key, if
-        # one is configured. A tool never reads the keychain itself (§9.2), and
-        # `web_search` is simply not offered when there is nothing behind it
-        # (§15 row 32).
-        search_endpoint: SearchEndpoint | None = None
-        for profile in profiles.values():
-            if profile.kind == "search" and (key := secrets.get_key(profile.id)):
-                search_endpoint = SearchEndpoint(
-                    api_key=key, base_url=profile.base_url or DEFAULT_SEARCH_ENDPOINT
-                )
-                break
-        if search_endpoint is None:
-            async with self._db.session() as s:
-                rows = await s.execute(
-                    select(ProviderProfile).where(ProviderProfile.kind == "search")
-                )
-                for profile in rows.scalars().all():
-                    if key := secrets.get_key(profile.id):
-                        search_endpoint = SearchEndpoint(
+        # Looked up once for the mission: every search endpoint that has a key,
+        # in the order they were added. More than one is the point — a free
+        # allowance runs out, and the next key takes over rather than the tool
+        # failing (§16.5). A tool never reads the keychain itself (§9.2), and
+        # `web_search` is simply not offered when there is nothing behind any of
+        # them (§15 row 32).
+        search_endpoints: list[SearchEndpoint] = []
+        async with self._db.session() as session:
+            rows = await session.execute(
+                select(ProviderProfile)
+                .where(ProviderProfile.kind == "search")
+                .order_by(ProviderProfile.created_at)
+            )
+            for profile in rows.scalars().all():
+                if key := secrets.get_key(profile.id):
+                    search_endpoints.append(
+                        SearchEndpoint(
                             api_key=key,
                             base_url=profile.base_url or DEFAULT_SEARCH_ENDPOINT,
                         )
-                        break
+                    )
 
         # One mailbox for the mission. Not persisted: what was said is on the
         # event log, and a second copy would be a second thing to keep true.
@@ -403,7 +401,7 @@ class MissionRunner:
                 return None
 
         met_requirements = {"workspace"} if roster.workspace_root else set()
-        if search_endpoint is not None:
+        if search_endpoints:
             met_requirements.add("search_provider")
         if find_shell() is not None:
             met_requirements.add("shell")
@@ -437,7 +435,7 @@ class MissionRunner:
                         "db": self._db,
                         "mailbox": mailbox,
                         "ask": ask,
-                        **({"search": search_endpoint} if search_endpoint else {}),
+                        **({"search": search_endpoints} if search_endpoints else {}),
                     },
                 ),
                 autonomy=member.autonomy,

@@ -207,3 +207,112 @@ def test_the_ui_is_offered_both_engines():
     ids = {entry["id"] for entry in search.supported()}
     assert ids == {"tavily", "brave"}
     assert all(entry["baseUrl"].startswith("https://") for entry in search.supported())
+
+
+# ---- falling over when a key runs out ----------------------------------
+
+
+def ctx_for_many(*base_urls: str) -> ToolContext:
+    return ToolContext(
+        mission_id="m-1",
+        agent_id="a-1",
+        extras={
+            "search": [
+                search.SearchEndpoint(api_key=f"k-{i}", base_url=url)
+                for i, url in enumerate(base_urls)
+            ]
+        },
+    )
+
+
+async def test_a_rate_limited_key_moves_to_the_next_endpoint(monkeypatch):
+    """The reason to configure two: a free allowance is a monthly number and a
+    query a second, and running out should not fail the mission's search."""
+    route(
+        monkeypatch,
+        get=lambda url, kwargs: Answer(429),  # Brave, out of allowance
+        post=lambda url, kwargs: Answer(200, TAVILY_BODY),  # Tavily, still fine
+    )
+    result = await search.web_search(
+        ctx_for_many(search.BRAVE_ENDPOINT, search.TAVILY_ENDPOINT), query="retry budget"
+    )
+
+    assert result.details["engine"] == "tavily"
+    assert result.details["fellBackPast"] == 1
+    # Not silent. Two runs that used different engines must not look identical.
+    assert "Brave Search" in result.content
+    assert "rate limiting" in result.content
+    assert "fell back past 1" in result.summary
+
+
+async def test_an_exhausted_quota_moves_on_too(monkeypatch):
+    route(
+        monkeypatch,
+        get=lambda url, kwargs: Answer(402),
+        post=lambda url, kwargs: Answer(200, TAVILY_BODY),
+    )
+    result = await search.web_search(
+        ctx_for_many(search.BRAVE_ENDPOINT, search.TAVILY_ENDPOINT), query="x"
+    )
+    assert result.details["engine"] == "tavily"
+    assert "out of credit" in result.content
+
+
+async def test_a_bad_key_on_the_first_endpoint_does_not_hide(monkeypatch):
+    # It still falls over — the user asked for a search, not a lecture — but the
+    # reason travels with the result, so a key that has been revoked is visible
+    # rather than absorbed forever.
+    route(
+        monkeypatch,
+        get=lambda url, kwargs: Answer(401),
+        post=lambda url, kwargs: Answer(200, TAVILY_BODY),
+    )
+    result = await search.web_search(
+        ctx_for_many(search.BRAVE_ENDPOINT, search.TAVILY_ENDPOINT), query="x"
+    )
+    assert result.details["engine"] == "tavily"
+    assert "rejected the API key" in result.content
+
+
+async def test_when_every_endpoint_is_out_each_reason_is_reported(monkeypatch):
+    route(
+        monkeypatch,
+        get=lambda url, kwargs: Answer(429),
+        post=lambda url, kwargs: Answer(402),
+    )
+    with pytest.raises(ToolFailed) as caught:
+        await search.web_search(
+            ctx_for_many(search.BRAVE_ENDPOINT, search.TAVILY_ENDPOINT), query="x"
+        )
+    # One message naming both, rather than only whichever was tried last.
+    assert "Brave Search" in caught.value.message
+    assert "Tavily" in caught.value.message
+
+
+async def test_the_first_endpoint_is_used_when_it_works(monkeypatch):
+    calls: list[str] = []
+
+    def get(url, kwargs):
+        calls.append("brave")
+        return Answer(200, BRAVE_BODY)
+
+    def post(url, kwargs):
+        calls.append("tavily")
+        return Answer(200, TAVILY_BODY)
+
+    route(monkeypatch, get=get, post=post)
+    result = await search.web_search(
+        ctx_for_many(search.BRAVE_ENDPOINT, search.TAVILY_ENDPOINT), query="x"
+    )
+    # The second key is not spent when the first answers.
+    assert calls == ["brave"]
+    assert result.details["engine"] == "brave"
+    assert result.details["fellBackPast"] == 0
+
+
+async def test_one_endpoint_still_works_as_before(monkeypatch):
+    # A single endpoint passed on its own, not in a list: every mission written
+    # before this change hands one over that way.
+    route(monkeypatch, post=lambda url, kwargs: Answer(200, TAVILY_BODY))
+    result = await search.web_search(ctx_for(search.TAVILY_ENDPOINT), query="x")
+    assert result.details["engine"] == "tavily"

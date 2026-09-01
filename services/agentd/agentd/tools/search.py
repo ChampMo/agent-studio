@@ -89,6 +89,10 @@ class SearchAdapter(Protocol):
 def _fail(status_code: int) -> ToolFailed:
     if status_code in (401, 403):
         return ToolFailed("bad_key", "the search endpoint rejected the API key")
+    if status_code == 402:
+        return ToolFailed(
+            "quota_exhausted", "this search key is out of credit for the period"
+        )
     if status_code == 429:
         return ToolFailed(
             "rate_limited",
@@ -218,6 +222,14 @@ def supported() -> list[dict[str, str]]:
     ]
 
 
+def _name_of(endpoint: SearchEndpoint) -> str:
+    """A name for an endpoint, even one this build does not recognise."""
+    try:
+        return adapter_for(endpoint.base_url).name
+    except ToolFailed:
+        return endpoint.base_url
+
+
 def _render(hits: list[SearchHit]) -> str:
     blocks: list[str] = []
     for hit in hits:
@@ -226,10 +238,30 @@ def _render(hits: list[SearchHit]) -> str:
     return "\n\n---\n\n".join(blocks)
 
 
+def configured(ctx: ToolContext) -> list[SearchEndpoint]:
+    """The search endpoints this mission may use, in the order to try them.
+
+    A list rather than one, because the reason to have two is that the first
+    runs out: Brave's free tier is a monthly allowance and a query a second.
+    The order is the order they were added, which is the only ordering the user
+    already controls and can see.
+    """
+    value = ctx.extras.get("search")
+    if isinstance(value, SearchEndpoint):
+        return [value]
+    return [e for e in (value or []) if isinstance(e, SearchEndpoint)]
+
+
 async def web_search(ctx: ToolContext, *, query: str) -> ToolResult:
-    """Search the web and return results, marked as untrusted."""
-    endpoint = ctx.extras.get("search")
-    if not isinstance(endpoint, SearchEndpoint):
+    """Search the web and return results, marked as untrusted.
+
+    With more than one endpoint configured, a key that is rate limited or out of
+    credit moves to the next one rather than failing the call. What it does not
+    do is hide that: the result says which engine answered, and an endpoint that
+    was skipped says why in the summary.
+    """
+    endpoints = configured(ctx)
+    if not endpoints:
         # Unreachable when the registry filtering is working: this tool is only
         # in a toolbox when a key exists.
         raise ToolFailed(
@@ -239,17 +271,48 @@ async def web_search(ctx: ToolContext, *, query: str) -> ToolResult:
     if not query or not query.strip():
         raise ToolFailed("empty_query", "a search query is required")
 
-    adapter = adapter_for(endpoint.base_url)
-    hits = await adapter.search(endpoint, query, limit=MAX_RESULTS)
+    adapter: SearchAdapter | None = None
+    hits: list[SearchHit] = []
+    skipped: list[str] = []
+    last: ToolFailed | None = None
+
+    # One rule, for every kind of failure: try the next endpoint, and carry the
+    # reason with whatever comes back. Falling over only on a quota error would
+    # mean a revoked key takes down a search that another key could have served;
+    # falling over silently would mean a key that stopped working is never
+    # noticed. So it always moves on, and it always says so (§1).
+    for endpoint in endpoints:
+        try:
+            candidate = adapter_for(endpoint.base_url)
+            hits = await candidate.search(endpoint, query, limit=MAX_RESULTS)
+        except ToolFailed as failure:
+            skipped.append(f"{_name_of(endpoint)}: {failure.message}")
+            last = failure
+            continue
+        adapter = candidate
+        break
+
+    if adapter is None:
+        # Nothing answered. Every reason is reported rather than only the last
+        # one tried, because "Tavily is out of credit" and "the Brave key was
+        # rejected" need different fixes.
+        assert last is not None
+        raise ToolFailed(
+            last.code, "; ".join(skipped) if len(skipped) > 1 else last.message
+        )
 
     if not hits:
         return ToolResult(
             content=f"No results for {query!r}.",
-            summary=f"searched for {query!r}: nothing found",
-            details={"results": 0, "engine": adapter.id},
+            summary=f"searched {adapter.name} for {query!r}: nothing found",
+            details={"results": 0, "engine": adapter.id, "fellBackPast": len(skipped)},
         )
 
     body = _render(hits)
+    if skipped:
+        # The fallback is on the record. A silent switch would make two runs
+        # that used different engines look identical (§1).
+        body += "\n\n---\n\nTried first, without success: " + "; ".join(skipped)
     if not any(hit.extracted for hit in hits):
         # Said once, plainly: these are summaries. An agent that answers from a
         # snippet as though it had read the page is how a confident wrong quote
@@ -259,10 +322,13 @@ async def web_search(ctx: ToolContext, *, query: str) -> ToolResult:
             "Use web_fetch on a URL above before quoting or relying on details."
         )
 
+    summary = f"searched {adapter.name} for {query!r}: {len(hits)} result(s)"
+    if skipped:
+        summary += f" (fell back past {len(skipped)})"
     return ToolResult(
         content=as_untrusted(f"a {adapter.name} search for {query!r}", body),
-        summary=f"searched {adapter.name} for {query!r}: {len(hits)} result(s)",
-        details={"results": len(hits), "engine": adapter.id},
+        summary=summary,
+        details={"results": len(hits), "engine": adapter.id, "fellBackPast": len(skipped)},
     )
 
 
