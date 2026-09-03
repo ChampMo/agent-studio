@@ -45,10 +45,16 @@ def cost_usd(model: str, usage: Usage) -> float | None:
     # somewhat above. Falling back to 1.0 would overcharge reads tenfold.
     total += per_million(
         usage.cache_read_tokens,
-        rates.get("cache_read", rates["input"] * table["cache_read_multiplier"]),
+        float(
+            rates.get("cache_read")
+            or rates["input"] * table["cache_read_multiplier"]
+        ),
     )
     total += per_million(
         usage.cache_write_tokens,
-        rates.get("cache_write", rates["input"] * table["cache_write_multiplier"]),
+        float(
+            rates.get("cache_write")
+            or rates["input"] * table["cache_write_multiplier"]
+        ),
     )
     return round(total, 8)

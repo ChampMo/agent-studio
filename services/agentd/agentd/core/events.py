@@ -175,6 +175,25 @@ class Subscriber:
     lagged: bool = False
 
 
+def as_utc_iso(value: datetime | None) -> str | None:
+    """ISO-8601 with an offset, for a datetime SQLite handed back naive.
+
+    `DateTime(timezone=True)` is a no-op on SQLite: it writes a naive string and
+    reads one back. A naive ISO string is read by browsers as *local* time, so
+    `mission.startedAt` came back seven hours in the past on this machine and
+    the rail reported a run that had just started as "7:00:05 / 15:00".
+
+    Everything here writes UTC, so a naive value read back is UTC and is
+    labelled as such. Same rule as `_wire` below, which fixed this once already
+    for event timestamps — hence a shared helper rather than a third copy.
+    """
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value.isoformat()
+
+
 class EventBus:
     def __init__(
         self,

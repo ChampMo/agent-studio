@@ -111,6 +111,55 @@ export interface ProviderProfile {
   nativeSearch: boolean;
   /** Whether this endpoint is one that can do that at all. */
   nativeSearchAvailable: boolean;
+  /** What a search endpoint last said about its own allowance, measured at
+   *  `verifiedAt`. **Null means it reports none** — Tavily sends no such
+   *  header — and null must never be drawn as zero (§1.1). */
+  quota: QuotaWindow[] | null;
+}
+
+/** One allowance an endpoint declared. An endpoint can declare several at once:
+ *  Brave sends a per-second cap and a per-month one together, and `windowSec`
+ *  is what tells them apart. */
+export interface QuotaWindow {
+  limit: number;
+  remaining: number;
+  /** Null when the endpoint stated a total and never said over what period —
+   *  Tavily's `/usage` does exactly that. Not a zero, and not a month. */
+  windowSec: number | null;
+  resetSec: number | null;
+  /** What is being counted, plural. Brave meters requests; Tavily meters
+   *  credits, where a search is one and a crawl is not. */
+  unit: string;
+}
+
+/** A starting point for the add-a-model form: a base URL and whether a key is
+ *  usually wanted. Deliberately carries no model ids — those have a live answer
+ *  and a shipped list would go stale in silence. */
+export interface ModelPreset {
+  id: string;
+  name: string;
+  kind: "openai_compatible" | "anthropic";
+  baseUrl: string | null;
+  needsKey: boolean;
+  /** A server on this machine. Shown differently because the failure it is
+   *  likely to hit is "nothing is listening", not "wrong key". */
+  local: boolean;
+}
+
+export interface BudgetLimits {
+  max_tokens: number;
+  max_llm_calls: number;
+  max_supersteps: number;
+  timeout_sec: number;
+}
+
+export interface StoragePart {
+  id: string;
+  label: string;
+  path: string;
+  exists: boolean;
+  bytes: number;
+  files: number;
 }
 
 export interface Capabilities {
@@ -161,6 +210,7 @@ export const api = {
       providers: ProviderProfile[];
       kinds: string[];
       searchEngines: SearchEngine[];
+      modelPresets: ModelPreset[];
     }>("/providers"),
 
   createProvider: (body: {
@@ -187,6 +237,50 @@ export const api = {
     request<ProviderProfile>(`/providers/${id}`, {
       method: "PATCH",
       body: JSON.stringify(body),
+    }),
+
+  /** The ceilings every run starts from (§10). This app's own limits, not the
+   *  endpoint's — nothing here is imposed by the provider. */
+  budget: () =>
+    request<{
+      value: BudgetLimits;
+      shipped: BudgetLimits;
+      bounds: Record<keyof BudgetLimits, [number, number]>;
+    }>("/prefs/budget"),
+
+  setBudget: (value: BudgetLimits) =>
+    request<{
+      value: BudgetLimits;
+      shipped: BudgetLimits;
+      bounds: Record<keyof BudgetLimits, [number, number]>;
+    }>("/prefs/budget", { method: "PUT", body: JSON.stringify(value) }),
+
+  /** Where the runs, the produced files and the attachments actually live. */
+  storage: () =>
+    request<{ root: string; parts: StoragePart[] }>("/storage"),
+
+  /** The model ids an endpoint actually offers, asked before anything is saved.
+   *  A POST because the key travels in the body: a key must never go in a URL
+   *  (§9.1). Nothing here is stored — `error` is the endpoint's own words when
+   *  it could not answer, so the form can fall back to a text field. */
+  endpointModels: (body: {
+    kind: "openai_compatible" | "anthropic";
+    base_url: string | null;
+    key: string | null;
+  }) =>
+    request<{ models: string[]; error: string | null }>("/providers/models", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  /** The whole search fallback chain, in the order to try it. Sent as one list
+   *  rather than a position per row: a position is a statement about the
+   *  others, and two half-applied moves would leave the runner reading a table
+   *  where two keys claim the same place. */
+  setSearchOrder: (ids: string[]) =>
+    request<{ ids: string[] }>("/providers/search-order", {
+      method: "POST",
+      body: JSON.stringify({ ids }),
     }),
 
   deleteProvider: (id: string) =>
@@ -220,6 +314,8 @@ export const api = {
    *  team cannot run — the same findings the builder showed (§5.2). */
   startMission: (body: {
     team_id: string;
+    /** What to call this run in the list. The instruction is `content`. */
+    title?: string | null;
     content: string;
     budget?: Record<string, number>;
     /** Stop after planning and wait for the user before any of it is paid for. */
@@ -270,10 +366,177 @@ export const api = {
       { method: "POST", body: JSON.stringify({ answer }) },
     ),
 
+  /** Staff a team for a brief, from the agents that already exist. Saves
+   *  nothing — the proposal is shown to be edited (§11). */
+  suggestTeam: (body: { provider_id: string; brief: string }) =>
+    request<SuggestResult>("/teams/suggest", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  /** Read a team against a piece of work. Advisory: it returns remarks and
+   *  never a severity, and the gate's own findings come back beside them. */
+  reviewTeam: (
+    teamId: string,
+    body: {
+      provider_id: string;
+      brief: string;
+      members?: { agent_id: string; seat_index: number; role_in_team: string }[];
+    },
+  ) =>
+    request<TeamReview>(`/teams/${teamId}/review`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  /** What this team's last few runs cost and how they ended. Not a forecast —
+   *  there is no honest way to estimate a run, and this is the record. */
+  teamHistory: (teamId: string, limit = 5) =>
+    request<{ runs: TeamRun[] }>(`/teams/${teamId}/history?limit=${limit}`),
+
+  /** Every version of one file in a run, oldest first — the order a diff
+   *  walks: each against the one before it. */
+  fileVersions: (missionId: string, path: string) =>
+    request<{ versions: FileVersion[] }>(
+      `/missions/${missionId}/file-versions?path=${encodeURIComponent(path)}`,
+    ),
+
+  readFileVersion: (versionId: string) =>
+    request<FileVersion & { text: string }>(`/file-versions/${versionId}`),
+
   // ---- history and artifacts ---------------------------------------------
 
   listMissions: (limit = 50) =>
     request<{ missions: MissionSummary[] }>(`/missions?limit=${limit}`),
+
+
+  /** Keep a finished run going in the same conversation (§7.1). The roster,
+   *  the workspace and the whole timeline carry over. */
+  continueMission: (
+    missionId: string,
+    content: string,
+    /** Show the plan and wait, for this round. It could only ever be asked for
+     *  at launch before, so seeing the plan first was a thing you got once per
+     *  conversation — while the plan is the one point where stopping still
+     *  saves the cost of the work. */
+    opts: { requireApproval?: boolean } = {},
+  ) =>
+    request<{ missionId: string; continued: boolean }>(
+      `/missions/${missionId}/continue`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          content,
+          require_approval: opts.requireApproval ?? false,
+        }),
+      },
+    ),
+
+  /** Branch a run: same frozen roster, same workspace, a separate log. */
+  forkMission: (
+    missionId: string,
+    content: string,
+    opts: { title?: string; requireApproval?: boolean } = {},
+  ) =>
+    request<{ missionId: string; forkedFrom: string }>(
+      `/missions/${missionId}/fork`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          content,
+          title: opts.title ?? null,
+          require_approval: opts.requireApproval ?? false,
+        }),
+      },
+    ),
+
+  /** What a rewind would do — asked before it does any of it, because it can
+   *  only restore what `write_file` and `edit_file` wrote. */
+  rewindPlan: (missionId: string, seq: number) =>
+    request<RewindPlan>(`/missions/${missionId}/rewind?seq=${seq}`),
+
+  rewind: (missionId: string, seq: number) =>
+    request<{ seq: number; restored: string[]; skipped: RewindFile[] }>(
+      `/missions/${missionId}/rewind`,
+      { method: "POST", body: JSON.stringify({ seq }) },
+    ),
+
+  /** Attach an image to a run. Every agent on the next round sees it. */
+  addAttachment: (
+    missionId: string,
+    body: { name: string; mime: string; data_b64: string },
+  ) =>
+    request<{ attachmentId: string; name: string; bytes: number; mime: string }>(
+      `/missions/${missionId}/attachments`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+
+  /**
+   * Fetch an attached image back as an object URL.
+   *
+   * Not a plain `<img src>`: the session token is a header, not a query
+   * parameter, and putting it in a URL would leak it into anything that logs
+   * one (§9.1). So the bytes are fetched with the header like every other
+   * request and wrapped in a blob the browser can render.
+   *
+   * The caller owns the URL and must revoke it — an object URL that is never
+   * released holds the image in memory for the life of the page.
+   */
+  readAttachmentUrl: async (attachmentId: string): Promise<string> => {
+    const { apiBase, token } = requireHandshake();
+    const res = await fetch(`${apiBase}/attachments/${attachmentId}`, {
+      headers: { "X-Agent-Studio-Token": token },
+    });
+    if (!res.ok) throw new ApiError(res.status, `attachment ${res.status}`);
+    return URL.createObjectURL(await res.blob());
+  },
+
+  /** Run one command in a mission's workspace, as the user (§2.7).
+   *
+   *  Not an agent action: no approval gate, and nothing written to the
+   *  mission log. `cwd` travels both ways so `cd` persists between calls. */
+  runCommand: (
+    missionId: string,
+    body: { command: string; cwd?: string | null },
+  ) =>
+    request<{
+      stdout: string;
+      stderr: string;
+      exitCode: number | null;
+      cwd: string;
+      durationMs: number;
+      timedOut: boolean;
+      truncated: boolean;
+    }>(`/missions/${missionId}/terminal`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  terminalInfo: (missionId: string) =>
+    request<{ workspaceRoot: string | null; shellAvailable: boolean }>(
+      `/missions/${missionId}/terminal`,
+    ),
+
+  /** When a tool call stops to ask. One value for the whole app (§16.4). */
+  getAutonomy: () =>
+    request<{ value: string; choices: string[] }>("/prefs/autonomy"),
+
+  setAutonomy: (value: string) =>
+    request<{ value: string; choices: string[] }>("/prefs/autonomy", {
+      method: "PUT",
+      body: JSON.stringify({ value }),
+    }),
+
+  /** Say something to a team that is already working (§7.1).
+   *
+   *  Queued, not delivered: nothing can reach a model mid-reply, so the note
+   *  waits in each member's mailbox until their next task starts. 409 means
+   *  the run ended while the message was being typed. */
+  noteMission: (missionId: string, content: string, to: string | null = null) =>
+    request<{ missionId: string; queued: boolean }>(
+      `/missions/${missionId}/message`,
+      { method: "POST", body: JSON.stringify({ content, to }) },
+    ),
 
   /** The replay source: the append-only log, exactly as it was written. */
   missionEvents: (missionId: string) =>
@@ -419,9 +682,20 @@ export interface PendingRequest {
 export interface MissionSummary {
   id: string;
   kind: string;
+  /** Null for every run recorded before migration 0010; those are listed by
+   *  their goal, which is what they were named at the time. */
+  title: string | null;
   goal: string;
   status: string;
   endReason: string | null;
+  /** Which of the four ceilings, when `endReason` is `budget_exceeded`.
+   *  Null on a run recorded before the column existed. */
+  endLimit?: string | null;
+  /** How far through its plan the latest round got. Null on a run recorded
+   *  before the columns existed — the number could only be recovered by
+   *  reading its whole log, which is what the columns exist to avoid. */
+  tasksDone?: number | null;
+  tasksTotal?: number | null;
   startedAt: string;
   endedAt: string | null;
   pendingRequest: string | null;
@@ -431,6 +705,95 @@ export interface MissionSummary {
   running: boolean;
 }
 
+export interface ProposedMember {
+  agentId: string;
+  seat: number;
+  role: "leader" | "worker";
+  /** Tools this person is missing and the work needs. Empty is the usual
+   *  answer, and the right one for somebody already equipped. */
+  addTools: string[];
+  why: string;
+}
+
+export interface ProposedGap {
+  role: string;
+  why: string;
+  tools: string[];
+}
+
+export interface TeamProposal {
+  layoutId: string;
+  members: ProposedMember[];
+  /** Roles the work needs that nobody on the roster can fill. */
+  gaps: ProposedGap[];
+}
+
+export interface SuggestResult {
+  proposal: TeamProposal;
+  /** What the *run gate* says about what the model proposed — never the
+   *  model's opinion of itself. Kept under its own key all the way to the
+   *  screen, because a rule and an opinion are different claims (§5.2). */
+  findings: Finding[];
+  canRun: boolean;
+  attempts: number;
+  recoveredFrom: string[];
+}
+
+export interface ReviewNote {
+  about: string;
+  /** One of a closed set; anything unrecognised arrives as "note" (§8). */
+  kind: "missing_tool" | "wrong_fit" | "gap" | "risk" | "note";
+  message: string;
+}
+
+export interface TeamReview {
+  verdict: string;
+  notes: ReviewNote[];
+  findings: Finding[];
+  canRun: boolean;
+  attempts: number;
+  recoveredFrom: string[];
+}
+
+export interface RewindFile {
+  path: string;
+  versionId: string | null;
+  /** "restore" | "created_after" | "missing_blob" | "unchanged" | "failed".
+   *  Read as a closed set here and rendered by name, so a kind this build has
+   *  not heard of is shown rather than dropped (§8). */
+  action: string;
+  bytes: number | null;
+}
+
+export interface RewindPlan {
+  seq: number;
+  files: RewindFile[];
+  willChange: number;
+}
+
+export interface TeamRun {
+  id: string;
+  title: string | null;
+  endReason: string | null;
+  endLimit: string | null;
+  tokens: number;
+  tasksDone: number | null;
+  tasksTotal: number | null;
+  startedAt: string;
+}
+
+export interface FileVersion {
+  id: string;
+  missionId: string;
+  path: string;
+  sha256: string;
+  bytes: number;
+  lines: number;
+  agentId: string | null;
+  eventId: string;
+  createdAt: string;
+}
+
 export interface Artifact {
   id: string;
   missionId: string;
@@ -438,6 +801,11 @@ export interface Artifact {
   title: string;
   path: string;
   kind: string;
+  /** "workspace" for a file an agent wrote into the folder this run was given
+   *  — it is still there and still editable; "store" for one the app wrote
+   *  under its own artifact root. Absent on rows recorded before the two were
+   *  distinguished, which were all of the second kind (§8). */
+  source?: string;
   bytes: number;
   createdAt: string;
 }
@@ -570,3 +938,4 @@ export interface TeamInput {
 
 /** Opaque on purpose: the shape belongs to the backend's exporter. */
 export type TeamExport = Record<string, unknown>;
+

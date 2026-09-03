@@ -51,9 +51,17 @@ def ctx_for(base_url: str) -> ToolContext:
 class Answer:
     """A response object with only what the adapters read."""
 
-    def __init__(self, status_code: int, body: dict | None = None):
+    def __init__(
+        self,
+        status_code: int,
+        body: dict | None = None,
+        headers: dict[str, str] | None = None,
+    ):
         self.status_code = status_code
         self._body = body if body is not None else {}
+        # Empty by default, which is the shape of an endpoint that reports no
+        # quota. The adapters have to survive that: Tavily really does.
+        self.headers = headers or {}
 
     def json(self):
         return self._body
@@ -186,7 +194,7 @@ async def test_the_probe_uses_the_same_adapter_as_the_tool(monkeypatch):
         return Answer(200, BRAVE_BODY)
 
     route(monkeypatch, get=get)
-    ok, detail = await search.probe(
+    ok, detail, _quota = await search.probe(
         search.SearchEndpoint(api_key="k", base_url=search.BRAVE_ENDPOINT)
     )
     assert ok is True
@@ -196,11 +204,199 @@ async def test_the_probe_uses_the_same_adapter_as_the_tool(monkeypatch):
 
 async def test_the_probe_reports_a_bad_key_rather_than_raising(monkeypatch):
     route(monkeypatch, get=lambda url, kwargs: Answer(401))
-    ok, detail = await search.probe(
+    ok, detail, quota = await search.probe(
         search.SearchEndpoint(api_key="wrong", base_url=search.BRAVE_ENDPOINT)
     )
     assert ok is False
+    # A failed probe measured nothing. Reporting an allowance from a request
+    # that was refused would be reading a number out of a blank.
+    assert quota is None
     assert "rejected" in detail
+
+
+# ---- what an endpoint says about its own allowance ---------------------
+
+
+BRAVE_FREE_HEADERS = {
+    # A free key: one query a second, two thousand a month.
+    "x-ratelimit-policy": "1;w=1, 2000;w=2592000",
+    "x-ratelimit-limit": "1, 2000",
+    "x-ratelimit-remaining": "1, 1987",
+    "x-ratelimit-reset": "1, 2462826",
+}
+
+
+def test_brave_windows_are_labelled_by_the_policy_not_by_position():
+    windows = search.brave_quota(BRAVE_FREE_HEADERS)
+    assert windows is not None
+    assert all(w.unit == "requests" for w in windows)
+    assert [(w.limit, w.remaining, w.window_sec) for w in windows] == [
+        (1, 1, 1),
+        (2000, 1987, 2592000),
+    ]
+    # The length comes from `;w=`, so a build that assumed "the second one is
+    # the month" would be wrong the day a third window is added.
+    assert windows[1].reset_sec == 2462826
+
+
+def test_a_paid_key_reporting_no_monthly_cap_is_read_as_it_was_sent():
+    # Observed on a real key: the monthly window is declared with a limit of 0.
+    # That is not "nothing left" — it is what this plan reports, and it is the
+    # UI's job to refuse to draw a meter for it rather than this parser's job
+    # to invent one.
+    windows = search.brave_quota(
+        {
+            "x-ratelimit-policy": "50;w=1, 0;w=2592000",
+            "x-ratelimit-limit": "50, 0",
+            "x-ratelimit-remaining": "49, 0",
+            "x-ratelimit-reset": "1, 2462826",
+        }
+    )
+    assert windows is not None
+    assert [(w.limit, w.window_sec) for w in windows] == [(50, 1), (0, 2592000)]
+
+
+def test_an_endpoint_that_reports_nothing_reports_nothing():
+    # Tavily. Null, not an empty list and not a zero: the UI has to be able to
+    # tell "reports no quota" from "reports none left".
+    assert search.brave_quota({}) is None
+    assert search.brave_quota({"x-ratelimit-limit": "1, 2000"}) is None
+
+
+def test_a_window_whose_length_cannot_be_read_is_dropped():
+    # An unlabelled meter is a number with no unit, so half-reading it is worse
+    # than not reading it.
+    windows = search.brave_quota(
+        {
+            "x-ratelimit-policy": "1;w=1, 2000;w=whenever",
+            "x-ratelimit-limit": "1, 2000",
+            "x-ratelimit-remaining": "1, 1987",
+        }
+    )
+    assert windows is not None
+    assert [w.window_sec for w in windows] == [1]
+
+
+def test_more_policy_clauses_than_values_does_not_invent_the_missing_ones():
+    windows = search.brave_quota(
+        {
+            "x-ratelimit-policy": "1;w=1, 2000;w=2592000, 5;w=60",
+            "x-ratelimit-limit": "1, 2000",
+            "x-ratelimit-remaining": "1, 1987",
+        }
+    )
+    assert windows is not None
+    assert len(windows) == 2
+
+
+async def test_a_brave_search_carries_the_allowance_back(monkeypatch):
+    route(
+        monkeypatch,
+        get=lambda url, kwargs: Answer(
+            200,
+            {"web": {"results": [{"title": "t", "url": "u", "description": "d"}]}},
+            BRAVE_FREE_HEADERS,
+        ),
+    )
+    ok, _detail, quota = await search.probe(
+        search.SearchEndpoint(api_key="k", base_url=search.BRAVE_ENDPOINT)
+    )
+    assert ok is True
+    assert quota is not None
+    assert quota[1].remaining == 1987
+
+
+async def test_a_tavily_search_response_alone_carries_no_allowance(monkeypatch):
+    adapter = search.TavilyAdapter()
+    route(
+        monkeypatch,
+        post=lambda url, kwargs: Answer(200, {"results": [{"title": "t", "url": "u"}]}),
+    )
+    answer = await adapter.search(
+        search.SearchEndpoint(api_key="k", base_url=search.TAVILY_ENDPOINT),
+        "q",
+        limit=1,
+    )
+    assert answer.hits
+    # Nothing on the response itself. `read_quota` is where it comes from.
+    assert answer.quota is None
+
+
+async def test_tavily_reports_its_allowance_from_its_own_endpoint(monkeypatch):
+    """The shape Tavily's `/usage` actually returns, recorded from a live call.
+
+    A search tells you nothing, so the probe has to ask a second time. Reporting
+    "no allowance" for Tavily because the search was silent was wrong, and only
+    looking at the endpoint showed it.
+    """
+    seen: list[str] = []
+
+    def get(url, kwargs):
+        seen.append(url)
+        return Answer(
+            200,
+            {
+                "key": {"usage": 3, "limit": 1500, "search_usage": 3},
+                "account": {"current_plan": "Researcher", "plan_usage": 3, "plan_limit": 1500},
+            },
+        )
+
+    route(
+        monkeypatch,
+        post=lambda url, kwargs: Answer(200, {"results": [{"title": "t", "url": "u"}]}),
+        get=get,
+    )
+    ok, _detail, quota = await search.probe(
+        search.SearchEndpoint(api_key="k", base_url=search.TAVILY_ENDPOINT)
+    )
+    assert ok is True
+    assert quota is not None and len(quota) == 1
+    window = quota[0]
+    assert (window.limit, window.remaining) == (1500, 1497)
+    # Credits, because a crawl is not one credit; and no period, because the
+    # response states a total and never says over what.
+    assert window.unit == "credits"
+    assert window.window_sec is None
+    assert seen and seen[0].endswith("/usage")
+
+
+async def test_a_key_whose_usage_endpoint_is_unreachable_is_still_a_working_key(
+    monkeypatch,
+):
+    # Not knowing the allowance is not the same as a broken key. The search
+    # passed; only the extra question failed.
+    route(
+        monkeypatch,
+        post=lambda url, kwargs: Answer(200, {"results": [{"title": "t", "url": "u"}]}),
+        get=lambda url, kwargs: Answer(500),
+    )
+    ok, _detail, quota = await search.probe(
+        search.SearchEndpoint(api_key="k", base_url=search.TAVILY_ENDPOINT)
+    )
+    assert ok is True
+    assert quota is None
+
+
+async def test_brave_never_makes_a_second_request_for_its_allowance(monkeypatch):
+    # It reports on the way past. A second call would spend a query to learn
+    # something the first one already carried.
+    calls: list[str] = []
+
+    def get(url, kwargs):
+        calls.append(url)
+        return Answer(
+            200,
+            {"web": {"results": [{"title": "t", "url": "u", "description": "d"}]}},
+            BRAVE_FREE_HEADERS,
+        )
+
+    route(monkeypatch, get=get)
+    ok, _detail, quota = await search.probe(
+        search.SearchEndpoint(api_key="k", base_url=search.BRAVE_ENDPOINT)
+    )
+    assert ok is True
+    assert quota is not None
+    assert len(calls) == 1
 
 
 def test_the_ui_is_offered_both_engines():

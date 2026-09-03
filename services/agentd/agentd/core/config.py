@@ -83,6 +83,23 @@ ALLOWED_ORIGINS: tuple[str, ...] = (
 )
 
 
+def allowed_origins() -> tuple[str, ...]:
+    """The list above, plus a dev server that had to move off 5173.
+
+    `scripts/dev.mjs` can be pointed at another port so a second copy of the
+    app can run beside one already up. The origin has to move with it or the
+    page loads and every request fails — as a CORS error, which points at the
+    one thing that is not wrong (this file already carries that scar).
+
+    Read from the environment rather than widened to "any loopback port",
+    because the launcher knows the port and a shipped build does not set this.
+    """
+    extra = os.environ.get("AGENT_STUDIO_DEV_ORIGIN", "").strip()
+    if not extra.startswith(("http://127.0.0.1:", "http://localhost:")):
+        return ALLOWED_ORIGINS
+    return (*ALLOWED_ORIGINS, extra)
+
+
 @dataclass(frozen=True)
 class Settings:
     data_dir: Path

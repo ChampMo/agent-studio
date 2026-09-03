@@ -10,6 +10,7 @@ from agentd.core.budget import (
     BudgetTracker,
     resolve_limits,
 )
+from agentd.core import budget as budget_mod
 from agentd.core.config import AppBudget
 
 
@@ -104,3 +105,62 @@ def test_warning_drafts_carry_no_seq_or_ts():
     t = BudgetTracker(limits(max_tokens=10))
     warnings = t.record_call({"inputTokens": 5, "outputTokens": 4})
     assert warnings and set(warnings[0]) == {"type", "payload"}
+
+
+# ---- the wrap-up reserve -------------------------------------------------
+#
+# Running out used to stop a run where it stood, so a build that had written
+# seven files and not started six tasks ended with no account of itself beyond
+# a number. A slice of each limit is held back for the leader to say what was
+# done and what was not.
+
+
+def test_the_working_share_runs_out_before_the_limit_does():
+    # Big enough that the flat reserve applies rather than the fraction.
+    b = BudgetTracker(limits(max_tokens=1_000_000, timeout_sec=100_000))
+    b.tokens_used = 1_000_000 - budget_mod.WRAPUP_TOKENS - 1
+    assert b.work_exhausted() is None
+    b.tokens_used += 1
+    spent = b.work_exhausted()
+    assert spent is not None and spent[0] == "tokens"
+    # And it is not an ending: the ceiling itself is still untouched.
+    b.check()
+
+
+def test_releasing_the_reserve_hands_it_to_the_wrap_up():
+    b = BudgetTracker(limits(max_tokens=1_000_000, timeout_sec=100_000))
+    b.tokens_used = 1_000_000 - budget_mod.WRAPUP_TOKENS
+    assert b.work_exhausted() is not None
+    b.release_reserve()
+    # The summary turn may now spend what was kept for it...
+    assert b.work_exhausted() is None
+    b.check()
+    # ...but not past the ceiling, which never moved.
+    b.tokens_used = 1_000_000
+    with pytest.raises(BudgetExceeded):
+        b.check()
+
+
+def test_a_small_budget_keeps_a_working_share_rather_than_being_all_reserve():
+    # A flat 90-second reserve against a 60-second timeout left nothing able to
+    # run at all, so the reserve is capped at a fraction of the limit.
+    b = BudgetTracker(limits(max_tokens=10_000, timeout_sec=60))
+    assert b.work_exhausted() is None
+    b.tokens_used = int(10_000 * (1 - budget_mod.WRAPUP_RATIO))
+    assert b.work_exhausted() is not None
+
+
+def test_a_ceiling_of_one_call_reserves_nothing_and_simply_runs_out():
+    # Reserving the only call would leave nothing able to run. The ceiling is
+    # reached instead, which is the honest outcome for a budget that small.
+    b = BudgetTracker(limits(max_llm_calls=1))
+    assert b._reserve()["llm_calls"] == 0
+
+
+def test_nothing_is_marked_as_stopping_early_on_its_own():
+    # `stopped_early` is set by whoever acts on `work_exhausted`, so a tracker
+    # that was merely asked never records an ending that did not happen.
+    b = BudgetTracker(limits(max_tokens=1_000))
+    b.tokens_used = 1_000
+    assert b.work_exhausted() is not None
+    assert b.stopped_early is None

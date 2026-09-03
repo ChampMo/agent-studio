@@ -134,6 +134,24 @@ export function deriveSceneState({
   for (const { event } of events) {
     const p = event.draft.payload as Record<string, any>;
 
+    // The first event after a round ended opens the next one, and the room is
+    // cleared for it. `mission.ended` is the end of a *round*, not of the log:
+    // a continued run appends to the same events, so without this the scene
+    // went on captioning `round finished — crashed` over a team that was
+    // three tasks into its next round, with everyone still sat down.
+    //
+    // Exactly the half `deriveVitals` was already given for its counters. Two
+    // places derive per-round state from one log, and both need the rule.
+    if (endReason !== null && event.draft.type !== "mission.ended") {
+      endReason = null;
+      poses.clear();
+      tasks.clear();
+      asking = null;
+      onTask = null;
+      speaker = null;
+      spoken = null;
+    }
+
     switch (event.draft.type) {
       case "agent.status":
         // Never indexed blindly: a status this build has never heard of becomes

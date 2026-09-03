@@ -10,17 +10,15 @@
  * process that will act on it.
  */
 import { create } from "zustand";
-import { api, type RecentWorkspace, type WorkspaceCheck } from "../transport/rest";
+import { api, type WorkspaceCheck } from "../transport/rest";
 
 interface WorkspaceState {
   /** The resolved path, as the backend returned it. */
   chosen: WorkspaceCheck | null;
-  recent: RecentWorkspace[];
   checking: boolean;
   /** Why the last choice was refused. Cleared by the next attempt. */
   error: string | null;
 
-  loadRecent: () => Promise<void>;
   /** Ask the OS for a folder. Falls back to a typed path in the browser. */
   pick: () => Promise<void>;
   choose: (path: string) => Promise<void>;
@@ -48,19 +46,8 @@ export const canPickDirectory = (): boolean =>
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   chosen: null,
-  recent: [],
   checking: false,
   error: null,
-
-  loadRecent: async () => {
-    try {
-      const { workspaces } = await api.recentWorkspaces();
-      set({ recent: workspaces });
-    } catch {
-      // A picker without its history is still a picker.
-      set({ recent: [] });
-    }
-  },
 
   pick: async () => {
     const picked = await pickDirectory();
@@ -70,9 +57,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   choose: async (path) => {
     set({ checking: true, error: null });
     try {
-      // Every time, including for a folder picked out of the recent list:
-      // having passed once is not a permission, and a folder can stop being a
-      // reasonable place to write between two launches (§16.2).
+      // Every time, including a folder used yesterday: having passed once is
+      // not a permission, and a folder can stop being a reasonable place to
+      // write between two launches (§16.2).
       const checked = await api.validateWorkspace(path);
       set({ chosen: checked });
     } catch (err) {

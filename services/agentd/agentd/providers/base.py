@@ -51,6 +51,22 @@ class ToolOutcome:
 
 
 @dataclass(frozen=True)
+class ImagePart:
+    """An image travelling with a message.
+
+    Base64 rather than a path: the two APIs want it inline, the file may be
+    outside any workspace, and passing a path would make the provider adapter
+    read the disk — which is the one thing it must never do.
+
+    `media_type` comes from the caller and is checked there. An adapter that
+    guessed from the bytes would be a second place that decides what a file is.
+    """
+
+    media_type: str
+    data_b64: str
+
+
+@dataclass(frozen=True)
 class Message:
     """One turn of the conversation.
 
@@ -68,6 +84,9 @@ class Message:
     tool_calls: tuple[ToolCall, ...] = ()
     #: Results carried by a `tool` message.
     tool_results: tuple[ToolOutcome, ...] = ()
+    #: Images the user attached. Only ever on a `user` message — a model does
+    #: not send pictures back, and an adapter should not have to consider it.
+    images: tuple[ImagePart, ...] = ()
 
 
 @dataclass(frozen=True)

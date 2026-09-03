@@ -2,16 +2,198 @@
 
 /* Tailwind v4 is configured in CSS; there is no tailwind.config.js by design. */
 
+/**
+ * The palette (§18.1).
+ *
+ * One rule about the glass holds the whole design together: **glass is for the
+ * shell, never for content.** Panels, the sidebar and headers may be
+ * translucent; the surfaces text sits on are solid `--solid`. Text floating on
+ * a blurred backdrop has a contrast ratio that changes with whatever happens to
+ * be behind it, which is not something that can be checked or promised.
+ */
+@theme {
+  --color-bg: #0b1116;
+  --color-glass: rgba(20, 28, 36, 0.72);
+  --color-glass-edge: rgba(255, 255, 255, 0.055);
+  --color-glass-top: rgba(255, 255, 255, 0.1);
+  --color-solid: #151d25;
+  --color-solid-2: #1a242e;
+  --color-line: rgba(255, 255, 255, 0.075);
+  --color-line-strong: #607485;
+
+  --color-text: #e4ebf1;
+  --color-muted: #9baab8;
+  --color-faint: #7b8b99;
+
+  --color-accent: #5fc5e8;
+  --color-focus: #7fd6f5;
+
+  /* Agent and mission states. Each of these is paired with a *shape* wherever
+     it is shown — colour alone is not a status (§18.3). */
+  --color-idle: #93a7b8;
+  --color-search: #5fc5e8;
+  --color-write: #b79bf0;
+  --color-wait: #f0b857;
+  --color-stop: #f2857a;
+  --color-done: #6fd69b;
+
+  --radius-panel: 14px;
+  --radius-card: 9px;
+}
+
 html,
 body,
 #root {
   height: 100%;
+  /* The document is not a scrolling surface in this app: every scrollable
+     region is a panel inside the shell, and the window frame is fixed. Without
+     this, anything that briefly overflows leaves the *document* scrolled — and
+     what you see then is the app sitting above a tall grey void, because the
+     thing that caused it has already gone. Reported as "the page scrolls into
+     nothing", and it was: a scroll position with no content under it. */
+  overflow: hidden;
 }
 
 body {
   margin: 0;
-  background-color: #0b1120;
-  color: #e2e8f0;
+  background-color: var(--color-bg);
+  color: var(--color-text);
   font-family:
     ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Something for the blur to refract. Without this the glass panels sit on a
+     flat colour and the effect is invisible work. */
+  background-image:
+    radial-gradient(60rem 40rem at 12% -10%, rgba(95, 197, 232, 0.11), transparent 60%),
+    radial-gradient(50rem 36rem at 88% 8%, rgba(183, 155, 240, 0.07), transparent 62%),
+    radial-gradient(46rem 40rem at 60% 108%, rgba(111, 214, 155, 0.05), transparent 60%);
+  background-attachment: fixed;
+}
+
+/**
+ * A panel: the glass shell.
+ *
+ * `backdrop-filter` is the expensive part. If frames drop while PixiJS is
+ * running, lower the blur to 12px before removing it — the effect degrading is
+ * better than the layout changing (§18.1).
+ */
+@utility panel {
+  background-color: var(--color-glass);
+  backdrop-filter: blur(22px) saturate(150%);
+  -webkit-backdrop-filter: blur(22px) saturate(150%);
+  border: 1px solid var(--color-glass-edge);
+  border-top-color: var(--color-glass-top);
+  border-radius: var(--radius-panel);
+}
+
+/** Content sits here, on something opaque. */
+@utility surface {
+  background-color: var(--color-solid);
+  border-radius: var(--radius-card);
+}
+
+/**
+ * One focus ring for the whole app, visible on glass and on solid alike.
+ *
+ * Applied to everything focusable rather than left to each component: "Tab
+ * reaches every control and you can see where you are" is a promise about the
+ * whole screen, and a per-component version is one someone forgets.
+ */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  /* One focus ring for the whole app, and two shapes of it, because the two
+     kinds of control have different things to work with.
+
+     A **field** already draws a border. Putting a ring outside that border
+     meant two concentric outlines around every text box, and the outer one was
+     the loudest thing on screen for a box that was merely ready to be typed
+     in. So a field brightens the border it already has: same one focus colour,
+     no extra geometry.
+
+     A **button or a link** has no border to brighten, so it keeps the ring —
+     removing it there would leave keyboard users with nothing at all, which is
+     the one thing a focus style cannot trade away (WCAG 2.4.7).
+
+     `data-field` opts a custom control into the field treatment: `Select`
+     renders a <button> that looks and behaves like a field, and it should look
+     focused the way its neighbours do rather than the way a button does. */
+  outline: 1px solid var(--color-focus);
+  outline: 1px solid color-mix(in srgb, var(--color-focus) 45%, transparent);
+  outline-offset: 2px;
+}
+
+:where(input, textarea, select):focus-visible,
+[data-field]:focus-visible {
+  outline: none;
+  border-color: var(--color-focus);
+}
+
+/* Respect a person who has asked for less movement. The scene is the one place
+   that keeps moving, because there it is the content. */
+@media (prefers-reduced-motion: reduce) {
+  *:not(canvas) {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/**
+ * Scrollbars, in the app's own colours (§18.1).
+ *
+ * The default Windows scrollbar is a light-grey slab that lands on a dark panel
+ * looking like a rendering fault — it is the one part of the chrome the design
+ * does not reach, and it is on screen constantly.
+ *
+ * Both syntaxes on purpose. `scrollbar-color` is the standard one and is what
+ * Firefox honours; `::-webkit-scrollbar` is what WebView2 and Chromium honour,
+ * and this app ships inside WebView2. Neither alone covers where it runs.
+ *
+ * The track is transparent rather than tinted: these sit on panels of three
+ * different backgrounds, and a track with a colour of its own would be a stripe
+ * on two of them.
+ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.13);
+  border-radius: 999px;
+  /* Drawn inside a transparent border so the thumb reads as inset rather than
+     hard against the content edge. */
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.24);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Number fields carry their own value, not a stepper.
+ *
+ * The browser's spinner appears on hover, sits on top of the last digits, and
+ * steps by one — which is noise on a token ceiling of 200,000 and covers the
+ * digits you are trying to read while you hover to click into the field.
+ * Both vendor spellings, because neither alone covers where this ships. */
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }

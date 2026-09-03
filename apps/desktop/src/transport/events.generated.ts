@@ -31,6 +31,7 @@ export type EventDraft =
   | DraftAgentStatus
   | DraftAgentThought
   | DraftAgentMessage
+  | DraftAgentUsage
   | DraftAgentToolStart
   | DraftAgentToolEnd
   | DraftUserMessage
@@ -38,7 +39,8 @@ export type EventDraft =
   | DraftAgentRequestResolved
   | DraftArtifactCreated
   | DraftBudgetWarning
-  | DraftError;
+  | DraftError
+  | DraftAttachmentAdded;
 /**
  * An object, not a magic string, so an agent id can never collide with the literal "user" (§6.2).
  */
@@ -84,6 +86,10 @@ export interface PayloadMissionStarted {
    * The folder this mission's file tools are confined to (section 16.2). Absent for a mission launched without one - a chat, or a team with no fs tool. On the log so a replay can say where the work actually happened.
    */
   workspaceRoot?: string;
+  /**
+   * The mission this one was forked from: same frozen roster, same workspace, a separate log. On the event rather than only in the title, because a fork whose origin has to be guessed from a name is a fork whose origin is not recorded.
+   */
+  forkedFrom?: string;
 }
 export interface DraftMissionProgress {
   type: "mission.progress";
@@ -98,6 +104,10 @@ export interface PayloadMissionProgress {
   state: "pending" | "running" | "done" | "failed";
   done: number;
   total: number;
+  /**
+   * What this task was actually told to do, on the `pending` event that announces it and nowhere else. The plan message renders titles and seats, which is what a person needs to approve a plan and not enough to run a task again: a task that failed could only be retried by re-running the whole round. Bounded by the plan's own task limit.
+   */
+  instruction?: string;
 }
 export interface DraftMissionEnded {
   type: "mission.ended";
@@ -106,6 +116,10 @@ export interface DraftMissionEnded {
 export interface PayloadMissionEnded {
   reason: "completed" | "failed" | "budget_exceeded" | "cancelled" | "crashed";
   summary: string;
+  /**
+   * Which ceiling ended the run, when `reason` is budget_exceeded. Four different problems with four different fixes were being rendered as one phrase, and the reason only existed inside the summary prose. Absent for every other reason, and absent on rounds recorded before this field.
+   */
+  limit?: "tokens" | "llm_calls" | "supersteps" | "time";
 }
 export interface DraftAgentStatus {
   type: "agent.status";
@@ -175,6 +189,23 @@ export interface Usage {
    */
   costUsd?: number;
 }
+export interface DraftAgentUsage {
+  type: "agent.usage";
+  payload: PayloadAgentUsage;
+}
+/**
+ * What one model call cost, for a round that produced no message.
+ *
+ * A round that only asks for tools publishes no `agent.message` — an empty bubble would suggest the agent said nothing when in fact it acted — and the usage used to go with it. The budget guard counted those tokens and the log did not, so a run stopped at 200,000 could show 7,540 on its own timeline (§1). This is the same number, kept.
+ */
+export interface PayloadAgentUsage {
+  agentId: string;
+  /**
+   * The round this cost belongs to, so it can be matched to the tool calls it paid for.
+   */
+  messageId: string;
+  usage: Usage;
+}
 export interface DraftAgentToolStart {
   type: "agent.tool.start";
   payload: PayloadAgentToolStart;
@@ -229,6 +260,10 @@ export interface DraftUserMessage {
  */
 export interface PayloadUserMessage {
   content: string;
+  /**
+   * Who the note was addressed to, when it was addressed to one teammate rather than the whole team. The agent id, resolved from the name that was typed. Absent means everybody, which is what a note has always been - so an older event and a broadcast are the same thing, correctly.
+   */
+  to?: string;
 }
 export interface DraftAgentRequest {
   type: "agent.request";
@@ -268,6 +303,10 @@ export interface PayloadArtifactCreated {
    */
   path: string;
   kind: "code" | "doc" | "image";
+  /**
+   * Where the file is. `store` is one the app wrote under its own artifact root; `workspace` is one an agent wrote into the folder the mission was given, which stays where the user can see it and may be edited again. Absent means `store`, which is what every row recorded before this field was.
+   */
+  source?: "store" | "workspace";
 }
 export interface DraftBudgetWarning {
   type: "budget.warning";
@@ -293,6 +332,26 @@ export interface PayloadError {
   code: string;
   message: string;
   recoverable: boolean;
+}
+export interface DraftAttachmentAdded {
+  type: "attachment.added";
+  payload: PayloadAttachmentAdded;
+}
+/**
+ * An image the user attached to this round. The bytes are NOT here: mission_events is append-only forever (§9.3), and a handful of screenshots would make the log unreadable and unbounded. What is kept is what a timeline needs in order to say what happened — the name, the size, the type, and a digest that identifies the file without reproducing it.
+ */
+export interface PayloadAttachmentAdded {
+  /**
+   * Links this event to the stored file.
+   */
+  attachmentId: string;
+  name: string;
+  bytes: number;
+  mime: string;
+  /**
+   * Identifies the file without reproducing it.
+   */
+  sha256: string;
 }
 /**
  * The delta channel (§7.1). Never persisted, never given a seq, never routed through the bus — if a delta consumed a seq, a resuming client would see a gap and believe it had missed an event.

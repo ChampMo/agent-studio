@@ -106,6 +106,11 @@ def resolve(
     members: list[TeamMember],
     agents: dict[str, Agent],
     workspace_root: str | None = None,
+    #: The app's single "when to ask before acting" setting, frozen into the
+    #: snapshot here like everything else. One value for the whole run: the
+    #: person means it once, not once per agent. `None` keeps whatever each
+    #: agent carried, which is what a replay of an older mission needs.
+    autonomy: str | None = None,
 ) -> RosterSnapshot:
     """Merge agents with their per-team overrides, once, at launch.
 
@@ -144,7 +149,7 @@ def resolve(
                 model=overrides.get("model") or agent.model,
                 sampling=overrides.get("sampling", agent.sampling),
                 tools=list(tool_subset) if tool_subset is not None else list(agent.tools),
-                autonomy=overrides.get("autonomy") or agent.autonomy,
+                autonomy=autonomy or overrides.get("autonomy") or agent.autonomy,
                 avatar_config=dict(agent.avatar_config),
             )
         )

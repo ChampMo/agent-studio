@@ -31,7 +31,14 @@
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { createServer as createSocket, createConnection } from "node:net";
-import { mkdirSync, writeFileSync, rmSync, watch } from "node:fs";
+import {
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  watch,
+  writeFileSync,
+} from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { createServer as createViteServer } from "vite";
@@ -41,7 +48,19 @@ const WEB_ROOT = resolve(ROOT, "apps/desktop");
 const DATA_DIR = resolve(ROOT, ".data");
 const HANDSHAKE = resolve(DATA_DIR, "dev-handshake.json");
 const WATCH_DIR = resolve(ROOT, "services/agentd/agentd");
-const WEB_PORT = 5173;
+
+/** Every .py under a directory, skipping the caches the watcher ignores. */
+function* pythonSources(dir) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === "__pycache__" || entry.name === ".pytest_cache") continue;
+    const path = resolve(dir, entry.name);
+    if (entry.isDirectory()) yield* pythonSources(path);
+    else if (entry.name.endsWith(".py")) yield path;
+  }
+}
+// Overridable, so a second copy of the app can be brought up beside the one
+// already running instead of fighting it for the port.
+const WEB_PORT = Number(process.env.AGENT_STUDIO_WEB_PORT) || 5173;
 const IS_WIN = process.platform === "win32";
 
 const freePort = () =>
@@ -91,7 +110,16 @@ function reclaimWebPort() {
     const [pid, ...rest] = line.trim().split("|");
     const cmd = rest.join("|");
     if (!pid || !cmd) continue;
-    const ours = cmd.includes("agent-studio") || cmd.includes("vite.js");
+    // This launcher, by name — not "a Vite". Every Vite dev server in the
+    // world has `vite.js` on its command line, and this branch runs
+    // `taskkill /F`, so matching on that made an unrelated project's server
+    // ours to kill. Seen for real: another app was on 5173 and would have
+    // been. The path is often relative (`node scripts/dev.mjs`), so the
+    // repository root alone does not identify us either — both are checked.
+    const ours =
+      cmd.includes(ROOT) ||
+      /scripts[\\/]dev\.mjs/.test(cmd) ||
+      cmd.includes("agent-studio");
     if (!ours) {
       console.error(`[dev] port ${WEB_PORT} is held by pid ${pid}, which is not ours:`);
       console.error(`      ${cmd.trim()}`);
@@ -156,7 +184,17 @@ function start() {
       stdio: ["pipe", "inherit", "inherit"],
       shell: IS_WIN,
       detached: !IS_WIN,
-      env: { ...process.env, AGENT_STUDIO_PORT: String(port) },
+      env: {
+        ...process.env,
+        AGENT_STUDIO_PORT: String(port),
+        // Only when the web server had to move. The backend's CORS allowlist
+        // is explicit, so a page on another port would load and then fail
+        // every request — reported as a CORS violation, which points at the
+        // one thing that is not wrong.
+        ...(WEB_PORT === 5173
+          ? {}
+          : { AGENT_STUDIO_DEV_ORIGIN: `http://127.0.0.1:${WEB_PORT}` }),
+      },
     },
   );
   // The token goes in on stdin and nowhere else: argv is world-readable in the
@@ -201,12 +239,46 @@ function cleanup(code = 0) {
   process.exit(code);
 }
 
+/**
+ * What each watched file looked like last time we believed it.
+ *
+ * `fs.watch` on Windows is imprecise: writing `__pycache__/x.pyc` reliably
+ * produces a notification naming `x.py` itself, and running the test suite
+ * imports the whole package. So `npm test` restarted the backend — killing
+ * whatever mission was in flight, three times before it was traced, each one
+ * costing real tokens and reappearing as `crashed` with no cause on screen.
+ *
+ * Filtering by name cannot fix that, because the name it reports is a real
+ * source file. Comparing the file's own size and mtime can: bytecode written
+ * beside it changes neither.
+ */
+const seen = new Map();
+
+function changed(path) {
+  let stat = null;
+  try {
+    stat = statSync(path);
+  } catch {
+    // Deleted or mid-write. A restart is the safe reading of both.
+    seen.delete(path);
+    return true;
+  }
+  const mark = `${stat.mtimeMs}:${stat.size}`;
+  if (seen.get(path) === mark) return false;
+  seen.set(path, mark);
+  return true;
+}
+
+// Prime it, so the first real edit is the first restart.
+for (const file of pythonSources(WATCH_DIR)) changed(file);
+
 let debounce = null;
 watch(WATCH_DIR, { recursive: true }, (_e, file) => {
   if (!file || !file.endsWith(".py")) return;
   // Bytecode and test caches are written by simply *running* the code, and a
   // restart triggered by one kills whatever mission is in flight for no reason.
   if (file.includes("__pycache__") || file.includes(".pytest_cache")) return;
+  if (!changed(resolve(WATCH_DIR, file))) return;
   clearTimeout(debounce);
   // Named, so a restart nobody asked for can be traced to the file that caused
   // it instead of looking like the backend falling over.
@@ -228,6 +300,11 @@ start();
 vite = await createViteServer({
   root: WEB_ROOT,
   configFile: resolve(WEB_ROOT, "vite.config.ts"),
+  // The override has to reach Vite, not just the log line. `strictPort` is on
+  // in the config on purpose — the handshake hands the page a fixed origin —
+  // so a port Vite silently moved off would be a page that cannot reach its
+  // own backend.
+  server: { port: WEB_PORT },
 });
 await vite.listen();
 console.log(`[dev] frontend -> http://127.0.0.1:${WEB_PORT}`);

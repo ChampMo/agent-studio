@@ -125,6 +125,14 @@ export function poseFromEvent(event: EventEnvelope): AgentPose | null {
  * roster. Without it the log prints opaque ids; with the live roster instead of
  * the snapshot, a replay would print today's names for yesterday's work (§5.1).
  */
+/** Exact below a kilobyte: "0 KB" for a 308-byte file is a rounding that reads
+ *  as "empty". */
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} bytes`;
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export function describe(
   event: EventEnvelope,
   nameOf: (agentId: string) => string = (id) => id,
@@ -141,7 +149,11 @@ export function describe(
         ? `Mission started in ${p.workspaceRoot} — ${p.goal ?? ""}`
         : `Mission started — ${p.goal ?? ""}`;
     case "mission.ended":
-      return `Mission ended (${p.reason ?? "unknown"}) — ${p.summary ?? ""}`;
+      // "Round finished", not "mission ended". A mission can be continued —
+      // the same team, workspace and timeline pick up where they left off — so
+      // calling this the end of the mission told the reader the conversation
+      // was over when it was only paused for their next instruction.
+      return `Round finished (${p.reason ?? "unknown"}) — ${p.summary ?? ""}`;
     case "mission.progress":
       return `${p.label ?? p.taskId} — ${p.state} ${p.done}/${p.total}`;
     case "agent.status":
@@ -150,6 +162,19 @@ export function describe(
       return `${who(p.agentId)} thinking: ${p.text}`;
     case "agent.message":
       return p.agentId ? `${who(p.agentId)}: ${p.content ?? ""}` : (p.content ?? "");
+    case "agent.usage": {
+      // The cost of a round that said nothing. Written as tokens rather than a
+      // price: most endpoints are not in the pricing table, and "$0" under a
+      // run that spent 200,000 tokens is the untruth this whole event exists
+      // to stop (§6.2).
+      const u = (p.usage ?? {}) as Record<string, number | undefined>;
+      const spent =
+        (u.inputTokens ?? 0) +
+        (u.outputTokens ?? 0) +
+        (u.cacheReadTokens ?? 0) +
+        (u.cacheWriteTokens ?? 0);
+      return `${who(p.agentId)} used ${spent.toLocaleString("en-GB")} tokens on tools`;
+    }
     case "user.message":
       return p.content ?? "";
     case "agent.tool.start":
@@ -164,6 +189,10 @@ export function describe(
       return `${who(p.agentId)} asks: ${p.question}`;
     case "agent.request.resolved":
       return `answered (${p.resolvedBy}): ${p.answer}`;
+    case "attachment.added":
+      // Size and name, never the bytes — the log does not carry the picture
+      // (§9.3), and the transcript fetches it back by id to show it.
+      return `attached ${p.name} (${formatBytes(p.bytes ?? 0)})`;
     case "artifact.created":
       return `artifact ${p.kind}: ${p.path}`;
     case "budget.warning":

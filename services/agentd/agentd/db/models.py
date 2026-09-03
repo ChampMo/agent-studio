@@ -40,6 +40,14 @@ class Mission(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True)
     kind: Mapped[str] = mapped_column(String, nullable=False)
     team_id: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    #: What a person calls this run. Separate from `goal` because a run is a
+    #: conversation: the first thing typed is the instruction, and an
+    #: instruction is a sentence rather than a name. Null for every run
+    #: recorded before 0010 — those are listed by their goal, which is what
+    #: they were named at the time.
+    title: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     goal: Mapped[str] = mapped_column(Text, nullable=False, default="")
     status: Mapped[str] = mapped_column(String, nullable=False, default="running")
     budget: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
@@ -62,6 +70,19 @@ class Mission(Base):
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     end_reason: Mapped[str | None] = mapped_column(String, nullable=True)
+    #: Which of the four ceilings, when `end_reason` is
+    #: `budget_exceeded`. Tokens, calls, steps and time were one word
+    #: in every list, and they have four different fixes. Null on a
+    #: row recorded before this column: there is nothing honest to
+    #: put there, and a guess in a column reads as fact (§5.1).
+    end_limit: Mapped[str | None] = mapped_column(String, nullable=True)
+    #: How far through its plan the latest round got. Written as the tasks
+    #: change, because the sidebar lists every past run and cannot read
+    #: seventeen logs to count them. Null on a row recorded before the
+    #: column: the number could only be recovered by reading the whole log,
+    #: which is the work this exists to avoid (§5.1).
+    tasks_done: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tasks_total: Mapped[int | None] = mapped_column(Integer, nullable=True)
     result_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     __table_args__ = (
@@ -116,6 +137,18 @@ class ProviderProfile(Base):
     native_search: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=false()
     )
+    #: The allowance a search endpoint last reported about itself, as a list of
+    #: windows, measured at `verified_at`. Three states: null is *never asked*,
+    #: `[]` is *asked, and it reports none*, and a list is what it declared.
+    #: None of them is a zero — an empty meter would say an account is
+    #: exhausted (§1.1).
+    quota: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+
+    #: Position in the search fallback chain, lowest first. Null sorts last and
+    #: falls back on `created_at`, so a chain nobody has ordered behaves as it
+    #: always did. Only meaningful for `kind = "search"`: a model endpoint is
+    #: chosen by an agent, never tried in turn.
+    sort_order: Mapped[int | None] = mapped_column(Integer, nullable=True)
     verified_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -271,6 +304,12 @@ class Artifact(Base):
     agent_id: Mapped[str | None] = mapped_column(String, nullable=True)
     kind: Mapped[str] = mapped_column(String, nullable=False)
     path: Mapped[str] = mapped_column(String, nullable=False)
+    #: "store" for a file the app wrote under its own artifact root, which is
+    #: what an artifact used to mean; "workspace" for one an agent wrote into
+    #: the folder the mission was given. The second is not copied in — it stays
+    #: where the user can see it, and a copy taken at write time would be a
+    #: stale duplicate claiming to be the work.
+    source: Mapped[str] = mapped_column(String, nullable=False, default="store")
     title: Mapped[str] = mapped_column(String, nullable=False, default="")
     bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -324,3 +363,75 @@ class AgentMemory(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (Index("ix_agent_memories_agent", "agent_id"),)
+
+
+class AppSetting(Base):
+    """A choice that belongs to the app rather than to any one agent or team.
+
+    Deliberately a tiny key/value table and not a column per setting: these are
+    preferences, they change by hand, and a migration for each one would be
+    ceremony around a string. Anything that a *mission* depends on goes in the
+    roster snapshot at launch instead, so a replay still reads true (§5.1).
+    """
+
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class FileVersion(Base):
+    """What a file held after one change (§9.3).
+
+    Metadata only — the bytes are on disk under `file-versions/`, addressed by
+    `sha256`, exactly as attachments are. The log cannot carry the content:
+    `write_file.content` is redacted before the event is built, because
+    `mission_events` is append-only for ever and a file written eleven times
+    would put eleven copies of itself in a table nobody can prune.
+
+    `event_id` ties a version to the `agent.tool.end` that produced it, so the
+    Files history and the diff are two readings of one thing rather than two
+    records that can disagree.
+    """
+
+    __tablename__ = "file_versions"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    mission_id: Mapped[str] = mapped_column(String, nullable=False)
+    #: Workspace-relative, the same string the tool was given.
+    path: Mapped[str] = mapped_column(String, nullable=False)
+    sha256: Mapped[str] = mapped_column(String, nullable=False)
+    bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    lines: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    agent_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    event_id: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        Index("ix_file_versions_file", "mission_id", "path"),
+    )
+
+
+class Attachment(Base):
+    """An image the user attached to a round (§12 M9.3).
+
+    Metadata only — the bytes are on disk, content-addressed by `sha256`. The
+    same digest goes on the `attachment.added` event, so the log and the file
+    identify each other without the log carrying the picture (§9.3).
+    """
+
+    __tablename__ = "attachments"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    mission_id: Mapped[str] = mapped_column(String, nullable=False)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    mime: Mapped[str] = mapped_column(String, nullable=False)
+    bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    sha256: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("mission_id", "sha256", name="uq_attachment_per_mission"),
+        Index("ix_attachments_mission", "mission_id"),
+    )

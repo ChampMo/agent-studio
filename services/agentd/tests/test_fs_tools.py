@@ -112,6 +112,45 @@ async def test_glob_reports_a_bad_pattern_rather_than_raising(ctx: ToolContext):
     assert caught.value.code == "bad_pattern"
 
 
+# ---- braces ------------------------------------------------------------
+#
+# Found by a real run. A worker wrote package.json, tsconfig.json,
+# next.config.mjs, app/globals.css and lib/data.ts, then asked for
+# `**/*.{ts,tsx,json,md}` — the ordinary way to say "the source files" — and
+# was told `0 file(s) matched`. Not an error: a false statement about a folder
+# holding two .json and one .ts (§1). It went to `bash` and `find` instead,
+# which raised an approval question, which is where that run stopped.
+
+
+def test_braces_expand_to_one_pattern_per_option():
+    assert fs.expand_braces("**/*.{ts,tsx}") == ["**/*.ts", "**/*.tsx"]
+
+
+def test_a_pattern_with_no_braces_is_itself():
+    assert fs.expand_braces("**/*.py") == ["**/*.py"]
+
+
+def test_nested_braces_expand_too():
+    assert fs.expand_braces("{a,{b,c}}.ts") == ["a.ts", "b.ts", "c.ts"]
+
+
+def test_an_unbalanced_brace_is_left_alone():
+    # `{` is a legal character in a filename. Guessing what was meant would be
+    # worse than matching what was typed.
+    assert fs.expand_braces("weird{name.ts") == ["weird{name.ts"]
+
+
+async def test_glob_finds_both_extensions(ctx: ToolContext):
+    result = await fs.glob(ctx, pattern="**/*.{py,md}")
+    assert "src/main.py" in result.content
+    assert "README.md" in result.content
+
+
+async def test_a_file_matching_two_branches_is_listed_once(ctx: ToolContext):
+    result = await fs.glob(ctx, pattern="**/*.{py,py}")
+    assert result.content.count("src/main.py") == 1
+
+
 async def test_grep_returns_file_and_line(ctx: ToolContext):
     result = await fs.grep(ctx, pattern=r"line 4[0-9]")
     assert "src/main.py:40:" in result.content

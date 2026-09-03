@@ -32,7 +32,15 @@ async def send_message(ctx: ToolContext, *, to: str, content: str) -> ToolResult
     if not to or not to.strip():
         raise ToolFailed("no_recipient", "name the teammate to send this to")
 
-    recipient = mailbox.resolve(to.strip())
+    try:
+        recipient = mailbox.resolve(to.strip())
+    except Ambiguous as clash:
+        # Told to the model as a failure it can act on, rather than guessed at.
+        raise ToolFailed(
+            "ambiguous_recipient",
+            f"{len(clash.names)} teammates are called {clash.asked!r}, so this "
+            "message has nowhere unambiguous to go. Ask the user to rename one.",
+        ) from None
     if recipient is None:
         known = ", ".join(mailbox.names()) or "nobody"
         raise ToolFailed(
@@ -69,6 +77,15 @@ async def ask_user(ctx: ToolContext, *, question: str) -> ToolResult:
     )
 
 
+class Ambiguous(Exception):
+    """More than one teammate answers to that name."""
+
+    def __init__(self, asked: str, names: list[str]) -> None:
+        super().__init__(asked)
+        self.asked = asked
+        self.names = names
+
+
 class Mailbox:
     """Messages waiting for each member of one mission.
 
@@ -85,14 +102,57 @@ class Mailbox:
     def names(self) -> list[str]:
         return sorted(self._names.values())
 
+    def recipients(self) -> list[str]:
+        """Every member, by id. Used to hand the user's note to whoever runs
+        next — each one collects it once, because `collect` empties the box."""
+        return list(self._names)
+
     def resolve(self, who: str) -> str | None:
-        """Accept an agent id or a name, because a model will use either."""
+        """Accept an agent id or a name, because a model will use either.
+
+        Raises `Ambiguous` when a name fits more than one teammate. The old
+        version returned the first match, so on a team with two agents called
+        "Mara" a message meant for one was delivered to the other with nothing
+        reported — the worst kind of failure, because the sender is told it
+        worked. The team validator refuses such a team up front; this is the
+        second half, for a team that predates that check or was hand-edited.
+        """
         if who in self._names:
             return who
-        lowered = who.lower()
-        for agent_id, name in self._names.items():
-            if name.lower() == lowered:
-                return agent_id
+        lowered = who.strip().casefold()
+
+        exact = [
+            agent_id
+            for agent_id, name in self._names.items()
+            if name.strip().casefold() == lowered
+        ]
+        if len(exact) > 1:
+            raise Ambiguous(who, [self._names[a] for a in exact])
+        if exact:
+            return exact[0]
+
+        # Then part of a name. A roster reads "Developer (Dev)", and an agent
+        # asked to hand work to the developer writes "Developer", or "Dev".
+        # Both were refused, and one real run spent five turns cycling through
+        # "Dev", "Developer", "PM" and "Project Manager" before giving up — the
+        # file it was meant to hand on never got written.
+        #
+        # Still never a guess: two teammates that both fit raises, exactly as an
+        # exact collision does. Narrower before wider, so "Dev" prefers a
+        # teammate whose name starts with it over one that merely contains it.
+        for pick in (
+            lambda name: name.startswith(lowered),
+            lambda name: lowered in name,
+        ):
+            matches = [
+                agent_id
+                for agent_id, name in self._names.items()
+                if pick(name.strip().casefold())
+            ]
+            if len(matches) > 1:
+                raise Ambiguous(who, [self._names[a] for a in matches])
+            if matches:
+                return matches[0]
         return None
 
     def post(self, *, sender: str, recipient: str, content: str) -> None:

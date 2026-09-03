@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 
 from pydantic import ValidationError
 
+from ..core.jsonish import extract_json
 from ..providers.base import (
     Capabilities,
     ChatRequest,
@@ -44,8 +45,6 @@ MAX_TOKENS = 4096
 #: Two retries. Three total attempts is where a model that can do this succeeds
 #: and one that cannot stops costing money.
 MAX_ATTEMPTS = 3
-
-_FENCE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
 
 SYSTEM_PROMPT = """You design characters for a multi-agent workstation.
 
@@ -101,22 +100,6 @@ def _catalogue_text() -> str:
     return "\n".join(
         f"  {slot}: {', '.join(values)}" for slot, values in AVATAR_SLOTS.items()
     )
-
-
-def extract_json(text: str) -> str:
-    """Pull the JSON object out of a reply that may be wrapped.
-
-    Models in JSON mode still occasionally fence their output or add a sentence.
-    Stripping that here costs one regex; treating it as a failure costs a retry
-    and the user's money.
-    """
-    fenced = _FENCE.search(text)
-    if fenced:
-        return fenced.group(1).strip()
-    start, end = text.find("{"), text.rfind("}")
-    if start != -1 and end > start:
-        return text[start : end + 1]
-    return text.strip()
 
 
 def _describe(exc: ValidationError) -> str:

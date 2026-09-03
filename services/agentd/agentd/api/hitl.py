@@ -10,8 +10,10 @@ from sqlalchemy import delete, select
 
 from ..agents.runner import RequestNotFound
 from ..artifacts.store import ArtifactRejected, ArtifactStore, to_json
+from ..artifacts.versions import VersionStore, to_json as version_json
 from ..db.models import Artifact, Mission, MissionEvent
 from .deps import get_db, get_runner, require_token
+from ..core.events import as_utc_iso
 
 router = APIRouter(dependencies=[Depends(require_token)])
 
@@ -64,11 +66,15 @@ async def list_missions(request: Request, limit: int = 50) -> dict[str, Any]:
             {
                 "id": m.id,
                 "kind": m.kind,
+                "title": m.title,
                 "goal": m.goal,
                 "status": m.status,
                 "endReason": m.end_reason,
-                "startedAt": m.started_at.isoformat(),
-                "endedAt": m.ended_at.isoformat() if m.ended_at else None,
+                "endLimit": m.end_limit,
+                "tasksDone": m.tasks_done,
+                "tasksTotal": m.tasks_total,
+                "startedAt": as_utc_iso(m.started_at),
+                "endedAt": as_utc_iso(m.ended_at),
                 "pendingRequest": m.pending_request,
                 "memberCount": len(m.roster_snapshot or []),
                 "running": runner.is_running(m.id),
@@ -148,14 +154,58 @@ async def mission_artifacts(request: Request, mission_id: str) -> dict[str, Any]
     return {"artifacts": [to_json(a) for a in await store.for_mission(mission_id)]}
 
 
+@router.get("/missions/{mission_id}/file-versions")
+async def file_versions(
+    request: Request, mission_id: str, path: str
+) -> dict[str, Any]:
+    """Every version of one file in this run, oldest first.
+
+    Oldest first because that is the order a diff walks: each version against
+    the one before it, and the first against nothing, which is what "created"
+    means.
+    """
+    store = VersionStore(get_db(request))
+    rows = await store.for_file(mission_id, path)
+    return {"versions": [version_json(row) for row in rows]}
+
+
+@router.get("/file-versions/{version_id}")
+async def read_file_version(request: Request, version_id: str) -> dict[str, Any]:
+    store = VersionStore(get_db(request))
+    row = await store.get(version_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such version")
+    try:
+        text = store.read_text(row)
+    except FileNotFoundError as exc:
+        # The row outlives the blob if the data folder was cleaned. Said
+        # plainly rather than as a crash.
+        raise HTTPException(status.HTTP_410_GONE, str(exc)) from exc
+    return {**version_json(row), "text": text}
+
+
 @router.get("/artifacts/{artifact_id}")
 async def read_artifact(request: Request, artifact_id: str) -> dict[str, Any]:
     store = ArtifactStore(get_db(request))
     artifact = await store.get(artifact_id)
     if artifact is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no such artifact")
+    # A workspace file lives in the folder the mission was given, and that
+    # folder is the boundary it is resolved against (§16.2). Read from the
+    # mission row rather than from anything the caller sent: the artifact id is
+    # what was asked for, and where its file may be is not the caller's to say.
+    workspace: str | None = None
+    if artifact.source == "workspace":
+        db = get_db(request)
+        async with db.session() as session:
+            mission = (
+                await session.execute(
+                    select(Mission).where(Mission.id == artifact.mission_id)
+                )
+            ).scalar_one_or_none()
+        workspace = mission.workspace_root if mission else None
     try:
-        text = await store.read_text(artifact)
+        text = await store.read_text(artifact, workspace)
     except ArtifactRejected as exc:
         # The row can outlive the file if the data directory was cleaned. Said
         # plainly rather than as a 500.

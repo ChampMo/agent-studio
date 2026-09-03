@@ -315,6 +315,26 @@ def _messages(req: ChatRequest) -> list[dict[str, Any]]:
             out.append({"role": "assistant", "content": blocks})
             continue
 
+        if message.images:
+            # Anthropic takes blocks, and the image comes *before* the text:
+            # the documented order, and the one that reads as "here is the
+            # picture, now my question about it".
+            blocks: list[dict[str, Any]] = [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": image.media_type,
+                        "data": image.data_b64,
+                    },
+                }
+                for image in message.images
+            ]
+            if message.content:
+                blocks.append({"type": "text", "text": message.content})
+            out.append({"role": message.role, "content": blocks})
+            continue
+
         out.append({"role": message.role, "content": message.content})
     return out
 

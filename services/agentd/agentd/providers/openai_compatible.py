@@ -167,6 +167,25 @@ def _messages(req: ChatRequest) -> list[dict[str, Any]]:
             continue
 
         entry: dict[str, Any] = {"role": message.role, "content": message.content}
+
+        # Images turn `content` from a string into the parts array this API
+        # wants. Only when there are images: an endpoint that has never seen a
+        # picture still gets the plain string it has always been sent.
+        if message.images:
+            parts: list[dict[str, Any]] = []
+            if message.content:
+                parts.append({"type": "text", "text": message.content})
+            parts.extend(
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{image.media_type};base64,{image.data_b64}"
+                    },
+                }
+                for image in message.images
+            )
+            entry["content"] = parts
+
         if message.tool_calls:
             entry["tool_calls"] = [
                 {

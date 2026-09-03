@@ -32,6 +32,9 @@ export interface SplitPaneProps {
   /** Cap, in px. Also capped at the container so the bottom never vanishes. */
   maxHeight?: number;
   label: string;
+  /** Shown on hover and read out on focus, instead of printed under the pane
+   *  for ever. Instructions belong to the control they describe. */
+  hint?: string;
   /** Told the current height whenever it changes, including while dragging —
    *  the scene uses it to stop its ticker at zero rather than draw unseen. */
   onHeightChange?: (height: number) => void;
@@ -62,6 +65,7 @@ export function SplitPane({
   minHeight = 0,
   maxHeight,
   label,
+  hint,
   onHeightChange,
 }: SplitPaneProps) {
   const frame = useRef<HTMLDivElement>(null);
@@ -173,6 +177,8 @@ export function SplitPane({
         role="separator"
         aria-orientation="horizontal"
         aria-label={label}
+        aria-description={hint}
+        title={hint}
         aria-valuenow={Math.round(height)}
         aria-valuemin={minHeight}
         aria-valuemax={Number.isFinite(ceiling) ? Math.round(ceiling) : undefined}
@@ -187,21 +193,21 @@ export function SplitPane({
         // is grabbable; the line is only what is seen.
         className={cn(
           "group relative flex h-6 shrink-0 cursor-row-resize items-center",
-          "focus:outline-none focus-visible:ring-1 focus-visible:ring-sky-500",
+          "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-focus)]",
         )}
       >
         <div
           className={cn(
             "h-px w-full transition-colors",
-            dragging ? "bg-sky-500" : "bg-slate-800 group-hover:bg-slate-600",
-            "group-focus-visible:bg-sky-500",
+            dragging ? "bg-accent" : "bg-line group-hover:bg-line-strong",
+            "group-focus-visible:bg-accent",
           )}
         />
         <span
           aria-hidden
           className={cn(
             "pointer-events-none absolute left-1/2 h-1 w-10 -translate-x-1/2 rounded-full",
-            dragging ? "bg-sky-500" : "bg-slate-700 group-hover:bg-slate-500",
+            dragging ? "bg-accent" : "bg-line-strong/60 group-hover:bg-line-strong",
           )}
         />
       </div>

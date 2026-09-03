@@ -17,6 +17,7 @@ from typing import Any
 from sqlalchemy import select
 
 from ..core.config import get_settings
+from ..tools.paths import PathRejected, canonical, resolve_within
 from ..db.models import Artifact
 from ..db.session import Database
 
@@ -48,6 +49,26 @@ def _safe(mission_id: str, relative: str) -> Path:
     if base != target and base not in target.parents:
         raise ArtifactRejected(f"{relative!r} resolves outside the artifact root")
     return target
+
+
+#: Which of the three kinds a workspace file is, by extension. Only what the
+#: viewer can actually render differently; everything else is a document,
+#: because calling an unknown file "code" would be a guess on the record.
+CODE_SUFFIXES = {
+    ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".rs", ".go", ".java",
+    ".rb", ".php", ".c", ".h", ".cpp", ".hpp", ".cs", ".swift", ".kt", ".sh",
+    ".sql", ".css", ".scss", ".html", ".json", ".yaml", ".yml", ".toml",
+}
+IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp"}
+
+
+def kind_for(relative: str) -> str:
+    suffix = Path(relative).suffix.lower()
+    if suffix in IMAGE_SUFFIXES:
+        return "image"
+    if suffix in CODE_SUFFIXES:
+        return "code"
+    return "doc"
 
 
 def safe_name(title: str, suffix: str) -> str:
@@ -109,6 +130,69 @@ class ArtifactStore:
             await s.commit()
         return artifact
 
+    async def note_workspace_file(
+        self,
+        *,
+        mission_id: str,
+        agent_id: str | None,
+        relative: str,
+        workspace_root: str,
+    ) -> tuple[Artifact, bool]:
+        """Record a file an agent wrote into the mission's own workspace.
+
+        Returns the row and whether it is new, because writing the same file
+        twice is one file written twice — the timeline should say `created`
+        once and then let the size change underneath it.
+
+        **Nothing is copied.** `write_text` puts a file under the app's artifact
+        root and owns it from then on; this points at a file in the folder the
+        user chose, which the agents keep editing and the user can open in an
+        editor. A copy taken at write time would be a stale duplicate claiming
+        to be the work, and there would be two answers to "what did this run
+        produce" (§2.1).
+
+        The consequence is stated rather than hidden: the row can outlive the
+        file. `read_text` says so plainly when it does.
+        """
+        size = 0
+        try:
+            size = resolve_within(canonical(workspace_root), relative).stat().st_size
+        except (OSError, PathRejected):
+            # The size is a convenience. A file that cannot be measured is
+            # still worth listing — the alternative is a run whose output does
+            # not appear because one `stat` failed.
+            pass
+
+        async with self._db.session() as s:
+            row = (
+                await s.execute(
+                    select(Artifact)
+                    .where(Artifact.mission_id == mission_id)
+                    .where(Artifact.path == relative)
+                )
+            ).scalar_one_or_none()
+            if row is not None:
+                row.bytes = size
+                await s.commit()
+                await s.refresh(row)
+                return row, False
+
+            artifact = Artifact(
+                id=f"art-{uuid.uuid4()}",
+                mission_id=mission_id,
+                agent_id=agent_id,
+                kind=kind_for(relative),
+                path=relative,
+                source="workspace",
+                title=relative,
+                bytes=size,
+                created_at=datetime.now(UTC),
+            )
+            s.add(artifact)
+            await s.commit()
+            await s.refresh(artifact)
+            return artifact, True
+
     async def for_mission(self, mission_id: str) -> list[Artifact]:
         async with self._db.session() as s:
             rows = await s.execute(
@@ -145,17 +229,38 @@ class ArtifactStore:
             # half way.
             return
 
-    async def read_text(self, artifact: Artifact) -> str:
-        path = _safe(artifact.mission_id, artifact.path)
+    async def read_text(self, artifact: Artifact, workspace_root: str | None = None) -> str:
+        if artifact.source == "workspace":
+            if not workspace_root:
+                raise ArtifactRejected(
+                    "this file is in the mission's workspace, and the mission "
+                    "has no workspace recorded"
+                )
+            # The same resolver the file tools use, and the same rule: resolve
+            # first, compare second. A stored path is data, and data that
+            # decides which file to open is data that has to be checked.
+            try:
+                path = resolve_within(canonical(workspace_root), artifact.path)
+            except PathRejected as exc:
+                raise ArtifactRejected(str(exc)) from exc
+        else:
+            path = _safe(artifact.mission_id, artifact.path)
         if not path.is_file():
-            # The row outlives the file if the data directory was cleaned. Said
-            # plainly rather than crashing the viewer.
+            # The row outlives the file: the data directory was cleaned, or —
+            # for a workspace file — someone moved or deleted it, which is
+            # entirely their right. Said plainly rather than crashing the
+            # viewer.
             raise ArtifactRejected("the file for this artifact is missing")
-        return path.read_text(encoding="utf-8")
+        if path.stat().st_size > MAX_BYTES:
+            raise ArtifactRejected(
+                f"this file is {path.stat().st_size} bytes; the viewer stops at {MAX_BYTES}"
+            )
+        return path.read_text(encoding="utf-8", errors="replace")
 
 
 def to_json(artifact: Artifact) -> dict[str, Any]:
     return {
+        "source": artifact.source,
         "id": artifact.id,
         "missionId": artifact.mission_id,
         "agentId": artifact.agent_id,

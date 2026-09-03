@@ -7,6 +7,7 @@
  */
 import { useEffect, useState } from "react";
 import { strings } from "../../lib/constants/strings.en";
+import { formatDateTime } from "../../lib/format";
 import { cn } from "../../lib/cn";
 import { useEventStore } from "../../stores/eventStore";
 import { useHistoryStore } from "../../stores/historyStore";
@@ -18,7 +19,7 @@ import { WorkspaceBanner } from "../mission/WorkspacePicker";
 
 function when(iso: string): string {
   const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? iso : date.toLocaleString();
+  return Number.isNaN(date.getTime()) ? iso : formatDateTime(date);
 }
 
 function tone(mission: { status: string; endReason: string | null }) {

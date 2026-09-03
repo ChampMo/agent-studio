@@ -145,4 +145,8 @@ def test_no_key_is_ever_returned_by_the_provider_api(client):
         "hasKey",
         "nativeSearch",
         "nativeSearchAvailable",
+        # Numbers a search endpoint reported about its own allowance. Three
+        # states, none of them a key: null (never asked), [] (asked, reports
+        # none), or the windows it declared (§16.5).
+        "quota",
     }

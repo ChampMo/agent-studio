@@ -17,13 +17,21 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, update
 
+from ..core.prefs import get_app_budget, get_autonomy
 from ..core.budget import BudgetExceeded, BudgetLimits, BudgetTracker, resolve_limits
 from ..core.events import EventBus
-from ..db.models import Agent, Mission, ProviderProfile, Team, TeamMember
+from ..db.models import MissionEvent, Agent, Mission, ProviderProfile, Team, TeamMember
 from ..db.session import Database
 from ..artifacts.store import ArtifactStore
+from ..artifacts.versions import VersionStore
+from ..attachments.store import (
+    IMAGE_KIND,
+    AttachmentRejected,
+    AttachmentStore,
+    kind_of,
+)
 from ..orchestrator.graph import Paused, run_team_mission
 from ..orchestrator.hitl import PlanRejected
 from ..orchestrator.planner import PlanningFailed
@@ -38,9 +46,11 @@ from ..tools.execution import ToolBox
 from ..tools.workspace import WorkspaceRejected, WorkspaceStore
 from ..tools.workspace import check as workspace_check
 from ..providers import registry
+from ..providers.leaks import leaked_tool_call, refused_images
 from ..providers.base import (
     Capabilities,
     ChatRequest,
+    ImagePart,
     LLMProvider,
     Message,
     ProviderError,
@@ -64,6 +74,41 @@ class RequestNotFound(LookupError):
     """
 
 
+#: How the user appears in a teammate's mailbox. A name, not an agent id,
+#: because it is rendered straight into the next agent's instruction and
+#: "user says:" is what an agent needs to read there.
+USER_SENDER = "The user"
+
+
+class MissionAlreadyRunning(Exception):
+    """Asked to continue a run that has not stopped."""
+
+    def __init__(self, mission_id: str) -> None:
+        super().__init__(mission_id)
+        self.mission_id = mission_id
+
+
+class MissionNotRunning(Exception):
+    """A note was addressed to a mission that is not being driven right now."""
+
+    def __init__(self, mission_id: str) -> None:
+        super().__init__(mission_id)
+        self.mission_id = mission_id
+
+
+class UnknownTeammate(Exception):
+    """A note was addressed to a name nobody on this team answers to.
+
+    Carries the real names, because "no such teammate" is not something the
+    person can act on and "did you mean Wren, Bo or Ilse" is.
+    """
+
+    def __init__(self, asked: str, names: list[str]) -> None:
+        super().__init__(asked)
+        self.asked = asked
+        self.names = names
+
+
 class MissionRejected(ValueError):
     """The team cannot run. Carries every blocking finding, because one reason at
     a time turns fixing a team into a guessing game (§5.2)."""
@@ -71,6 +116,98 @@ class MissionRejected(ValueError):
     def __init__(self, problems: list[str]) -> None:
         super().__init__("; ".join(problems))
         self.problems = problems
+
+
+def ending_for(
+    reason: str, summary: str, task_states: dict[str, str]
+) -> tuple[str, str]:
+    """Correct `completed` to `failed` when nothing actually succeeded.
+
+    Seen live: three tasks failed, no file was written, the leader's own summary
+    said *"the deliverables were not produced"* — and the row said `completed`.
+    Which also credited every agent on the team with a mission they had not
+    finished, because `_finalise_team` counts a mission on that word (§1.1).
+
+    **Any** failed task is enough. The first version only caught a run where
+    nothing at all succeeded, and the very next run walked through the gap: the
+    atlas task failed, the notes task succeeded, and the leader's own summary
+    said *"index.html is missing, so the mission is not complete"* — over a row
+    that said `completed`, crediting both agents again.
+
+    There is no honest reading of "completed" that covers a run which did not
+    do what it was asked. The nuance belongs in the summary, which says what
+    was produced and what was not; the reason is a single word and has to be
+    the true one.
+
+    Any other reason wins: `cancelled`, `budget_exceeded` and `crashed` all say
+    something more specific about why the work stopped.
+
+    **Every ending also says what was left undone**, whatever the reason. A run
+    asked for a tool, tests for it, and a test run produced the tool and was
+    then killed by the clock during the first task. It ended honestly —
+    `budget_exceeded`, *stopped at the time limit (1302/900)* — and said nothing
+    about the two tasks that never started, so the only way to find out which
+    part of the request was missing was to read the timeline and compare it to
+    what you had asked for.
+
+    Named separately, because they are different failures with different fixes:
+    a task that **never started** ran out of room, and a task that **produced
+    nothing** ran and came back empty.
+    """
+    # Normalised first. The map carries `(state, title)` now and read the tuple
+    # as a state for one commit, which turned every finished run into a failed
+    # one — caught by the M6 test that asserts a resumed mission completes.
+    tasks = [state for state, _ in _states(task_states)]
+    if reason == "completed" and tasks and any(state != "done" for state in tasks):
+        # No honest reading of "completed" covers a run that did not do what it
+        # was asked. The word has to be the true one.
+        reason = "failed"
+        summary = summary or (
+            f"{sum(1 for s in tasks if s != 'done')} of {len(tasks)} tasks did not finish"
+        )
+
+    note = unfinished_note(task_states)
+    if note:
+        summary = f"{summary} — {note}" if summary else note
+    return reason, summary
+
+
+def _states(
+    task_states: dict[str, tuple[str, str]] | dict[str, str],
+) -> list[tuple[str, str]]:
+    """`(state, title)` per task, whichever shape the caller kept.
+
+    Two callers, and one of them predates the titles. A tuple read as a state
+    silently makes every comparison true, which is how a passing suite briefly
+    marked every completed mission `failed`.
+    """
+    return [
+        value if isinstance(value, tuple) else (value, "")
+        for value in task_states.values()
+    ]
+
+
+def unfinished_note(task_states: dict[str, tuple[str, str]] | dict[str, str]) -> str:
+    """One sentence naming the work that did not get done, or "".
+
+    Built from the task states the log already carries — no judgement, nothing
+    asked of a model, nothing invented. A run whose every task is done says
+    nothing, because there is nothing to say.
+    """
+    entries = _states(task_states)
+    if not entries or all(state == "done" for state, _ in entries):
+        return ""
+
+    done = sum(1 for state, _ in entries if state == "done")
+    parts = [f"{done} of {len(entries)} tasks done"]
+
+    never = [label for state, label in entries if state not in {"done", "failed"} and label]
+    empty = [label for state, label in entries if state == "failed" and label]
+    if never:
+        parts.append("never started: " + "; ".join(never))
+    if empty:
+        parts.append("produced nothing: " + "; ".join(empty))
+    return ". ".join(parts)
 
 
 class MissionRunner:
@@ -88,6 +225,8 @@ class MissionRunner:
         #: cancel the work that records the cancellation. See `_run`.
         self._finishers: dict[str, asyncio.Task] = {}
         self._artifacts = ArtifactStore(db)
+        self._versions = VersionStore(db)
+        self._attachments = AttachmentStore(db)
         #: What each paused mission needs in order to be resumed. Rebuilt from
         #: the database on restart, because the process that paused is gone.
         self._paused: dict[str, dict[str, Any]] = {}
@@ -97,6 +236,10 @@ class MissionRunner:
         #: process dies the mission is crashed and the tool never ran - which
         #: is the safe direction to fail in.
         self._awaiting: dict[str, tuple[str, asyncio.Future[str]]] = {}
+        #: The live mailbox of each running team mission, so a note typed while
+        #: the team works has somewhere to go. Held here and nowhere else: it is
+        #: not persisted, because what was said is on the event log (§2.1).
+        self._mailboxes: dict[str, Mailbox] = {}
         self._marks: set[asyncio.Task] = set()
 
     async def reap_orphans(self) -> int:
@@ -144,7 +287,9 @@ class MissionRunner:
         (§2.1) — an HTTP response carrying the answer would be a second channel
         that the timeline and the scene know nothing about.
         """
-        limits = resolve_limits(mission=budget)
+        limits = resolve_limits(
+            mission=budget, app_default=await get_app_budget(self._db)
+        )
         mission_id = f"chat-{uuid.uuid4()}"
 
         async with self._db.session() as s:
@@ -185,6 +330,7 @@ class MissionRunner:
         *,
         team_id: str,
         goal: str,
+        title: str | None = None,
         budget: dict[str, Any] | None = None,
         require_approval: bool = False,
         workspace_root: str | None = None,
@@ -262,9 +408,22 @@ class MissionRunner:
                 )
 
         roster = snapshot_mod.resolve(
-            team=team, members=members, agents=agents, workspace_root=resolved_workspace
+            team=team,
+            members=members,
+            agents=agents,
+            workspace_root=resolved_workspace,
+            # One setting for the whole app, frozen here — so a run started
+            # under "ask before everything" keeps asking even if the switch is
+            # moved while it works (§5.1).
+            autonomy=await get_autonomy(self._db),
         )
-        limits = resolve_limits(mission=budget, team_default=team.default_budget)
+        # The app default is read here rather than baked in, so the number a
+        # run is stopped at is the one the settings panel shows.
+        limits = resolve_limits(
+            mission=budget,
+            team_default=team.default_budget,
+            app_default=await get_app_budget(self._db),
+        )
         mission_id = f"mission-{uuid.uuid4()}"
 
         async with self._db.session() as s:
@@ -273,6 +432,7 @@ class MissionRunner:
                     id=mission_id,
                     kind="mission",
                     team_id=team_id,
+                    title=title or None,
                     goal=goal,
                     status="running",
                     budget=limits.as_dict(),
@@ -303,7 +463,247 @@ class MissionRunner:
 
         task = asyncio.create_task(
             self._run_team(
-                mission_id, roster, goal, limits, require_approval=require_approval
+                mission_id,
+                roster,
+                goal,
+                limits,
+                require_approval=require_approval,
+                attached=await self._attached(mission_id),
+            ),
+            name=f"mission:{mission_id}",
+        )
+        self._track(mission_id, task)
+        return mission_id
+
+    async def fork_mission(
+        self,
+        mission_id: str,
+        goal: str,
+        *,
+        title: str | None = None,
+        require_approval: bool = False,
+    ) -> str:
+        """Start a new run from an existing one's team, workspace and limits.
+
+        The thing this answers is "try it again, differently, without losing
+        this one". Continuing appends to the same conversation and cannot be
+        undone; starting fresh forgets the workspace and the team. A fork keeps
+        both and leaves the original exactly as it is.
+
+        **The roster is copied, not re-resolved.** The point of a fork is to
+        compare two attempts, and re-reading the `agents` table would hand the
+        new run whatever those agents look like today — so two runs that were
+        meant to differ in one thing could differ in several, and neither
+        record would say which (§5.1). The same argument as the snapshot
+        itself, applied one level up.
+
+        The workspace is **shared**, and that is the honest limitation rather
+        than a decision to hide: two runs pointed at one folder write the same
+        files. Nothing stops it, here or anywhere else in this app — the path
+        is validated, never claimed — so the caller says so and the person
+        chooses.
+        """
+        body = (goal or "").strip()
+        if not body:
+            raise ValueError("there is nothing to ask")
+
+        async with self._db.session() as s:
+            parent = (
+                await s.execute(select(Mission).where(Mission.id == mission_id))
+            ).scalar_one_or_none()
+            if parent is None or parent.kind != "mission" or not parent.roster_snapshot:
+                raise MissionNotRunning(mission_id)
+            roster = RosterSnapshot.from_json(parent.roster_snapshot)
+            limits = resolve_limits(
+                mission=parent.budget, app_default=await get_app_budget(self._db)
+            )
+            source_title = parent.title or parent.goal
+            team_id = parent.team_id
+            workspace = parent.workspace_root
+
+            new_id = f"mission-{uuid.uuid4()}"
+            s.add(
+                Mission(
+                    id=new_id,
+                    kind="mission",
+                    team_id=team_id,
+                    title=title or f"{(source_title or 'Run')[:60]} (fork)",
+                    goal=body,
+                    status="running",
+                    budget=limits.as_dict(),
+                    # Copied verbatim. See the docstring: re-resolving would
+                    # silently change the thing being compared.
+                    roster_snapshot=parent.roster_snapshot,
+                    workspace_root=workspace,
+                    started_at=datetime.now(UTC),
+                )
+            )
+            await s.commit()
+
+        started: dict[str, Any] = {
+            "kind": "mission",
+            "teamId": team_id,
+            "goal": body,
+            # Which run this came from, on the log. A fork whose origin is only
+            # in its title is a fork whose origin is a guess.
+            "forkedFrom": mission_id,
+        }
+        if workspace:
+            started["workspaceRoot"] = workspace
+        await self._bus.publish(
+            new_id, {"type": "mission.started", "payload": started}
+        )
+        await self._bus.publish(
+            new_id, {"type": "user.message", "payload": {"content": body}}
+        )
+
+        task = asyncio.create_task(
+            self._run_team(
+                new_id,
+                roster,
+                body,
+                limits,
+                require_approval=require_approval,
+                attached=await self._attached(new_id),
+            ),
+            name=f"mission:{new_id}",
+        )
+        self._track(new_id, task)
+        return new_id
+
+    async def _record_no_vision(self, roster: RosterSnapshot) -> None:
+        """Mark every provider this run used as unable to read images.
+
+        The whole roster rather than a guess at which member failed: they share
+        the endpoint that refused, and a capability is a fact about the model,
+        not about the agent that happened to hit it.
+        """
+        ids = {m.provider_id for m in roster.members if m.provider_id}
+        if not ids:
+            return
+        async with self._db.session() as s:
+            rows = (
+                await s.execute(
+                    select(ProviderProfile).where(ProviderProfile.id.in_(ids))
+                )
+            ).scalars().all()
+            for profile in rows:
+                profile.capabilities = {**(profile.capabilities or {}), "vision": False}
+            await s.commit()
+
+    async def _attached(self, mission_id: str) -> tuple[tuple[ImagePart, ...], str]:
+        """Everything attached to this mission, split by how it reaches a model.
+
+        All of it, not only this round's. A file attached three rounds ago is
+        still what the conversation is about — dropping it would mean "look at
+        that again" quietly not working — and the store is content-addressed,
+        so the same file attached twice is one file and one part.
+
+        Images come back as picture parts. Text files come back as one block of
+        prose to put in front of the instruction, because that is the only way
+        a text model reads anything.
+
+        A file whose bytes have gone is skipped rather than fatal: the round is
+        still worth running, and the timeline already recorded the attachment.
+        """
+        images: list[ImagePart] = []
+        documents: list[str] = []
+        for row in await self._attachments.for_mission(mission_id):
+            try:
+                if kind_of(row.mime) == IMAGE_KIND:
+                    images.append(
+                        ImagePart(
+                            media_type=row.mime,
+                            data_b64=self._attachments.as_base64(row),
+                        )
+                    )
+                else:
+                    documents.append(
+                        f"--- {row.name} ({row.bytes:,} bytes) ---\n"
+                        f"{self._attachments.as_text(row)}\n"
+                        f"--- end of {row.name} ---"
+                    )
+            except AttachmentRejected:
+                continue
+
+        preamble = ""
+        if documents:
+            # Named as the user's own attachment, not wrapped in the untrusted
+            # markers: the person running the mission chose this file, and
+            # telling an agent to distrust what its user handed it would be
+            # both wrong and confusing (§16.6 is about text fetched from
+            # elsewhere).
+            body = "\n\n".join(documents)
+            preamble = f"The user attached these files:\n\n{body}"
+        return tuple(images), preamble
+
+    async def continue_mission(
+        self, mission_id: str, goal: str, *, require_approval: bool = False
+    ) -> str:
+        """Ask a finished run to keep going, in the same conversation (§7.1).
+
+        A round ending is not the mission ending. The old shape treated it as
+        one: the composer's only offer after `mission.ended` was to start a
+        *different* run, which meant a new row, a new empty timeline, and an
+        agent that had forgotten the workspace it had just spent ten minutes
+        learning. "Fix the spacing on the hero" is the most ordinary thing to
+        want next, and it was the one thing the app could not do.
+
+        So the mission row is reopened and the graph runs again over the **same
+        frozen roster** — never re-read from the agents table, because who did
+        the earlier rounds must not change retroactively (§5.1) — appending to
+        the same event log.
+
+        Each round gets a fresh budget. The alternative, one ceiling across
+        every round, means a second question is refused because the first was
+        answered thoroughly; and the rail counts a round's tokens against a
+        round's limit, so the two agree.
+        """
+        body = (goal or "").strip()
+        if not body:
+            raise ValueError("there is nothing to send")
+        if self.is_running(mission_id):
+            raise MissionAlreadyRunning(mission_id)
+
+        async with self._db.session() as s:
+            mission = (
+                await s.execute(select(Mission).where(Mission.id == mission_id))
+            ).scalar_one_or_none()
+            if mission is None:
+                raise MissionNotRunning(mission_id)
+            if mission.kind != "mission" or not mission.roster_snapshot:
+                # A chat has no team and no graph to re-enter.
+                raise MissionNotRunning(mission_id)
+            roster = RosterSnapshot.from_json(mission.roster_snapshot)
+            limits = resolve_limits(
+                mission=mission.budget, app_default=await get_app_budget(self._db)
+            )
+            earlier = await self.earlier_rounds(mission_id, mission.goal)
+            # Reopened, and the row says so before the first event of the round.
+            mission.status = "running"
+            mission.end_reason = None
+            mission.ended_at = None
+            mission.goal = body
+            await s.commit()
+
+        await self._bus.publish(
+            mission_id, {"type": "user.message", "payload": {"content": body}}
+        )
+
+        task = asyncio.create_task(
+            self._run_team(
+                mission_id,
+                roster,
+                body,
+                limits,
+                # A round can be gated too. It never could before: the flag was
+                # only ever set by `start_mission`, so seeing the plan first was
+                # something you could ask for once and never again in the same
+                # conversation — while the plan is the one point where stopping
+                # still saves the cost of the work.
+                require_approval=require_approval,
+                attached=await self._attached(mission_id),
+                earlier=earlier,
             ),
             name=f"mission:{mission_id}",
         )
@@ -319,11 +719,25 @@ class MissionRunner:
         *,
         require_approval: bool = False,
         resume: str | None = None,
+        #: (pictures, text put in front of every instruction) — see `_attached`.
+        attached: tuple[tuple[ImagePart, ...], str] = ((), ""),
+        #: What earlier rounds did, for the planner. See `earlier_rounds`.
+        earlier: str = "",
     ) -> None:
+        images, documents = attached
         budget = BudgetTracker(limits)
         opened: dict[str, LLMProvider] = {}
         reason, summary = "completed", ""
+        #: Which ceiling stopped the run, when one did.
+        limit_kind: str | None = None
         parked = False
+        #: taskId -> its latest state, read off the events on their way past.
+        #: "completed" has to mean something was completed (see the finally).
+        #: taskId -> (state, title), read off the events on their way past.
+        task_states: dict[str, tuple[str, str]] = {}
+        #: callId -> (agentId, path) for file writes still in flight. The end
+        #: event says whether it worked; the start event says what it was.
+        written: dict[str, tuple[str, str]] = {}
         # The gate is the only thing that pauses a mission, so a resume implies
         # it was there. Rebuilding without it made `approve_node` return before
         # it read the answer: the graph carried on either way, and a rejected
@@ -353,7 +767,9 @@ class MissionRunner:
             rows = await session.execute(
                 select(ProviderProfile)
                 .where(ProviderProfile.kind == "search")
-                .order_by(ProviderProfile.created_at)
+                # The order the user put them in, not the order they were
+                # added. Shared with the panel that shows it (registry).
+                .order_by(*registry.search_order())
             )
             for profile in rows.scalars().all():
                 if key := secrets.get_key(profile.id):
@@ -367,6 +783,8 @@ class MissionRunner:
         # One mailbox for the mission. Not persisted: what was said is on the
         # event log, and a second copy would be a second thing to keep true.
         mailbox = Mailbox({m.agent_id: m.name for m in roster.members})
+        self._mailboxes[mission_id] = mailbox
+
 
         async def ask(agent_id: str, question: str) -> str | None:
             """`ask_user`, using M6's request end to end (§16.7).
@@ -394,7 +812,10 @@ class MissionRunner:
                 {"type": "agent.status", "payload": {"agentId": agent_id, "status": "waiting"}},
             )
             try:
-                return await waiting
+                # Same rule as a tool approval: a mission waiting on a person is
+                # not a mission working, and its timeout should not say it is.
+                with budget.paused_for_a_person():
+                    return await waiting
             except asyncio.CancelledError:
                 # The mission ended while the question was on screen. Reported
                 # to the tool as unanswered rather than swallowed.
@@ -463,6 +884,9 @@ class MissionRunner:
                 checkpointer=self._checkpointer,
                 require_approval=require_approval,
                 resume=resume,
+                images=images,
+                documents=documents,
+                earlier=earlier,
             ):
                 # The same routing split a chat uses (§7.1), in the same place.
                 if is_ephemeral(item):
@@ -470,7 +894,21 @@ class MissionRunner:
                 else:
                     await self._bus.publish(mission_id, item)
                     if item["type"] == "agent.message":
-                        summary = item["payload"]["content"][:2000]
+                        # A leaked tool-call template is not what this round
+                        # achieved, and it was becoming the whole summary.
+                        body = item["payload"]["content"]
+                        if not leaked_tool_call(body):
+                            summary = body[:2000]
+                    elif item["type"] in ("agent.tool.start", "agent.tool.end"):
+                        await self._note_written(mission_id, item, written)
+                    elif item["type"] == "mission.progress":
+                        progress = item["payload"]
+                        # The label too, so an ending can name what was left
+                        # rather than counting it.
+                        task_states[progress["taskId"]] = (
+                            progress["state"],
+                            str(progress.get("label") or ""),
+                        )
 
         except Paused as paused:
             # Not an ending. The mission stops here, keeps its row, and waits -
@@ -491,13 +929,24 @@ class MissionRunner:
             reason, summary = "cancelled", f"the plan was rejected: {exc.note}"
         except BudgetExceeded as exc:
             reason = "budget_exceeded"
+            limit_kind = exc.kind
             summary = f"stopped at the {exc.kind} limit ({exc.used}/{exc.limit})"
         except PlanningFailed as exc:
             reason, summary = "failed", f"the leader could not produce a plan: {exc}"
             await self._publish_error(mission_id, "planning_failed", summary, False)
         except ProviderError as exc:
             reason, summary = "failed", exc.message
-            await self._publish_error(mission_id, exc.code, exc.message, exc.recoverable)
+            # The endpoint has just told us something true about its model.
+            # Written down so the next attempt can say so before spending a
+            # round discovering it — the same rule as the capability probe:
+            # record only what was actually established (§3.1).
+            if refused_images(exc.message):
+                await self._record_no_vision(roster)
+                summary = (
+                    "this model does not accept images — attach them to a run "
+                    "whose model can read them"
+                )
+            await self._publish_error(mission_id, exc.code, summary, exc.recoverable)
         except Exception as exc:  # noqa: BLE001 - a crash must still be recorded
             reason, summary = "crashed", f"{type(exc).__name__}: {exc}"
             await self._publish_error(mission_id, "internal_error", summary, False)
@@ -505,16 +954,216 @@ class MissionRunner:
             # A parked mission has not ended - it is waiting on a person, and
             # finalising it here would close it seconds after it asked its
             # question, with `completed` still sitting in `reason`.
+            # Written here, not as each task changes. The first version awaited
+            # a database write inside the `async for` that drains the graph,
+            # and that extra suspension point was enough to let the finaliser
+            # run before a pause was recorded — seven HITL tests went from
+            # `waiting` to `ended`. The counts are for the *list* of past runs;
+            # the run in front of you has a header that counts its own log.
+            await self._save_task_counts(mission_id, task_states)
             if parked:
                 return
+            # The work phase can stop on the reserve and still reach the end of
+            # the graph, having spent what was left saying where it got to. No
+            # exception is raised on that path — deliberately, because the
+            # summary is the point of it — so the reason has to be corrected
+            # here or a run that ran out would be recorded `completed`.
+            #
+            # The summary the leader wrote is kept: it is the handover, and it
+            # is worth far more than the sentence this would otherwise put
+            # there. The numbers go in front of it, so the record still says
+            # plainly which limit stopped the run.
+            if budget.stopped_early is not None and reason == "completed":
+                kind, used, limit = budget.stopped_early
+                reason = "budget_exceeded"
+                limit_kind = kind
+                stopped = f"stopped at the {kind} limit ({used:.0f}/{limit:.0f})"
+                summary = f"{stopped} — {summary}" if summary else stopped
+            reason, summary = ending_for(reason, summary, task_states)
             # Scheduled, never awaited here: this block also runs while the task
             # is being cancelled, and an await would be cancelled with it.
             self._finishers[mission_id] = asyncio.create_task(
                 self._finalise_team(
-                    mission_id, list(opened.values()), roster, reason, summary
+                    mission_id, list(opened.values()), roster, reason, summary, limit_kind
                 ),
                 name=f"finalise:{mission_id}",
             )
+
+    #: Tools whose success means a file now exists in the workspace.
+    FILE_TOOLS = ("write_file", "edit_file")
+
+    async def _note_written(
+        self,
+        mission_id: str,
+        item: dict[str, Any],
+        pending: dict[str, tuple[str, str]],
+    ) -> None:
+        """Make the files an agent produced visible to the app.
+
+        `artifact.created` used to be published from exactly one place — the
+        `final-answer.md` written when a run completed — so the Files tab read
+        **Files 0** over a workspace holding twenty files and a Next.js app that
+        built. The one thing a run is for was the one thing the app could not
+        show, and every assessment of a team's work had to be done in Explorer.
+
+        Watched here rather than emitted by the runtime, which has no database
+        and should not grow one: the runner already reads every draft on its way
+        to the bus, and correlating a start with its end by `callId` is the
+        whole of it.
+
+        A second write to the same path is the same file written twice, so the
+        row is refreshed and no second `created` goes on the log — a timeline
+        that said a file was created four times would be describing four files.
+        """
+        payload = item.get("payload") or {}
+        call_id = str(payload.get("callId") or "")
+        if not call_id:
+            return
+
+        if item["type"] == "agent.tool.start":
+            if payload.get("tool") in self.FILE_TOOLS:
+                path = str((payload.get("input") or {}).get("path") or "")
+                if path:
+                    pending[call_id] = (str(payload.get("agentId") or ""), path)
+            return
+
+        agent_and_path = pending.pop(call_id, None)
+        if agent_and_path is None or not payload.get("ok"):
+            # A failed write produced nothing, and listing it would put a file
+            # on screen that is not there.
+            return
+        agent_id, path = agent_and_path
+
+        async with self._db.session() as session:
+            mission = (
+                await session.execute(select(Mission).where(Mission.id == mission_id))
+            ).scalar_one_or_none()
+            workspace = mission.workspace_root if mission else None
+        if not workspace:
+            return
+
+        try:
+            artifact, is_new = await self._artifacts.note_workspace_file(
+                mission_id=mission_id,
+                agent_id=agent_id or None,
+                relative=path,
+                workspace_root=workspace,
+            )
+        except Exception as exc:  # noqa: BLE001 - the file exists either way
+            await self._publish_error(
+                mission_id, "artifact_note_failed", str(exc), True
+            )
+            return
+        # What the file holds now, kept so the Files tab can show what changed
+        # rather than only how many bytes did. Read back from the workspace
+        # rather than reconstructed from the tool's arguments: if someone edited
+        # the file in an editor between two agent writes, that edit belongs
+        # inside the next diff, attributed to nobody, because that is what
+        # happened.
+        #
+        # Recorded on every write, not only the first — the version *is* the
+        # change, and a file written eleven times has eleven of them.
+        await self._versions.record(
+            mission_id=mission_id,
+            path=path,
+            workspace_root=workspace,
+            agent_id=agent_id or None,
+            event_id=str(item.get("id") or call_id),
+        )
+
+        if not is_new:
+            return
+
+        await self._bus.publish(
+            mission_id,
+            {
+                "type": "artifact.created",
+                "payload": {
+                    "agentId": artifact.agent_id or "",
+                    "artifactId": artifact.id,
+                    "path": artifact.path,
+                    "kind": artifact.kind,
+                    "source": "workspace",
+                },
+            },
+        )
+
+    async def _save_task_counts(
+        self, mission_id: str, task_states: dict[str, tuple[str, str]]
+    ) -> None:
+        """How far through the plan this round is, on the mission row.
+
+        The states come from the same `_states` normaliser the ending uses, so
+        the sidebar's "10 of 12" and the ending's "10 of 12 tasks done" cannot
+        drift apart — two readings of one thing rather than two counts (§2.1).
+        """
+        # `_states` returns a *list* of (state, title) pairs, not a mapping —
+        # its whole reason for existing is that one caller kept titles and the
+        # other did not.
+        states = _states(task_states)
+        done = sum(1 for state, _title in states if state == "done")
+        async with self._db.session() as session:
+            mission = (
+                await session.execute(select(Mission).where(Mission.id == mission_id))
+            ).scalar_one_or_none()
+            if mission is None:
+                return
+            mission.tasks_done = done
+            mission.tasks_total = len(states)
+            await session.commit()
+
+    async def earlier_rounds(self, mission_id: str, current_goal: str) -> str:
+        """What the rounds before this one asked for and what came of them.
+
+        Read off `mission_events`, not stored anywhere. The log is the record
+        (§2.1), and a second place saying what a run achieved is a second place
+        to be wrong — a status file that says "done: the admin pages" when they
+        were never written is worse than no file at all.
+
+        The planner used to get the new message alone, so "carry on" was a goal
+        that read, in full, "carry on". It could not see the earlier
+        instruction, and it could not see the handover **it had written itself
+        one event earlier** — which named every file, what was missing and what
+        to do first, and was read by nobody but a person.
+
+        Deliberately short: each round's instruction and its ending. The
+        detail lives in the workspace, which the workers can open, and paying
+        to re-read a whole log on every continue is how a conversation gets
+        more expensive the longer it goes on.
+        """
+        async with self._db.session() as session:
+            rows = (
+                (
+                    await session.execute(
+                        select(MissionEvent)
+                        .where(MissionEvent.mission_id == mission_id)
+                        .where(MissionEvent.type.in_(("user.message", "mission.ended")))
+                        .order_by(MissionEvent.seq)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+
+        lines: list[str] = []
+        for row in rows:
+            payload = row.payload or {}
+            if row.type == "user.message":
+                lines.append(f"You were asked: {str(payload.get('content', ''))[:1500]}")
+            else:
+                ended = str(payload.get("summary", "")).strip()
+                reason = str(payload.get("reason", ""))
+                lines.append(
+                    f"That round ended ({reason}).\n{ended[:4000]}"
+                    if ended
+                    else f"That round ended ({reason})."
+                )
+
+        # The row's own goal is overwritten by each new message, so a mission
+        # whose log predates this reader still has one instruction to show.
+        if not lines and current_goal:
+            lines.append(f"You were asked: {current_goal[:1500]}")
+        return "\n\n".join(lines)
 
     async def _publish_error(
         self, mission_id: str, code: str, message: str, recoverable: bool
@@ -538,8 +1187,10 @@ class MissionRunner:
         roster: RosterSnapshot,
         reason: str,
         summary: str,
+        limit: str | None = None,
     ) -> None:
         self._abandon_waiting(mission_id)
+        self._mailboxes.pop(mission_id, None)
         for provider in providers:
             try:
                 await provider.aclose()
@@ -548,7 +1199,7 @@ class MissionRunner:
         if reason == "completed":
             await self._credit_missions(roster)
             await self._save_answer(mission_id, roster, summary)
-        await self._finish(mission_id, reason, summary)
+        await self._finish(mission_id, reason, summary, limit)
 
     async def _save_answer(
         self, mission_id: str, roster: RosterSnapshot, summary: str
@@ -726,7 +1377,12 @@ class MissionRunner:
         )
 
         roster = RosterSnapshot.from_json(mission.roster_snapshot)
-        limits = resolve_limits(mission=mission.budget)
+        # A continued round gets a fresh budget, and it gets the *current*
+        # app default: raising the ceiling should reach the next round of a
+        # conversation, not only brand new runs.
+        limits = resolve_limits(
+            mission=mission.budget, app_default=await get_app_budget(self._db)
+        )
         async with self._db.session() as s:
             row = (
                 await s.execute(select(Mission).where(Mission.id == mission.id))
@@ -810,13 +1466,22 @@ class MissionRunner:
         Only on `completed`. A cancelled or crashed run is not a mission the
         agent completed, and a count that included them would stop being true —
         which is the whole reason the number is allowed on the card at all.
+
+        One `UPDATE ... SET total_missions = total_missions + 1`, not a read
+        followed by a write. Nothing stops a team running two missions at once,
+        and read-modify-write across two of them loses a count: both read N,
+        both write N+1, and an agent that finished two runs is credited with
+        one. The database can add without being told the old value, so it does.
         """
+        agent_ids = [m.agent_id for m in roster.members]
+        if not agent_ids:
+            return
         async with self._db.session() as s:
-            rows = await s.execute(
-                select(Agent).where(Agent.id.in_([m.agent_id for m in roster.members]))
+            await s.execute(
+                update(Agent)
+                .where(Agent.id.in_(agent_ids))
+                .values(total_missions=Agent.total_missions + 1)
             )
-            for agent in rows.scalars().all():
-                agent.total_missions += 1
             await s.commit()
 
     def _track(self, mission_id: str, task: asyncio.Task) -> None:
@@ -848,6 +1513,67 @@ class MissionRunner:
             return False
         task.cancel()
         return True
+
+    async def note(
+        self, mission_id: str, content: str, *, to: str | None = None
+    ) -> str:
+        """Deliver a message to a team that is already working (§7.1).
+
+        There is no way to interrupt a turn in flight — the model is mid-reply
+        and nothing can reach it — and pretending otherwise would be the UI
+        lying about the system. What this does instead is put the note in every
+        member's mailbox, which each one collects **when their next task
+        starts**. So it lands at the next step boundary, and the UI says exactly
+        that rather than "sent".
+
+        The same mailbox teammates use, on purpose: a second delivery path would
+        be a second thing to keep working, and this one is already collected in
+        the right place.
+
+        `to` addresses one teammate. Without it the note goes to everybody,
+        which is what a note has always been — so "@Wren check that file again"
+        stops making the other three read an instruction that is not theirs.
+        The name is resolved by the same `Mailbox.resolve` an agent's
+        `send_message` uses: exact, then prefix, then contains, and `Ambiguous`
+        rather than a guess. Delivering to the wrong person and reporting
+        success is the worst failure available here, and it is the same rule
+        whether the sender is an agent or the user.
+        """
+        body = (content or "").strip()
+        if not body:
+            raise ValueError("there is nothing to send")
+
+        mailbox = self._mailboxes.get(mission_id)
+        if mailbox is None or not self.is_running(mission_id):
+            raise MissionNotRunning(mission_id)
+
+        recipients = mailbox.recipients()
+        addressed: str | None = None
+        if to is not None:
+            # Ambiguous propagates: two teammates who both fit is a question
+            # for the person, not something to resolve by picking one.
+            addressed = mailbox.resolve(to)
+            if addressed is None:
+                raise UnknownTeammate(to, mailbox.names())
+            recipients = [addressed]
+
+        # On the log first: this is the user speaking, and the timeline is the
+        # record of what was said (§1). It is the same event a run starts with.
+        #
+        # `to` rides on the event rather than being kept beside it, because a
+        # replay has to be able to say a note went to one person. A note that
+        # looked like a broadcast in the record and was not is the timeline
+        # being untrue about what happened.
+        payload: dict[str, Any] = {"content": body}
+        if addressed is not None:
+            payload["to"] = addressed
+        await self._bus.publish(
+            mission_id, {"type": "user.message", "payload": payload}
+        )
+        for agent_id in recipients:
+            mailbox.post(sender=USER_SENDER, recipient=agent_id, content=body)
+        return body
+
 
     def is_running(self, mission_id: str) -> bool:
         task = self._tasks.get(mission_id)
@@ -970,7 +1696,9 @@ class MissionRunner:
                 pass
         await self._finish(mission_id, reason, summary)
 
-    async def _finish(self, mission_id: str, reason: str, summary: str) -> None:
+    async def _finish(
+        self, mission_id: str, reason: str, summary: str, limit: str | None = None
+    ) -> None:
         """Every mission ends with exactly one `mission.ended`, carrying why.
 
         `ok: true/false` was not enough: completed, budget_exceeded, cancelled
@@ -979,7 +1707,21 @@ class MissionRunner:
         """
         await self._bus.publish(
             mission_id,
-            {"type": "mission.ended", "payload": {"reason": reason, "summary": summary}},
+            {
+                "type": "mission.ended",
+                "payload": {
+                    "reason": reason,
+                    "summary": summary,
+                    # Which of the four, when one of them is why. "Out of
+                    # budget" was one phrase for tokens, calls, supersteps and
+                    # time — four problems with four different fixes — and the
+                    # only place the real one appeared was inside the summary
+                    # prose. Three runs in a row were stopped by the clock and
+                    # read as having run out of tokens, including by the person
+                    # writing this file, who then went looking for the tokens.
+                    **({"limit": limit} if limit else {}),
+                },
+            },
         )
         async with self._db.session() as s:
             mission = (
@@ -989,6 +1731,7 @@ class MissionRunner:
                 mission.status = "ended"
                 mission.ended_at = datetime.now(UTC)
                 mission.end_reason = reason
+                mission.end_limit = limit
                 mission.result_summary = summary
                 # Cleared with the ending. A question belonging to a mission
                 # that is over is a modal nobody can usefully answer: the

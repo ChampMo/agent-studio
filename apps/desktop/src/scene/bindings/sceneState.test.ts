@@ -197,3 +197,44 @@ describe("the roster the scene draws", () => {
     expect(() => deriveSceneState({ roster: [], events: [], seats: 4 })).not.toThrow();
   });
 });
+
+/**
+ * A mission can be continued, so `mission.ended` ends a round rather than the
+ * log. Seen live: the scene captioned `round finished — crashed` — an ending
+ * from an earlier round, hours old — over a team that was three tasks into its
+ * next one, with every character still sat at their desk.
+ *
+ * `deriveVitals` already had this rule for its counters. The scene derives
+ * per-round state from the same log and needed it too.
+ */
+describe("a continued run", () => {
+  it("opens a new round on the first event after an ending", () => {
+    const state = derive([
+      ev("agent.status", { agentId: "a-lead", status: "thinking" }),
+      ev("mission.ended", { reason: "crashed" }),
+      ev("user.message", { content: "carry on" }),
+      ev("agent.status", { agentId: "a-lead", status: "working" }),
+    ]);
+    expect(state.endReason).toBeNull();
+    // And the room is theirs again rather than everyone sat back down.
+    expect(state.actors[0]!.pose).toBe(poseFor("working"));
+  });
+
+  it("still reports an ending that is the last thing on the log", () => {
+    const state = derive([
+      ev("agent.status", { agentId: "a-lead", status: "thinking" }),
+      ev("mission.ended", { reason: "completed" }),
+    ]);
+    expect(state.endReason).toBe("completed");
+    expect(state.actors[0]!.pose).toBe(DEFAULT_POSE);
+  });
+
+  it("does not carry the previous round's task label into the next", () => {
+    const state = derive([
+      ev("mission.progress", { taskId: "t1", label: "Old work", state: "running" }),
+      ev("mission.ended", { reason: "budget_exceeded" }),
+      ev("user.message", { content: "carry on" }),
+    ]);
+    expect(state.actors.every((a) => a.task === null)).toBe(true);
+  });
+});

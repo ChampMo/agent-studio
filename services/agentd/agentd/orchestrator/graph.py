@@ -19,7 +19,7 @@ returns state and cannot yield.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Mapping
 from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
@@ -27,7 +27,13 @@ from langgraph.types import Command
 
 from ..agents.runtime import is_ephemeral, run_agent_turn
 from ..core.budget import BudgetExceeded, BudgetTracker
-from ..providers.base import Capabilities, ChatRequest, LLMProvider, Message
+from ..providers.base import (
+    Capabilities,
+    ChatRequest,
+    ImagePart,
+    LLMProvider,
+    Message,
+)
 from ..teams.snapshot import RosterSnapshot, SnapshotMember
 from ..tools.execution import ToolBox
 from .hitl import APPROVE, Ask, PlanRejected, ask_to_approve, new_request_id, pause
@@ -45,7 +51,129 @@ ToolsFor = Callable[[SnapshotMember], "ToolBox | None"]
 #: A reasoning model can spend thousands of tokens before its first visible
 #: character. At 4096 a live run produced an empty answer and a truncation
 #: error, and the teammate downstream had nothing to work from.
-MAX_TOKENS_PER_TASK = 8192
+#: Output ceiling for one worker turn. **Reasoning tokens count against it**,
+#: which is what makes the number hard.
+#:
+#: 4096 was too small: a worker spent it all thinking and emitted an empty
+#: answer. 8192 was too small too, and failed in a worse way — on a creative
+#: task the model spent the whole budget reasoning and produced *neither text
+#: nor a tool call*, so the prompt rule about writing files never got a chance
+#: to apply. Three tasks in a row failed that way and the workspace stayed
+#: empty.
+#:
+#: A cap that is too low does not cost less. It costs the entire turn and buys
+#: nothing, and then the next agent pays again to discover there is no file.
+MAX_TOKENS_PER_TASK = 16384
+
+#: How many tasks may be in flight together.
+#:
+#: Not unbounded: every task in a wave is a separate conversation with the same
+#: endpoint, and five at once is a rate limit rather than five times the speed.
+#: Three is enough to overlap the waiting without turning one mission into a
+#: burst that looks like abuse.
+MAX_PARALLEL = 3
+
+#: Tokens held back for each task still queued behind the one running.
+#:
+#: One implementation task spent a whole 200,000-token run and the three review
+#: tasks behind it never started — so the files were written and nobody checked
+#: them, which is the worst half to lose. 79% of that spend was the growing
+#: conversation being re-sent, not new work.
+#:
+#: A floor, not a share: a task may use everything except what the tasks after
+#: it need to run at all. Enough to read a few files and answer.
+RESERVE_PER_QUEUED_TASK = 20_000
+
+#: However tight things are, a task gets at least this much or it cannot even
+#: read the workspace, and reporting "stopped" without having looked is worse
+#: than not running it.
+MIN_TASK_ALLOWANCE = 12_000
+
+
+def task_allowance(remaining_tokens: int, queued_after: int) -> int:
+    """What one task may spend, leaving the rest of the plan able to run."""
+    return max(
+        MIN_TASK_ALLOWANCE,
+        remaining_tokens - RESERVE_PER_QUEUED_TASK * max(0, queued_after),
+    )
+
+
+def _plan_text(tasks: list[dict[str, Any]], snapshot: RosterSnapshot | None = None) -> str:
+    """The plan as the leader wrote it, with what runs together made visible.
+
+    A numbered list alone cannot show that tasks 1 and 2 will start at the same
+    moment, and that is exactly the thing worth reading before approving a plan.
+    Mentioned only when something actually shares a wave — a sequential plan
+    says nothing extra, because there is nothing extra to say.
+    """
+    # By name, not by seat. "→ seat 2" is this app's internal coordinate, and
+    # the person reading the plan — deciding whether to approve it — has no way
+    # to know who seat 2 is. The seat is still what the runner assigns on; it
+    # is simply not what a sentence for a human should say.
+    def who(seat: Any) -> str:
+        if snapshot is not None:
+            for member in snapshot.members:
+                if member.seat_index == seat:
+                    return member.name
+        return f"seat {seat}"
+
+    lines = [
+        f"{i + 1}. {t['title']} → {who(t['assignee_seat'])}"
+        for i, t in enumerate(tasks)
+    ]
+    together = [wave for wave in plan_waves(tasks) if len(wave) > 1]
+    if together:
+        lines.append("")
+        for wave in together:
+            lines.append("At the same time: " + ", ".join(str(i + 1) for i in wave))
+    return "Plan:\n" + "\n".join(lines)
+
+
+def plan_waves(tasks: list[dict[str, Any]]) -> list[list[int]]:
+    """Group task indices into waves that may run together.
+
+    A task's `depends_on` is honoured as written, and **an absent one means
+    "after the task before it"** — the behaviour every plan had before the field
+    existed. So a plan that never mentions dependencies comes back as one task
+    per wave, exactly sequential, and nothing runs in parallel unless the leader
+    said it could.
+
+    Order inside a wave is the order the leader listed them, so the record reads
+    the way the plan does.
+    """
+    waiting: list[set[str]] = []
+    for index, task in enumerate(tasks):
+        declared = task.get("depends_on")
+        if declared is None:
+            waiting.append({tasks[index - 1]["id"]} if index > 0 else set())
+        else:
+            waiting.append(set(declared))
+
+    known = {task["id"] for task in tasks}
+    done: set[str] = set()
+    placed: set[int] = set()
+    waves: list[list[int]] = []
+
+    while len(placed) < len(tasks):
+        ready = [
+            index
+            for index in range(len(tasks))
+            if index not in placed
+            # A dependency on something outside the plan cannot be waited for.
+            # The planner rejects those, so this only guards a corrupted plan:
+            # dropping the edge runs the task rather than hanging the mission.
+            and (waiting[index] & known) <= done
+        ]
+        if not ready:
+            # Unreachable through the planner, which refuses cycles. A cycle
+            # that got here anyway runs the rest in listed order rather than
+            # stalling for ever.
+            ready = [index for index in range(len(tasks)) if index not in placed]
+        waves.append(ready)
+        placed.update(ready)
+        done.update(tasks[index]["id"] for index in ready)
+
+    return waves
 
 
 class MissionState(TypedDict, total=False):
@@ -83,6 +211,22 @@ async def run_team_mission(
     checkpointer: Any | None = None,
     require_approval: bool = False,
     resume: str | None = None,
+    #: What earlier rounds of this mission did, for the planner. Empty on a
+    #: mission's first round.
+    earlier: str = "",
+    #: Images the user attached to this round, handed to the turns that need
+    #: to see them: the work turns, because the graph cannot know in advance
+    #: which agent picks up the task the picture is about, and the summary turn,
+    #: because a leader writing the run's final answer is describing the same
+    #: thing. Not the planning turn — a plan is made from the goal, and the one
+    #: turn that never quotes the picture is the one worth not paying for.
+    #:
+    #: They are re-sent per turn, which is the honest price of the agents who
+    #: need them being able to see them.
+    images: tuple[ImagePart, ...] = (),
+    #: Text files the user attached, already formatted, to go in front of every
+    #: instruction. A text model reads a file no other way.
+    documents: str = "",
 ) -> AsyncIterator[dict[str, Any]]:
     """Run a team to completion, narrating every step as events.
 
@@ -111,6 +255,9 @@ async def run_team_mission(
         require_approval=require_approval,
         checkpointer=checkpointer,
         resuming=resume is not None,
+        images=images,
+        documents=documents,
+        earlier=earlier,
     )
 
     # One thread per mission, so a resume finds the right checkpoint even when
@@ -171,6 +318,10 @@ def _build_graph(
     require_approval: bool = False,
     checkpointer: Any | None = None,
     resuming: bool = False,
+    images: tuple[ImagePart, ...] = (),
+    documents: str = "",
+    #: What earlier rounds of this mission did, for the planner.
+    earlier: str = "",
 ):
     leader = snapshot.leader
     assert leader is not None
@@ -190,6 +341,7 @@ def _build_graph(
             model=leader.model or "",
             snapshot=snapshot,
             goal=state["goal"],
+            earlier=earlier,
         )
         for warning in budget.record_call(result.usage.to_event_usage()):
             await emit(warning)
@@ -217,11 +369,11 @@ def _build_graph(
                     "agentId": leader.agent_id,
                     "messageId": f"plan-{mission_id}",
                     "to": {"kind": "broadcast"},
-                    "content": "Plan:\n"
-                    + "\n".join(
-                        f"{i + 1}. {t['title']} → seat {t['assignee_seat']}"
-                        for i, t in enumerate(tasks)
-                    ),
+                    # The waves are shown, not just the tasks. Running two
+                    # things at once happens because the leader said they are
+                    # independent, and a claim nobody can read is not one the
+                    # approval gate can be used to check (§1).
+                    "content": _plan_text(tasks, snapshot),
                     "usage": result.usage.to_event_usage(),
                 },
             )
@@ -236,6 +388,12 @@ def _build_graph(
                         "state": "pending",
                         "done": 0,
                         "total": len(tasks),
+                        # Only here, on the event that announces the task. The
+                        # plan message renders titles and seats — enough to
+                        # approve a plan, not enough to run one task again, so
+                        # a task that failed could only be retried by paying
+                        # for the whole round.
+                        "instruction": str(t.get("instruction") or ""),
                     },
                 )
             )
@@ -287,10 +445,29 @@ def _build_graph(
         return {}
 
     async def work_node(state: MissionState) -> MissionState:
+        """Run the plan, a wave at a time.
+
+        A wave is the tasks whose dependencies are all satisfied. A plan that
+        declares none comes back as one task per wave — exactly the sequential
+        behaviour this had before — so nothing runs alongside anything else
+        unless the leader said it could.
+
+        What is deliberately *not* shared between tasks in a wave: nothing is.
+        Each is its own conversation, as it always was. Two tasks running
+        together can still collide in the workspace if they write the same file,
+        which is precisely the case the leader is asked to declare as a
+        dependency.
+        """
         tasks = state.get("tasks") or []
         results = list(state.get("results") or [])
+        #: index -> result, so the order the leader wrote survives the order
+        #: they happen to finish in. The summary reads the plan, not the race.
+        landed: dict[int, dict[str, Any]] = {}
+        finished = 0
 
-        for index, task in enumerate(tasks):
+        async def run_one(index: int, task: dict[str, Any], queued_after: int) -> None:
+            nonlocal finished
+
             for warning in budget.record_superstep():
                 await emit(warning)
             budget.check()
@@ -310,7 +487,7 @@ def _build_graph(
                         },
                     )
                 )
-                continue
+                return
 
             await emit(
                 _draft(
@@ -319,7 +496,7 @@ def _build_graph(
                         "taskId": task["id"],
                         "label": task["title"],
                         "state": "running",
-                        "done": index,
+                        "done": finished,
                         "total": len(tasks),
                     },
                 )
@@ -340,6 +517,11 @@ def _build_graph(
             # is only advice worth taking if the two can actually hand work
             # over.
             instruction = task["instruction"]
+            # The user's own files, in front of the task. Before the mailbox
+            # block below, because "here is what you were given" reads ahead of
+            # "here is what a teammate said about it".
+            if documents:
+                instruction = "\n\n".join([documents, "---", instruction])
             mailbox = box.context.extras.get("mailbox") if box else None
             if mailbox is not None and (waiting := mailbox.collect(member.agent_id)):
                 delivered = "\n\n".join(
@@ -350,7 +532,7 @@ def _build_graph(
 
             request = ChatRequest(
                 model=member.model or "",
-                messages=[Message("user", instruction)],
+                messages=[Message("user", instruction, images=images)],
                 system=system,
                 max_tokens=MAX_TOKENS_PER_TASK,
                 sampling=member.sampling,
@@ -366,6 +548,7 @@ def _build_graph(
                 agent_id=member.agent_id,
                 budget=budget,
                 tools=box,
+                spend_ceiling=task_allowance(budget.remaining_tokens, queued_after),
             ):
                 await emit(item)
                 if is_ephemeral(item):
@@ -381,14 +564,13 @@ def _build_graph(
             # replied that there was nothing to check -- the progress line was
             # the only part of the record that was untrue (section 1).
             produced = bool(answer.strip())
-            results.append(
-                {
-                    "task": task,
-                    "agent_id": member.agent_id,
-                    "answer": answer,
-                    "ok": produced,
-                }
-            )
+            landed[index] = {
+                "task": task,
+                "agent_id": member.agent_id,
+                "answer": answer,
+                "ok": produced,
+            }
+            finished += 1
             await emit(
                 _draft(
                     "mission.progress",
@@ -396,7 +578,7 @@ def _build_graph(
                         "taskId": task["id"],
                         "label": task["title"],
                         "state": "done" if produced else "failed",
-                        "done": index + 1,
+                        "done": finished,
                         "total": len(tasks),
                     },
                 )
@@ -418,9 +600,65 @@ def _build_graph(
                     )
                 )
 
+        waves = plan_waves(tasks)
+        for at, wave in enumerate(waves):
+            # Stop *starting* work when the working share is gone, rather than
+            # being cut off mid-task by `BudgetExceeded` on the next call.
+            #
+            # The difference is the whole point. A hard stop leaves files
+            # nobody described and a record whose only account of itself is a
+            # number; stopping here lets whatever is already running finish and
+            # keeps enough in hand for the leader to say what was done, what
+            # was not, and what a next round should pick up.
+            #
+            # Tasks never started keep their `pending` state, and
+            # `unfinished_note` already names them on the ending.
+            if (spent := budget.work_exhausted()) is not None:
+                budget.stopped_early = spent
+                kind, used, limit = spent
+                await emit(
+                    _draft(
+                        "error",
+                        {
+                            "agentId": leader.agent_id,
+                            "code": "work_stopped_for_summary",
+                            "message": (
+                                f"the {kind} left ({used:.0f} of {limit:.0f}) is "
+                                "being kept for the summary, so no further tasks "
+                                "were started"
+                            ),
+                            "recoverable": True,
+                        },
+                    )
+                )
+                break
+            # How many tasks are still queued behind this wave. Their share is
+            # what this wave may not spend.
+            queued_after = sum(len(w) for w in waves[at + 1 :])
+            if len(wave) == 1:
+                # The common case, and it stays a plain await: one task in
+                # flight should not pay for a task group or read like one.
+                await run_one(wave[0], tasks[wave[0]], queued_after)
+                continue
+            # `gather` rather than a queue: a wave is small, and the cap is the
+            # thing that keeps one mission from becoming a burst. A budget
+            # exception from any of them still ends the mission — the others are
+            # cancelled with the node.
+            for chunk in [
+                wave[at : at + MAX_PARALLEL] for at in range(0, len(wave), MAX_PARALLEL)
+            ]:
+                await asyncio.gather(
+                    *(run_one(i, tasks[i], queued_after) for i in chunk)
+                )
+
+        results.extend(landed[index] for index in sorted(landed))
         return {"results": results}
 
     async def summarise_node(state: MissionState) -> MissionState:
+        # What was held back is for exactly this turn. Released before the
+        # superstep is counted, or a run stopped on the superstep reserve would
+        # be refused the one step the reserve exists for.
+        budget.release_reserve()
         for warning in budget.record_superstep():
             await emit(warning)
         budget.check()
@@ -441,7 +679,33 @@ def _build_graph(
                 Message(
                     "user",
                     f"Goal: {state['goal']}\n\nYour team reported:\n\n{transcript}\n\n"
-                    "Write the final answer for the user. Do not describe the process.",
+                    + (
+                        # A run that was cut short needs a different answer
+                        # from one that finished: the reader's next question is
+                        # "what do I still not have", and the leader is the
+                        # only one able to say it in the goal's own terms.
+                        "This run stopped early — it reached one of its limits, "
+                        "and the tasks above are all it managed. Write the "
+                        "handover: what is finished and where it is, what is "
+                        "missing, and what the next round should do first. Do "
+                        "not claim anything is done that is not."
+                        if budget.stopped_early is not None
+                        else "Write the final answer for the user. Do not "
+                        "describe the process."
+                    ),
+                    # The summariser gets the pictures too. Without them a run
+                    # that answered correctly was *recorded* as having failed:
+                    # the worker read the image and reported
+                    # "purple, yellow, teal, orange", and the leader — asked to
+                    # write the final answer for a goal that says "look at the
+                    # image" — found no image, said so, and that sentence became
+                    # `mission.ended`'s summary and final-answer.md.
+                    #
+                    # A summary is the run's own account of itself, so a
+                    # summariser that cannot see what the run was about writes
+                    # the one thing §1 forbids: a record that contradicts what
+                    # happened.
+                    images=images,
                 )
             ],
             system=leader.system_prompt,
@@ -457,7 +721,7 @@ def _build_graph(
             mission_id=mission_id,
             agent_id=leader.agent_id,
             budget=budget,
-        ):
+            ):
             await emit(item)
             if not is_ephemeral(item) and item["type"] == "agent.message":
                 summary = item["payload"]["content"]

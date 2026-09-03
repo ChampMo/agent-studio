@@ -153,6 +153,9 @@ export function SceneView({ heightPx = Infinity }: { heightPx?: number } = {}) {
           if (next) playChime("message");
         }}
         title={sound ? strings.scene.soundOn : strings.scene.soundOff}
+        // An emoji is not an accessible name, and a tooltip is not one either.
+        aria-label={sound ? strings.scene.soundOn : strings.scene.soundOff}
+        aria-pressed={sound}
         className="absolute right-2 top-2 rounded bg-slate-900/70 px-2 py-1 text-[11px] text-slate-400 hover:text-slate-200"
       >
         {sound ? "🔊" : "🔇"}

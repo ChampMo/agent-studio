@@ -72,8 +72,11 @@ export function Badge({
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-medium",
-        tone === "neutral" && "bg-slate-800 text-slate-300",
+        // `max-w-full truncate`: one long trait used to make the row wider
+        // than the card rather than wrapping or cutting.
+        "inline-flex max-w-full items-center truncate rounded px-1.5 py-0.5",
+        "text-[11px] font-medium",
+        tone === "neutral" && "bg-solid-2 text-muted",
         tone === "good" && "bg-emerald-900/60 text-emerald-300",
         tone === "bad" && "bg-red-900/60 text-red-300",
         tone === "warn" && "bg-amber-900/60 text-amber-300",

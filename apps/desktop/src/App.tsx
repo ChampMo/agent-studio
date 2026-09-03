@@ -1,38 +1,59 @@
+/**
+ * The app shell (§18.2).
+ *
+ * There is no tab row any more. It used to hold five things that were not
+ * comparable — Roster, Teams and Providers are settings; Chat, Mission and
+ * History were the work — so the thing done every day was one click among four
+ * done rarely. Past runs are down the left now, the run in front of you is in
+ * the middle, and what needs you is on the right. Settings is a place you go,
+ * not a tab you pass.
+ */
 import { useEffect, useState } from "react";
 import { strings } from "./lib/constants/strings.en";
 import { useSettingsStore } from "./stores/settingsStore";
 import { OnboardingScreen } from "./features/settings/OnboardingScreen";
 import { SettingsPanel } from "./features/settings/SettingsPanel";
-import { ChatPanel } from "./features/chat/ChatPanel";
 import { RosterPanel } from "./features/roster/RosterPanel";
 import { TeamsPanel } from "./features/teams/TeamsPanel";
 import { MissionPanel } from "./features/mission/MissionPanel";
-import { HistoryPanel } from "./features/history/HistoryPanel";
-import { ApprovalModal } from "./features/approval/ApprovalModal";
+import { AppShell } from "./features/shell/AppShell";
+import { Sidebar, type SidebarPlace } from "./features/shell/Sidebar";
+import { RightPanel } from "./features/shell/RightPanel";
+import { useHistoryStore } from "./stores/historyStore";
+import { useMissionStore } from "./stores/missionStore";
 import { useApprovalStore } from "./stores/approvalStore";
-import { cn } from "./lib/cn";
-
-type Tab = "chat" | "roster" | "teams" | "mission" | "history";
 
 export function App() {
   const ready = useSettingsStore((s) => s.ready);
   const loading = useSettingsStore((s) => s.loading);
   const needsOnboarding = useSettingsStore((s) => s.needsOnboarding());
   const waitForBackend = useSettingsStore((s) => s.waitForBackend);
-  const pending = useApprovalStore((s) => s.pending);
-  const deferred = useApprovalStore((s) => s.deferred);
-  const resumeApprovals = useApprovalStore((s) => s.resume);
-  const [tab, setTab] = useState<Tab>("chat");
+  const [place, setPlace] = useState<SidebarPlace>("work");
+  const closeMission = useHistoryStore((s) => s.closeMission);
+  const refreshApprovals = useApprovalStore((s) => s.refresh);
+  //: Both things the panel can hold belong to a mission that exists: the
+  //: terminal runs in one's workspace, and "This run" is one's members and
+  //: budget. A draft has neither yet — it has no row until the first message.
+  const missionId = useMissionStore((s) => s.missionId);
 
   useEffect(() => {
     void waitForBackend();
   }, [waitForBackend]);
 
+  // Asked once, here, because a question can outlive the process that asked it
+  // (§12 M6) and nothing else in the app fetches it. It used to live on the
+  // rail's approval card; deleting that card took the fetch with it, and a
+  // question from a previous session had nowhere left to appear. Mounted for
+  // the life of the window, so it cannot go missing again by moving a panel.
+  useEffect(() => {
+    if (ready) void refreshApprovals();
+  }, [ready, refreshApprovals]);
+
   if (!ready) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-2 text-center">
-        <p className="text-sm text-slate-300">{strings.app.waitingForBackend}</p>
-        <p className="text-xs text-slate-500">{strings.app.waitingHint}</p>
+        <p className="text-sm text-muted">{strings.app.waitingForBackend}</p>
+        <p className="text-xs text-faint">{strings.app.waitingHint}</p>
       </div>
     );
   }
@@ -42,61 +63,36 @@ export function App() {
   if (!loading && needsOnboarding) return <OnboardingScreen />;
 
   return (
-    <div className="grid h-screen grid-cols-[minmax(0,1fr)_360px] grid-rows-1">
-      {/* Above every tab: the question can belong to a mission the user is not
-          looking at, or to one from a previous session (§12 M6). */}
-      <ApprovalModal />
-
-      <main className="flex min-w-0 flex-col border-r border-slate-800">
-        <nav className="flex items-center gap-1 border-b border-slate-800 px-3 py-2">
-          {(["chat", "roster", "teams", "mission", "history"] as const).map((key) => (
-            <button
-              key={key}
-              onClick={() => setTab(key)}
-              className={cn(
-                "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                tab === key
-                  ? "bg-slate-800 text-slate-100"
-                  : "text-slate-400 hover:bg-slate-900 hover:text-slate-200",
-              )}
-            >
-              {strings.nav[key]}
-            </button>
-          ))}
-
-          {/* A deferred question is still a paused mission. Nothing else on
-              screen would say so once the modal is out of the way. */}
-          {pending.length > 0 && deferred.length > 0 ? (
-            <button
-              onClick={resumeApprovals}
-              className="ml-auto rounded-md bg-amber-900/60 px-3 py-1.5 text-xs font-medium text-amber-200 hover:bg-amber-900"
-            >
-              {strings.approval.waiting(pending.length)} · {strings.approval.reopen}
-            </button>
-          ) : null}
-        </nav>
-        <div className="min-h-0 flex-1">
-          {tab === "chat" ? (
-            <ChatPanel />
-          ) : tab === "roster" ? (
-            <RosterPanel />
-          ) : tab === "teams" ? (
-            <TeamsPanel />
-          ) : tab === "mission" ? (
-            <MissionPanel />
-          ) : (
-            <HistoryPanel />
-          )}
-        </div>
-      </main>
-
-      {/* The timeline used to live here. It moved into the working screen,
-          under the scene, because the two are views of the same events and
-          reading one while watching the other was the point (§17.1). What is
-          left here is configuration, which is looked at rarely. */}
-      <aside className="min-w-0 overflow-y-auto">
-        <SettingsPanel />
-      </aside>
-    </div>
+  <AppShell
+      sidebar={
+        <Sidebar
+          place={place}
+          onGo={setPlace}
+          onNewRun={() => {
+            closeMission();
+            setPlace("work");
+          }}
+        />
+      }
+      // Not on Roster, Teams or Settings — neither thing the panel holds means
+      // anything beside them — and not before a run exists. An empty panel
+      // saying "open a run to see who is on it" is a column of window spent on
+      // an instruction; the buttons that would open it are disabled and say the
+      // same thing in a tooltip, where it costs nothing.
+      aside={place === "work" && missionId ? <RightPanel /> : null}
+      main={
+        place === "roster" ? (
+          <RosterPanel />
+        ) : place === "teams" ? (
+          <TeamsPanel />
+        ) : place === "settings" ? (
+          // No wrapper scroller: Settings has its own section rail beside a
+          // scrolling pane, and an outer one would scroll the rail away.
+          <SettingsPanel />
+        ) : (
+          <MissionPanel />
+        )
+      }
+    />
   );
 }

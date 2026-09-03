@@ -121,7 +121,8 @@ SPECS: tuple[ToolSpec, ...] = (
         title="Find files by name",
         description=(
             "Find files matching a glob pattern such as `**/*.py`, most recently "
-            "changed first. Build folders and version-control directories are skipped."
+            "changed first. Braces work: `**/*.{ts,tsx}` finds both. Build "
+            "folders and version-control directories are skipped."
         ),
         risk="safe",
         requires=("workspace",),

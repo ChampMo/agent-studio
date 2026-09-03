@@ -89,7 +89,7 @@ beforeEach(() => {
     endReason: null,
     replaying: false,
   });
-  useApprovalStore.setState({ pending: [], answering: null, deferred: [], error: null });
+  useApprovalStore.setState({ pending: [], answering: null, error: null });
   missionEvents.mockReset();
 });
 
@@ -98,7 +98,12 @@ describe("replaying a finished mission", () => {
     const recorded = recordedRun();
 
     // The live run: frames off the socket, through the decoder, into the store.
+    // `ingest` buffers to the next frame — attaching to a run replays its whole
+    // history as one socket message per event, and applying those one at a time
+    // made the transcript type itself in — so the flush is asked for directly
+    // rather than waiting on an animation frame that a test runner never fires.
     for (const frame of recorded) useEventStore.getState().ingest(decodeFrame(frame));
+    useEventStore.getState().applyPending();
     const live = useEventStore.getState().events;
     const scene = (events: typeof live) =>
       deriveSceneState({ roster: ROSTER, events, seats: SEATS });
@@ -165,5 +170,40 @@ describe("replaying a finished mission", () => {
     expect(events.some((e) => e.futureVersion)).toBe(true);
     // The unreadable frame is kept as such rather than dropped silently.
     expect(malformed).toHaveLength(1);
+  });
+});
+
+/**
+ * Opening a run that has been going a while delivers its whole history as one
+ * socket message per event — 729 of them on a real run. Applied one at a time
+ * that is 729 renders over a growing array, and the transcript visibly typed
+ * itself in: opening a run looked like watching a replay of it.
+ *
+ * React batches updates inside one task and these arrive in a task each, so
+ * the batching has to be ours.
+ */
+describe("a burst of frames", () => {
+  it("is buffered rather than applied one at a time", () => {
+    const recorded = recordedRun();
+    useEventStore.setState({ events: [], endReason: null });
+
+    for (const frame of recorded) useEventStore.getState().ingest(decodeFrame(frame));
+    // Nothing has been applied yet: the frame has not come round.
+    expect(useEventStore.getState().events).toHaveLength(0);
+
+    useEventStore.getState().applyPending();
+    expect(useEventStore.getState().events).toHaveLength(recorded.length);
+  });
+
+  it("throws the buffer away when the window moves to another run", () => {
+    // Otherwise frames from the run you just left would land on the one you
+    // just opened, which is the worst possible place for them.
+    const recorded = recordedRun();
+    useEventStore.setState({ events: [], endReason: null });
+    for (const frame of recorded) useEventStore.getState().ingest(decodeFrame(frame));
+
+    useEventStore.getState().detach();
+    useEventStore.getState().applyPending();
+    expect(useEventStore.getState().events).toHaveLength(0);
   });
 });

@@ -1,146 +1,191 @@
+/**
+ * Providers: the models agents think with, and the keys one of their tools uses
+ * (§3.1, §16.5).
+ *
+ * Two lists with the same manners. Neither is cards any more — a card says "a
+ * thing on its own", and in both sections the rows relate to each other: one
+ * model is the default a new agent gets, and the search keys are an ordered
+ * chain where the second exists because the first runs out. The relationship is
+ * the content, and a box around each row was hiding it.
+ *
+ * The two "add" affordances are one component for the same reason. They had
+ * drifted into a filled button in one section header and a bare text link at
+ * the foot of the other, which made two identical jobs look like two different
+ * kinds of thing.
+ */
 import { useState } from "react";
 import { strings } from "../../lib/constants/strings.en";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { Badge, Button, Input } from "../../components/ui/primitives";
-import { ProbeReport } from "./ProbeReport";
+import { Button, Input } from "../../components/ui/primitives";
+import { Select } from "../../components/ui/Select";
+import { ModelForm } from "./ModelForm";
+import { ModelList } from "./ModelList";
+import { PlusIcon } from "../../components/ui/icons";
+import { cn } from "../../lib/cn";
+import { SearchKeys } from "./SearchKeys";
+import { BudgetPanel } from "./BudgetPanel";
+import { StoragePanel } from "./StoragePanel";
+
+type Where = "models" | "search" | "limits" | "storage";
+
+const SECTIONS: { id: Where; label: string; blurb: string }[] = [
+  {
+    id: "models",
+    label: strings.settings.modelsTitle,
+    blurb: strings.settings.modelsHint,
+  },
+  {
+    id: "search",
+    label: strings.settings.searchTitle,
+    blurb: strings.settings.searchSectionHint,
+  },
+  { id: "limits", label: strings.budget.title, blurb: strings.budget.intro },
+  { id: "storage", label: strings.storage.title, blurb: strings.storage.intro },
+];
 
 export function SettingsPanel() {
+  const [where, setWhere] = useState<Where>("models");
   const { providers, activeId, probe, probing } = useSettingsStore();
   const { setActive, test, removeProvider, setKey, setNativeSearch } = useSettingsStore();
-  const [editingKeyFor, setEditingKeyFor] = useState<string | null>(null);
-  const [keyDraft, setKeyDraft] = useState("");
+  const moveSearchKey = useSettingsStore((s) => s.moveSearchKey);
+  const [addingModel, setAddingModel] = useState(false);
 
-  // Position among the search endpoints, in the order the backend will try
-  // them — which is the order they were added.
-  const searchOrder = new Map(
-    providers.filter((p) => p.kind === "search").map((p, i) => [p.id, i + 1]),
-  );
+  const models = providers.filter((p) => p.kind !== "search");
+  const searches = providers.filter((p) => p.kind === "search");
+
+  const section = SECTIONS.find((s) => s.id === where) ?? SECTIONS[0]!;
 
   return (
-    <div className="space-y-4 p-4">
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-        {strings.settings.title}
-      </h2>
+    <div className="flex min-h-0 flex-1 flex-col">
+      {/* Across the top, not down the side. As a left rail it sat immediately
+          beside the app's own left sidebar — two columns of vertical links
+          against each other, and a whole column spent on four words.
 
-      {providers.map((p) => (
-        <div
-          key={p.id}
-          className={`space-y-3 rounded-lg border p-3 ${
-            p.id === activeId
-              ? "border-sky-700 bg-sky-950/30"
-              : "border-slate-800 bg-slate-900/40"
-          }`}
-        >
-          <div className="flex items-start justify-between gap-3">
+          Tabs rather than a list because there are four of them and they are
+          not going to become twelve: models, keys, limits, storage is the whole
+          surface of what this page configures. */}
+      {/* A plain nav, not role="tablist". These are four places rather than
+          four views of one thing, and a real tablist owes the reader arrow-key
+          roving focus — which would be extra code to make Tab behave worse than
+          it already does here. `aria-current="page"` says which one you are on
+          and every button stays in the tab order (WCAG 2.1.1). */}
+      <nav
+        aria-label={strings.settings.sections}
+        className="flex shrink-0 gap-1 border-b border-line px-5 pt-3"
+      >
+        {SECTIONS.map((item) => {
+          const current = item.id === section.id;
+          return (
             <button
-              onClick={() => setActive(p.id)}
-              className="min-w-0 flex-1 text-left"
+              key={item.id}
+              type="button"
+              aria-current={current ? "page" : undefined}
+              onClick={() => setWhere(item.id)}
+              className={cn(
+                "min-h-[24px] rounded-t-md px-3 py-2 text-sm transition-colors",
+                // The underline lands on the container's own bottom border, so
+                // the chosen tab joins the pane below rather than floating over
+                // a second rule.
+                "-mb-px border-b-2",
+                current
+                  ? "border-accent text-text"
+                  : "border-transparent text-muted hover:text-text",
+              )}
             >
-              <div className="truncate font-medium text-slate-100">{p.name}</div>
-              <div className="truncate font-mono text-xs text-slate-400">{p.model}</div>
-              {/* Search keys are tried in the order they were added, so that
-                  order has to be visible: it is what decides which allowance is
-                  spent first (§16.5). */}
-              {p.kind === "search" ? (
-                <div className="text-[11px] text-slate-500">
-                  {searchOrder.get(p.id) === 1
-                    ? strings.settings.searchFirst
-                    : strings.settings.searchFallback(searchOrder.get(p.id) ?? 1)}
-                </div>
-              ) : null}
-              {p.baseUrl ? (
-                <div className="truncate text-xs text-slate-500">{p.baseUrl}</div>
-              ) : null}
+              {item.label}
             </button>
-            <div className="flex shrink-0 flex-col items-end gap-1.5">
-              {/* hasKey, never the key. There is no endpoint that returns one. */}
-              <Badge tone={p.hasKey ? "good" : "bad"}>
-                {p.hasKey ? strings.settings.keyPresent : strings.settings.keyMissing}
-              </Badge>
-              <Badge tone={p.verifiedAt ? "good" : "warn"}>
-                {p.verifiedAt
-                  ? `${strings.settings.verifiedAt} ${new Date(p.verifiedAt).toLocaleString()}`
-                  : strings.settings.neverVerified}
-              </Badge>
-            </div>
-          </div>
+          );
+        })}
+      </nav>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="max-w-3xl space-y-3 p-5">
+          <p className="max-w-2xl text-xs text-muted">{section.blurb}</p>
 
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="secondary"
-              onClick={() => test(p.id)}
-              disabled={probing === p.id || !p.hasKey}
-            >
-              {probing === p.id ? strings.probe.running : strings.probe.rerun}
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setEditingKeyFor(editingKeyFor === p.id ? null : p.id);
-                setKeyDraft("");
-              }}
-            >
-              {strings.settings.setKey}
-            </Button>
-            <Button variant="ghost" onClick={() => removeProvider(p.id)}>
-              {strings.settings.remove}
-            </Button>
-          </div>
-
-          {editingKeyFor === p.id ? (
-            <form
-              onSubmit={async (e) => {
-                e.preventDefault();
-                await setKey(p.id, keyDraft);
-                setKeyDraft("");
-                setEditingKeyFor(null);
-              }}
-              className="flex gap-2"
-            >
-              <Input
-                type="password"
-                autoComplete="off"
-                value={keyDraft}
-                onChange={(e) => setKeyDraft(e.target.value)}
-                placeholder={strings.onboarding.keyPlaceholder}
-              />
-              <Button type="submit">Save</Button>
-            </form>
-          ) : null}
-
-          {p.nativeSearchAvailable ? (
-            <div className="space-y-1.5 rounded-md border border-slate-800 bg-slate-950/40 p-2.5">
-              <label className="flex items-start gap-2 text-xs text-slate-300">
-                <input
-                  type="checkbox"
-                  checked={p.nativeSearch}
-                  onChange={(e) => void setNativeSearch(p.id, e.target.checked)}
-                  className="mt-0.5 accent-sky-500"
+          {section.id === "models" ? (
+            <div className="space-y-3 pt-1">
+              {models.length === 0 ? (
+                <p className="text-xs text-faint">{strings.settings.noModels}</p>
+              ) : (
+                <ModelList
+                  models={models}
+                  activeId={activeId}
+                  probe={probe}
+                  probing={probing}
+                  onSelect={setActive}
+                  onTest={test}
+                  onSetKey={setKey}
+                  onRemove={removeProvider}
+                  onNativeSearch={setNativeSearch}
                 />
-                <span>
-                  {strings.settings.nativeSearchLabel}
-                  <span className="block text-[11px] text-slate-500">
-                    {strings.settings.nativeSearchHint}
-                  </span>
-                </span>
-              </label>
-              {p.nativeSearch ? (
-                // Blunt on purpose. This is the one tool the approval gate
-                // cannot stop and redaction never sees, and the timeline can
-                // only say that it happened (§16.8).
-                <p className="rounded border border-amber-900/60 bg-amber-950/30 p-2 text-[11px] text-amber-300">
-                  {strings.settings.nativeSearchWarning}
-                </p>
-              ) : null}
+              )}
+              {addingModel ? (
+                <ModelForm onDone={() => setAddingModel(false)} />
+              ) : (
+                <AddRow
+                  label={strings.settings.addModel}
+                  onClick={() => setAddingModel(true)}
+                />
+              )}
             </div>
           ) : null}
 
-          {probe[p.id] ? <ProbeReport result={probe[p.id]!} /> : null}
-        </div>
-      ))}
+          {section.id === "search" ? (
+            <div className="space-y-3 pt-1">
+              {searches.length === 0 ? (
+                <p className="text-xs text-faint">{strings.settings.noSearch}</p>
+              ) : (
+                <SearchKeys
+                  keys={searches}
+                  probe={probe}
+                  probing={probing}
+                  onTest={test}
+                  onSetKey={setKey}
+                  onRemove={removeProvider}
+                  onMove={moveSearchKey}
+                />
+              )}
+              <SearchEndpointForm />
+            </div>
+          ) : null}
 
-      <SearchEndpointForm />
+          {section.id === "limits" ? (
+            <div className="pt-1">
+              <BudgetPanel />
+            </div>
+          ) : null}
+
+          {section.id === "storage" ? (
+            <div className="pt-1">
+              <StoragePanel />
+            </div>
+          ) : null}
+        </div>
+      </div>
     </div>
+  );
+}
+
+/**
+ * "Add one more", in both sections.
+ *
+ * One component so the two cannot drift again: it was a filled button in the
+ * Models header and a bare text link under the search list, which made the same
+ * job in the same page look like two different kinds of thing. It sits at the
+ * foot of the list it adds to, because that is where the list ends.
+ */
+function AddRow({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex min-h-[24px] items-center gap-2 rounded-card px-2 py-1.5 text-sm",
+        "text-muted transition-colors hover:bg-solid hover:text-text",
+      )}
+    >
+      <PlusIcon />
+      {label}
+    </button>
   );
 }
 
@@ -169,11 +214,14 @@ function SearchEndpointForm() {
 
   if (!open) {
     return (
-      <Button variant="ghost" onClick={() => setOpen(true)}>
-        {configured.length > 0
-          ? strings.settings.addAnotherSearch
-          : strings.settings.addSearch}
-      </Button>
+      <AddRow
+        label={
+          configured.length > 0
+            ? strings.settings.addAnotherSearch
+            : strings.settings.addSearch
+        }
+        onClick={() => setOpen(true)}
+      />
     );
   }
 
@@ -181,17 +229,11 @@ function SearchEndpointForm() {
     <div className="space-y-2 rounded-lg border border-slate-800 bg-slate-900/40 p-3">
       <p className="text-xs text-slate-400">{strings.settings.searchHint}</p>
 
-      <select
+      <Select
         value={engine.id}
-        onChange={(e) => setEngineId(e.target.value)}
-        className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
-      >
-        {engines.map((e) => (
-          <option key={e.id} value={e.id}>
-            {e.name}
-          </option>
-        ))}
-      </select>
+        onChange={setEngineId}
+        options={engines.map((e) => ({ value: e.id, label: e.name }))}
+      />
       {/* The base URL is shown rather than typed: it is what tells the backend
           which API this is, so it is not something to get wrong by hand. */}
       <code className="block truncate text-[11px] text-slate-500">{engine.baseUrl}</code>

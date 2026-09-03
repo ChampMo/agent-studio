@@ -38,7 +38,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from contextlib import aclosing
 from typing import Any
 
@@ -57,6 +57,7 @@ from ..providers.base import (
     ToolCallChunk,
     ToolOutcome,
 )
+from ..providers.leaks import leaked_tool_call
 from ..providers.pricing import cost_usd
 from ..tools import execution
 from ..tools.base import ToolFailed
@@ -109,6 +110,15 @@ async def run_agent_turn(
     agent_id: str,
     budget: BudgetTracker,
     tools: ToolBox | None = None,
+    #: The most this one turn may spend, counted from where it started. None
+    #: means the mission's own ceiling is the only one.
+    #:
+    #: Reaching it ends the turn the way running out of tool rounds does — an
+    #: error on the log and whatever the agent has so far — rather than raising
+    #: `BudgetExceeded`, which ends the *mission*. That difference is the whole
+    #: point: one task overspending should cost that task, not the three tasks
+    #: queued behind it.
+    spend_ceiling: int | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Stream one reply — and any tool calls it leads to — narrating as events.
 
@@ -121,10 +131,19 @@ async def run_agent_turn(
 
     final_done: DoneChunk | None = None
 
+    spent_at_start = budget.tokens_used
+    overspent = False
+
     for _round in range(MAX_TOOL_ROUNDS):
         # Before anything is spent: a limit already reached must stop the turn
         # rather than start a call it cannot pay for.
         budget.check()
+        if (
+            spend_ceiling is not None
+            and budget.tokens_used - spent_at_start >= spend_ceiling
+        ):
+            overspent = True
+            break
 
         message_id = str(uuid.uuid4())
         # The real ceiling. Output tokens are unknown until the stream ends, so
@@ -196,6 +215,42 @@ async def run_agent_turn(
         warnings = budget.record_call(usage.to_event_usage() if usage else None)
 
         text = "".join(parts)
+
+        # A tool call the model wrote out as prose instead of calling. The
+        # message is still published — it really did say it — but it is named
+        # for what it is, so nobody reads a broken template as the agent's
+        # answer and no round takes it as its summary (§1).
+        if leaked_tool_call(text):
+            yield _draft(
+                "error",
+                {
+                    "agentId": agent_id,
+                    "code": "tool_call_leaked",
+                    "message": (
+                        "the model wrote a tool call as text instead of calling "
+                        "it, so nothing ran"
+                    ),
+                    "recoverable": True,
+                },
+            )
+
+        if not (text or not calls) and usage is not None:
+            # A round that only asked for tools publishes no message — see
+            # below — and its cost used to go with it. The budget guard counted
+            # those tokens either way, so a run stopped at 200,000 could show
+            # 7,540 on its own timeline: the meter and the limit beside it were
+            # not measuring the same thing (§1). Seen on a research run where
+            # two `web_fetch` results, re-sent every turn, spent the whole
+            # budget without a single token of it appearing on the log.
+            yield _draft(
+                "agent.usage",
+                {
+                    "agentId": agent_id,
+                    "messageId": message_id,
+                    "usage": usage.to_event_usage(cost_usd(call.model, usage)),
+                },
+            )
+
         if text or not calls:
             # A round that only asked for tools produces no message: an empty
             # bubble on the timeline would suggest the agent said nothing when
@@ -228,7 +283,11 @@ async def run_agent_turn(
 
         for requested in calls:
             async for item, outcome in _handle_call(
-                requested, tools=tools, agent_id=agent_id, mission_id=mission_id
+                requested,
+                tools=tools,
+                agent_id=agent_id,
+                mission_id=mission_id,
+                budget=budget,
             ):
                 if item is not None:
                     yield item
@@ -262,6 +321,23 @@ async def run_agent_turn(
                 "message": (
                     f"stopped after {MAX_TOOL_ROUNDS} rounds of tool calls; "
                     "the agent was not converging on an answer"
+                ),
+                "recoverable": True,
+            },
+        )
+
+    if overspent:
+        # Its own code, not `tool_rounds_exhausted`: running out of ideas and
+        # running out of money need different answers from whoever reads this.
+        yield _draft(
+            "error",
+            {
+                "agentId": agent_id,
+                "code": "task_budget_spent",
+                "message": (
+                    f"this task used its share of the run's budget "
+                    f"({budget.tokens_used - spent_at_start:,} tokens) and was "
+                    "stopped so the rest of the plan could still run"
                 ),
                 "recoverable": True,
             },
@@ -327,6 +403,9 @@ async def _handle_call(
     tools: ToolBox | None,
     agent_id: str,
     mission_id: str,
+    #: Only so the clock can be held while a question is on screen. Nothing
+    #: here spends any of it.
+    budget: BudgetTracker,
 ) -> AsyncIterator[tuple[dict[str, Any] | None, ToolOutcome | None]]:
     """One tool call: check it, ask about it, run it, report it.
 
@@ -417,7 +496,12 @@ async def _handle_call(
         )
         yield (_draft("agent.status", {"agentId": agent_id, "status": "waiting"}), None)
 
-        answer = await waiting
+        # The clock stops here. Reading a command before approving it is the
+        # whole point of the gate, and a mission timeout that counted that time
+        # made the gate a reason runs died: 93% of one real build's 1,300
+        # seconds was spent parked on questions like this one.
+        with budget.paused_for_a_person():
+            answer = await waiting
         if str(answer).strip().lower() != execution.APPROVE:
             yield (
                 _draft(

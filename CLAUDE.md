@@ -491,6 +491,2082 @@ web tool and a way to change things, and suggests splitting the roles; and
 because the backend on loopback holds the user's keys.
 
 
+**M10 — the new shell: in progress.** Three columns, past runs down the left,
+the run in front of you in the middle, what needs you on the right. 112 vitest +
+354 pytest green.
+
+### A run is named before it is asked anything
+
+`missions.goal` used to do two jobs: the instruction the team was given, and the
+name every list showed. That works while a run *is* one instruction and stops
+the moment the run is a conversation — the first thing typed is a paragraph, and
+the history list was showing paragraphs as titles.
+
+Migration 0010 adds `missions.title`. The setup form now collects a name and
+creates nothing; the run exists in the window as a `draft` until the first
+message, and that message is what calls `POST /missions`. A draft costs nothing
+and leaves no row, which is the point: naming a piece of work and deciding what
+to ask are two different thoughts, and the old form made you have both at once.
+
+`title` is nullable and is **not** backfilled. Every run recorded before 0010
+falls back to its goal, because the goal is what it was called at the time —
+writing a title into those rows would be putting something in the record that
+was never true of it (§5.1).
+
+### A chat view is a shape, not a filter
+
+The timeline reads as a conversation now: bubbles for words, the agent left with
+their portrait, the person right. The rule that made it safe to do is written
+into `transcript.ts` and tested — **every event in produces exactly one row
+out**, including types this build has never heard of (§8) and frames it could
+not read at all. A chat that quietly drops the events that do not look like
+speech is no longer the thing that lets you check what happened.
+
+So there are three row shapes rather than one. `said` is a bubble. `did` is a
+quiet line for tool calls and statuses, because "Source Scout calls grep" is not
+something Source Scout *said* and a chat that dresses actions as dialogue is
+inventing dialogue. `note` is centred and belongs to nobody: the run starting,
+ending, a question waiting.
+
+Portraits come from `avatar_config` through the same `lookFor` table the scene
+uses, so the character in the room and the character in the transcript cannot
+become two different people. It is a silhouette, not a likeness — that is all
+the data says, and drawing more would be inventing a face (§1.1).
+
+### The scene is not a tab
+
+`Scene | Timeline | Files` made the room and the log mutually exclusive, and they
+answer two different questions about the same moment: who is doing what, and
+what exactly happened. M9.1's `SplitPane` came back to hold both — scene above,
+record below, and the trade between them is the person's to make with a divider
+that works from the keyboard (WCAG 2.1.1) and has a 24px hit area (2.5.8).
+
+`Replayed from the log` moved out of the scene and into the chip row while doing
+this. It had been a banner over the canvas, so dragging the scene shut hid the
+fact that you were reading a record rather than watching a live run.
+
+### The OS locale was writing Thai into an English app
+
+`toLocaleDateString()` with no locale follows the operating system. On this
+machine that is Thai *and* the Buddhist calendar, so a run from November 2025
+grouped under `4 พ.ย. 2568` in an interface that is otherwise entirely English
+(§13). Caught by a grouping test asserting the year "2025" against a string that
+said 2568 — never by looking, because it looks deliberate.
+
+`lib/format.ts` pins the locale, and every date, time and "last tested" stamp
+goes through it. When this app is translated that is the one place that has to
+learn where the language comes from, and it will be a choice rather than
+whatever the OS happened to be set to.
+
+### Two smaller things
+
+**Scrollbars are chrome the design has to reach.** The Windows default is a
+light-grey slab on a dark panel and reads as a rendering fault. Both syntaxes
+are set — `scrollbar-color` for Firefox, `::-webkit-scrollbar` for the WebView2
+this app actually ships inside — because neither alone covers where it runs.
+
+**The transcript's scroll pin has to be keyed on the mission.** It opens at the
+newest message, and follows new ones only while the reader is already at the
+bottom. `TimelinePanel` does not unmount when you switch runs, so a pin left
+`false` by scrolling up in one run would open the next one halfway through
+somebody else's history.
+
+### What a real run of the new shell found
+
+Two bugs, both caught by reading the log of one mission (`Project web`, 22
+minutes, ended `budget_exceeded`) rather than by any test.
+
+**A 120-second timeout ran for 789 seconds.** `bash` wrote
+`wait_for(process.communicate(), timeout)` and killed `process` on expiry. That
+enforces nothing whenever bash **forks** instead of execing — which is every
+pipeline. Killing the shell leaves the workers alive, they keep the write end of
+the stdout pipe, and the cancelled read cannot complete until they exit, so
+`wait_for` returns when the command finishes on its own. The row said "still
+running after 120s and was stopped" beside `durationMs: 789197`: the record
+contradicting itself on one line (§1). Two such calls spent the mission's entire
+15-minute budget, and it produced no files at all.
+
+Reproduced in three lines — `sleep 12 | cat` with a 2-second timeout returned
+after 12.4s. Now: the shell gets its own process group (`taskkill /F /T` on
+Windows, `killpg` elsewhere), the read is **shielded** so expiry does not cancel
+the thing that is blocking, and the order is stop waiting → kill the tree →
+collect, with a `KILL_GRACE_SEC` cap so the function always returns within
+`timeout + grace`.
+
+The old test asserted `code == "timed_out"` and passed the whole time, because
+the error was correct and merely twelve seconds late. **"Was stopped" is a claim
+about *when*, so the assertion has to be the clock.** The two new ones fail on
+the old code with `took 25.2s to stop a 1s timeout` and `a child outlived the
+timeout and kept working`.
+
+**The header said "Working" over a mission that had ended.** `missionStore.endReason`
+is the mission *row*, read once over REST — null at launch, and never updated.
+`eventStore.endReason` is the *log*, set by `mission.ended` live and on replay
+alike. The header read the row, so a run that ended while you watched kept a
+live Stop button and a composer that refused to type.
+
+`stores/runState.ts` takes the log first and the row as fallback — the fallback
+matters for a mission reaped as `crashed` at startup, where a dead process
+published no ending. The §2.1 argument in miniature: **the scene, derived from
+the log, was right the whole time**, and captioned `mission ended —
+budget_exceeded` directly above a header claiming the opposite.
+
+**Worth knowing rather than fixing:** that run's workspace was empty — `list_dir`
+returned 0 entries and `glob **/*` matched nothing — so the team used `bash` to
+look elsewhere, reading across Documents, Desktop, Downloads and the home
+directory. Every one of those went through the approval modal and was approved.
+That is §2.7 working exactly as written, and it is the clearest demonstration so
+far of why that section has to say *not a sandbox* in those words.
+
+### A spinner is a derivation too
+
+An agent that is thinking publishes `agent.status thinking` and then says
+nothing at all until its whole reply is ready. On a reasoning model that is a
+minute of a screen with no sign of life, which reads as a hang.
+
+Two indicators, both derived from the log rather than from a local `isLoading`
+flag. A tool call is **pending** when the log holds an `agent.tool.start` whose
+`callId` never got its end — drawn as a turning ring instead of a dot, the
+difference between "ran grep" and "is running grep". An agent is **busy** when
+its latest `agent.status` is one that means work: portrait, three pulsing dots,
+and the status word.
+
+Three rules keep it from lying:
+
+* `mission.ended` clears everything, the same terminal reset the scene uses. A
+  cancelled run leaves a dangling `agent.tool.start` — true of the moment it was
+  written — and a replay of it must not spin forever over a finished record.
+* The end reaches back and clears its own start, so a replayed run shows no
+  spinners at all.
+* `waiting` and `blocked` do not spin. They are stopped, not slow, and the thing
+  `waiting` is stopped on is the reader.
+
+A status this build has never heard of spins and is labelled with the word that
+was actually published (§8) — the agent said something is happening, and
+inventing a friendlier word for it would be guessing.
+
+### The Files tab counted zero over a file it had just written
+
+`historyStore.artifacts` is fetched once by `openMission`, which is right for a
+finished run and wrong for a live one: the timeline announced `artifact doc
+final-answer.md` next to a tab reading **Files 0**. `MissionView` now refetches
+when the count of `artifact.created` events overtakes the list it holds.
+
+### The run that proved the fixes
+
+Same team, same shape of task, a workspace with three real files in it:
+**1m 16s, completed, 4 of 4 tasks, 41 tool calls, 6,079 in / 7,449 out**, and
+`FINDING.md` written with the correct answer — `#5fc5e8` at `src/theme.css:2`.
+
+The comparison is the point. The run before the timeout fix had an *empty*
+workspace, so the agents went out through `bash` looking for the project, hit
+two commands that ignored their 120-second limit, and spent the whole 15-minute
+budget producing nothing. Every tool call in this one stayed inside the
+workspace, because there was something in it to find.
+
+### Opening a running mission replayed it
+
+`openMission` called `eventStore.replay()` unconditionally. For a finished run
+that is right. For one the backend is **still driving** it produced a static
+snapshot with the socket detached, under a header saying "Working" beside a live
+Stop button — and it was worse than cosmetic: `approvalStore.observe()` ignores
+replayed events on purpose (a dead run's question must not raise a modal at
+someone who is only reading), so a mission **paused on a question could not be
+answered from the screen showing it**. Found on a real run parked at
+`agent.status waiting` with a `pending_request` nobody could see.
+
+`missionStore.live` carries the backend's own `running` flag — which means *this
+process is driving it*, not merely that the row says `running` — and
+`openMission` attaches to the stream instead. `attach` subscribes from seq 0, so
+the history arrives first and the run continues live in the same stream: one
+code path, no second renderer (§2.1).
+
+### 8,192 output tokens is not a landing page
+
+A worker asked to "Build the landing page (HTML/CSS/JS)" tried to return the
+whole thing as its reply. First attempt: 8,192 output tokens, 7,488 characters,
+cut off mid design-token list. Second attempt: 8,192 output tokens and **zero
+characters** — all of it spent on reasoning. Reported `output_truncated`, then
+`task_produced_nothing`, and the task marked `failed`.
+
+That is the M4 failure recorded above, hit again at the raised cap, and raising
+it again is not the answer. The team made exactly **one** `write_file` call in
+seventy-eight events. A task that produces a file should write it; returning it
+as chat pays for every byte twice and cannot survive a cap of any size.
+
+### The question belongs in the rail, not over the top of the timeline
+
+The approval was a modal. A modal is the wrong shape for it: a pause is a
+*state of the run*, not an interruption to dismiss, and deciding almost always
+means reading the timeline first — what was the agent doing, what did it read,
+why does it want `bash` — which is exactly what a dialog covering the timeline
+prevents. The "Later" button existed only to move the modal out of the way so
+you could read.
+
+`ApprovalCard` sits at the top of the right rail instead, above the members and
+the budget, with a 3px edge in the waiting colour. The M6 criterion it had to
+keep is that a question can belong to a run you are *not* looking at, or to one
+from a previous session — so the card does not filter by the mission on screen:
+a question from elsewhere is shown, labelled, with a button that opens that run.
+
+`defer`/`resume`/`deferred` are gone from the store. Their stated reason —
+"hides the modal so the user can go and look at whatever they need in order to
+decide" — expired the moment the question stopped covering anything. A question
+now leaves the list by being answered or by its mission ending, never by being
+put aside, because the mission stays paused either way and a hidden pause is a
+run that looks stuck for no reason.
+
+### $0 was a lie, and it took a real run to see it
+
+The budget block showed **Cost $0** under a run that had spent 13,528 tokens.
+DeepSeek is not in the pricing table, so `cost_usd()` returns nothing and the
+`usage` blocks carry token counts with no `costUsd` at all — summing an absent
+field to zero and printing "$0" tells the user the run was free.
+
+`Vitals.costUsd` is `number | null` now, and null renders as **Not priced**,
+with a tooltip saying the tokens are counted and the cost is not known. Same
+rule as `ProbeResult.conclusive`: our own missing data must never be written
+down as a fact about the world.
+
+The same pass removed the other quiet untruth in that block. There is no
+**"model calls 18 / 60"** row, because the count cannot be derived: `agent.message`
+is deliberately not published for a round that only asked for tools, so counting
+messages undercounts calls, and a ratio built from the two would read
+comfortably below a limit it was already close to. What is shown is what is
+derivable, called what it is — **Replies** — with no limit beside it.
+
+### Two components disagreed about one store
+
+After deleting `ApprovalModal.tsx` while Vite was running, the right rail
+insisted no mission was open while the middle column rendered one — same
+selector, same store, two different answers. Not a state bug: the HMR graph
+still held the deleted module, and the stack traces gave it away with two
+different `?t=` timestamps in one tree. Vite was serving two copies of
+`missionStore.ts`, which is two zustand stores.
+
+Restarting the dev server fixed it, and the duplicate-React-key warnings in the
+timeline went with it. **Delete a module and restart Vite** — the failure looks
+exactly like a bug in the code you just wrote, and half an hour can go into
+debugging state that was never wrong.
+
+### An agent that can write files has to be told to write files
+
+Three runs failed the same way. Asked to "build the landing page", a worker
+returned the whole page as its reply — 8,192 output tokens, cut off partway
+through a list of CSS variables — retried, spent the entire budget reasoning and
+emitted nothing, and was reported `task_produced_nothing`. The mission then
+failed for a second reason: no file had ever been written, so the next agent
+looked in the workspace, found it empty, and asked the user where the page was.
+
+The cap was never the problem. A reply is the wrong place for a deliverable at
+any cap, and raising `MAX_TOKENS_PER_TASK` again would only move the failure.
+`FILE_DELIVERABLE_RULE` is appended to the system prompt of any agent holding
+`write_file` or `edit_file`, and the sentence that does the work is the reason
+rather than the instruction: *your reply has a length limit and a file does
+not; a reply that hits the limit is cut off and thrown away.*
+
+`system_addendum` composes rules now instead of returning the first that
+matches — a researcher who also writes the report needs the untrusted-content
+rule **and** this one — in a fixed order, so two agents with the same tools get
+byte-identical prompts and the provider's prompt cache still hits.
+
+**The same brief, re-run:** eight file writes, `index.html` (8 KB),
+`styles.css` (19.7 KB) and `script.js` (3.3 KB) on disk, all three required
+sections rendering, and the vanilla-JS colour picker working when clicked. 31 KB
+of deliverable, from a worker whose replies are capped at 8,192 tokens. It still
+ran out of time during QA — the page exists, the review of it does not — and the
+design agent chose an ember/violet palette over the cyan/magenta that was asked
+for. That is the model's judgement, not the app's, and the record says exactly
+which agent made it.
+
+### The list has to notice the run that just started
+
+The first message is what creates the mission, and `MissionList` had fetched its
+rows on mount and never again — so after sending, the sidebar went on showing
+the draft under "Not started", with the new run absent until the window was
+reloaded. It reloads on the id of the run on screen now.
+
+The selected row is keyed on `missionStore.missionId` rather than
+`historyStore.openId` for the same reason: `openId` is only set by *clicking* a
+row, so a run started from the composer left the list marking nothing — or worse,
+still marking the run before it.
+
+### A wait that was over, in a second place
+
+`deriveVitals` kept each agent's latest `agent.status`, so the rail showed
+"Waiting on you" for the rest of a run: an asker publishes `waiting` when it
+asks and publishes nothing when the answer arrives. Beside it sat no approval
+card, because nothing was actually pending — which is what made it look like the
+card had failed to appear.
+
+`scene/bindings` had fixed exactly this for the pose two milestones earlier, and
+the fix is the same one: `agent.request.resolved` clears the asker's status, no
+synthetic event is written, and a real status published afterwards still wins.
+**Worth checking every other place that keeps a "latest status" per agent** —
+this is now twice.
+
+### An exploratory pass, and the seven things it found
+
+Built two agents through the generator, made a team, and ran a creative brief in
+`Documents/Project/lab-01`. Seven findings, six of them real.
+
+**"Time used 7:00:05 / 15:00" on a run five seconds old.** `DateTime(timezone=True)`
+is a no-op on SQLite, so `mission.started_at.isoformat()` went out with no
+offset and the browser read it as *local* time — seven hours off, on the
+machine's own timezone. `_wire` fixed exactly this for event timestamps in M1;
+`as_utc_iso` is now the shared version and both mission serialisers use it. It
+hid for as long as it did because a *finished* run is measured start-to-end, and
+both ends were shifted equally.
+
+**A mission where every task failed was recorded `completed`.** Three tasks
+failed, nothing was written, and the leader's own summary said "the deliverables
+were not produced" — over a row saying `completed`, which also credited both
+agents with a mission they had not finished. `ending_for()` corrects that to
+`failed` when nothing succeeded, and only then: a partly successful run is
+honestly completed, and any more specific reason wins.
+
+**The generator named two different agents "Mara".** It is never shown the
+roster it is adding to, and nothing checked. That is not cosmetic:
+`send_message` addresses teammates *by name* and `Mailbox.resolve` returned the
+first match, so a message meant for one would be delivered to the other **and
+the sender told it worked**. The validator now refuses such a team, and the
+mailbox raises `Ambiguous` rather than guessing.
+
+**The transcript printed raw agent ids for a whole run** while the rail and the
+scene showed real names. `TimelinePanel` subscribes to `roster` — CLAUDE.md
+already records that trap — but `roster` was missing from the `useMemo`
+dependencies, and `nameOf` is a zustand action whose identity never changes. So
+the component re-rendered and handed back rows built before the roster arrived.
+**Subscribing to a value is not the same as depending on it.**
+
+**Pressing Edit dropped you at the bottom of the form.** Both branches of
+`RosterPanel` render a `<div>` in the same position, so React reconciles them to
+the *same DOM node* and swaps only the children — and `scrollTop` is DOM state,
+not a prop. Distinct `key`s make them different elements, mounted at the top.
+
+**"1 missions"** on every card that had run once.
+
+**And one that was not a bug:** Enter-to-send looked broken under automation.
+The key events being delivered had `key: ""`, so the handler was right to ignore
+them. Worth the check before the claim. The rewrite stands anyway — the handler
+now reads `event.currentTarget.value` instead of a stale closure and only calls
+`preventDefault()` once there is something to send, which removes a real
+paste-then-Enter race.
+
+### 8,192 was still too small, for a different reason
+
+The file-deliverable rule from the last session did not save this run. The
+worker never got as far as a tool call: it spent all 8,192 output tokens
+*reasoning* and emitted neither text nor a call, three tasks running. A prompt
+rule cannot help a turn that never acts.
+
+`MAX_TOKENS_PER_TASK = 16384` now. A cap that is too low does not cost less — it
+costs the whole turn and buys nothing, and then the next agent pays again to
+discover there is no file. At 16k the same brief produced `index.html` (11.7 KB)
+and `NOTES.md` (3.9 KB), all three tasks `done`, in 13,399 in / 5,962 out.
+
+The piece works: a recursive SVG tree with blossoms, moon, stars, fireflies and
+grass, and the determinism it claims is real — xmur3 hashes the seed text,
+mulberry32 draws from it, and seed `42` grows the identical garden every time
+while `sunset` grows a different one.
+
+### You can talk to a team while it works
+
+The composer was disabled for the whole run, with "stop the run to send
+something new" underneath — so noticing a mistake thirty seconds in meant
+throwing the run away and paying for it again.
+
+It is **not** an interrupt, and the wording never pretends otherwise. Nothing
+can reach a model mid-reply, so `POST /missions/{id}/message` puts the note in
+the same `Mailbox` teammates use and every member collects it when their next
+task starts. The hint reads *"Enter queues it · the team reads this when the
+current step ends"*, the endpoint answers **202**, and the label underneath says
+"Waiting for the next step" until a `mission.progress running` proves it was
+picked up — counted off the log, because a guess at how long a step takes would
+be the label lying by a different route.
+
+Reusing the mailbox is the point: a second delivery path would be a second thing
+to keep working, and this one is already collected in exactly the right place.
+Verified live — a note sent mid-run ("keep the myths under 40 words") landed on
+the log at seq 4 and the file written afterwards obeyed it.
+
+### `npm test` was killing live missions
+
+Three runs died as `crashed` before the cause was traced, each one costing real
+tokens. `fs.watch` on Windows is imprecise: writing `__pycache__/x.pyc` produces
+a notification naming **`x.py` itself**, and running the test suite imports the
+whole package. The watcher's `__pycache__` filter cannot help, because the name
+it is given is a real source file — the log showed restarts for
+`0009_search_kind.py` and `providers/__init__.py`, which nobody had touched.
+
+`scripts/dev.mjs` now remembers each file's size and mtime and ignores a
+notification when neither changed. The full 388-test suite triggers zero
+restarts where it used to trigger a dozen.
+
+### A number and the limit beside it have to be the same measurement
+
+The rail read **45,856 / 200,000** on a run the backend had just stopped for
+spending **200,811**. `BudgetTracker.record_call` counts input, output *and*
+cache read/write — cache reads dominate a long run — while `deriveVitals`
+counted input and output only. So the meter sat a quarter full at the moment the
+mission was killed for being over.
+
+Fixed by counting the same four fields. The general rule, and the second time
+this session it has come up: **anything drawn as `used / limit` must count what
+the limit counts**, or the bar is decoration. It is the same reasoning that kept
+"model calls" off that panel entirely.
+
+### Any failed task means the run did not complete
+
+The first version of `ending_for` only caught a run where *nothing* succeeded,
+and the very next run walked through the gap: the atlas task failed, the notes
+task succeeded, and the leader's own summary said *"index.html is missing, so
+the mission is not complete"* — over a row saying `completed`, crediting both
+agents again. There is no honest reading of that word which covers a run that
+did not do what it was asked. The nuance belongs in the summary; the reason is
+one word and has to be the true one.
+
+### A cap cannot fix a model that reasons past it
+
+At 8,192 a worker spent the whole budget thinking and emitted nothing. At
+**16,384 it did exactly the same** — content length 0, no tool call, three tasks
+in a row. Raising the number again is not a plan.
+
+What worked was telling the model the shape of the way out, in
+`FILE_DELIVERABLE_RULE`: the limit applies to one *turn*, not to the file, so
+write a skeleton with `write_file` and then `edit_file` each section in its own
+turn. *"Three small turns finish; one enormous turn gets cut off and you have
+nothing."*
+
+The next run did precisely that — a 328-byte skeleton, then an edit per section,
+across five small tasks the planner had broken out itself — with no truncation
+anywhere. It still ran out of *tokens* before the end, which is a budget
+question rather than a broken one, and it said so.
+
+### Two faces that were missing
+
+The avatar picker was four dropdowns and no picture: you chose "sturdy / hooded
+/ cloak / ink" and found out what it looked like when a mission was already
+running. The roster — the one page whose whole job is choosing between agents —
+showed no portraits either, while the scene, the transcript and the rail all
+did. Both now draw the same `Portrait`, so what is previewed is what appears.
+
+### Where the budget numbers come from, and why Cost said nothing
+
+Two questions from using the app, both with the same shape of answer: the
+figure was real, and the app was not explaining itself.
+
+**200,000 tokens and 15:00** are `AppBudget` — `max_tokens`, `timeout_sec`,
+plus `max_llm_calls = 40` and `max_supersteps = 60`. Resolved per field, mission
+> team > app (§10), and since nothing in the UI has ever set a team or mission
+budget, every run gets the app defaults. They are enforced — a run really was
+stopped at 200,811/200,000 — but they are **ours**, not the provider's, and
+there is still no screen that shows or changes them. Recorded as an open item.
+
+**Cost said "Not priced" on every run** because `pricing.json` deliberately
+omits DeepSeek: its rates were not verifiable when the file was written, and the
+rule is that a guessed price in an append-only table reads as fact forever
+(§6.2). That rule is right and stays. What was missing was a way out of it.
+
+It cannot be fetched — no provider API returns its own pricing. So the only
+honest source is the person who can open their own billing page. Migration 0011
+adds `model_prices`, `cost_usd` takes an `overrides` map that wins over the
+shipped table, and Settings gained a panel that lists every model this machine
+runs with its rate, or **"No rate — runs show no cost"** where there is none.
+
+Three details worth keeping:
+
+* Rates are loaded **once per mission and frozen**, the same argument as the
+  roster snapshot: editing a price mid-run must not make the first half of a
+  run's cost disagree with the second.
+* Each figure says where it came from — "Rate shipped with the app" versus
+  "Your rate, entered <date>". Those are different claims and a stale one
+  should look stale.
+* Removing a rate does not rewrite finished runs. They were charged at the rate
+  of the day, and that is what their events say.
+
+A half-filled rate — input set, output left blank — is treated as *no* rate
+rather than pricing one side, which would report a real-looking figure that is
+quietly too small.
+
+### A round ending is not the mission ending
+
+The composer's only offer after `mission.ended` was to start a *different* run:
+a new row, an empty timeline, and a team that had forgotten the workspace it had
+just spent ten minutes learning. "Fix the spacing on the hero" is the most
+ordinary next thing to want, and it was the one thing the app could not do.
+
+`POST /missions/{id}/continue` reopens the row and runs the graph again over the
+**same frozen roster** — never re-read from the agents table, because who did
+the earlier rounds must not change retroactively (§5.1) — appending to the same
+log. Every "Mission ended" now reads **Round finished**, which is what it always
+was.
+
+Two things follow, and both had to move with it. Each round gets a **fresh
+budget**: one ceiling across every round means a second question is refused
+because the first was answered thoroughly. And the rail counts a round's tokens
+and a round's clock, because it draws them against a round's limits — measuring
+elapsed from the mission's own `startedAt` reported **6:44:04 / 15:00** on a
+round four seconds old, the clock counting the hours the conversation had sat
+waiting to be continued.
+
+### One permission setting, where the decision is made
+
+`autonomy` was a dropdown in the agent editor, under the tool list. Wrong twice:
+it asked a security question **once per agent**, so a team of five had five
+answers to something a person means once; and it lived on a page nobody has open
+while a run is going, which is exactly when you want to say "stop asking".
+
+One value now, in `app_settings`, rendered beside the composer — and frozen into
+each mission's snapshot at launch, so moving the switch mid-run cannot change
+what the run in front of you is allowed to do. `agents.autonomy` stays in the
+schema with its old values, because deleting it would rewrite what finished
+missions were run under.
+
+### Cost, built and then withdrawn
+
+Migration 0011 originally added `model_prices` so a rate could be typed in for
+models `pricing.json` does not carry, which is why every DeepSeek run said "Not
+priced". It worked, and it was the wrong answer: a figure you look up on your
+provider's billing page and copy into an app is a chore in exchange for a number
+you were already looking at, and the app then owns a second place for it to go
+stale. The Cost row is gone instead, and 0011 keeps its id while dropping the
+table — so a database that ran the old version and a fresh install end in the
+same state, which is the only property a migration chain has to have.
+
+### Images
+
+`attachment.added` on the wire, bytes on disk, content-addressed by SHA-256. The
+log carries name, size, type and digest and never the picture: `mission_events`
+is append-only forever and a few screenshots inlined as base64 would make it
+unbounded (§9.3). The transcript fetches one back through the authenticated
+request like everything else — a plain `<img src>` would need the session token
+in a URL, and a URL is the one place a token must not go (§9.1).
+
+Both adapters render images in the shape their own API documents — OpenAI a
+parts array with a data URI, Anthropic content blocks with the image first —
+with no shim pretending they are the same (§15 row 17). The test that protects
+everything else is the negative one: a message with no images comes out exactly
+as before, because every turn of every existing conversation goes through that
+code.
+
+**And the app now learns what a model cannot do.** DeepSeek answered the first
+image with `400: This model does not support image`. That is a fact about the
+model, established by the endpoint itself, so it is written to
+`capabilities.vision = false` — and the composer warns *before* the next round
+rather than after it. Same rule as the capability probe: record what was
+established, never what was assumed (§3.1).
+
+### Two smaller things testing turned up
+
+**A tool call written as prose.** DeepSeek ended a round with nothing but its own
+`<｜｜DSML｜｜tool_calls>` template as text. No tool ran, and because a round's
+summary is its last message, that markup became the mission's one-line record.
+`leaked_tool_call` names it — the event is still published, because the model
+really did say it — and keeps it out of the summary. Detection is narrow on
+purpose: a reply *discussing* tool calls must survive, since a false positive
+would hide something a person wrote.
+
+**Instructions belong to the control they describe.** The splitter's keyboard
+help was a permanent line of text under the pane. It is the divider's `title`
+and accessible description now: there when you reach for it, absent the rest of
+the time.
+
+### The right column is summoned, not permanent
+
+The rail held the approval card, the members and the budget, and was always
+there. Two things ended that. The question moved into the transcript, so the
+rail stopped being the only place a paused mission could be answered — which
+was the one reason it could not be given up. And the terminal needed room: 80
+columns of monospace is about 580px, and a column sized for short rows of text
+wraps every real command.
+
+So two icon buttons in the mission header choose what the panel holds —
+**Terminal** and **This run** — pressing the lit one closes it and gives the
+whole window back to the work. Width is remembered **per mode** (560 and 316 by
+default), because one number would be wrong for one of them every time you
+switched. `ResizeHandle` drags it, with the same commitments `SplitPane` makes:
+arrows and Home/End from the keyboard (WCAG 2.1.1), a 24px hit area around a 1px
+line (2.5.8).
+
+Verified live rather than by reading it: the terminal opened at 560 and This run
+at 316, a drag took it to 789 and localStorage kept it, and `End` went to the
+240 minimum.
+
+### A stable selector does not re-render — the third time
+
+`AppShell` read the width through `usePanelStore((s) => s.widthOf)`. Dragging
+the divider recorded the new number and **the panel did not move**: a zustand
+action's identity never changes, so a component subscribed to one is subscribed
+to nothing. The store had `{"terminal": 680}` in it while `aria-valuenow` still
+said 560.
+
+This file already records the shape twice — the timeline's `nameOf`, the
+transcript's `roster` — so the fix this time was to remove the trap rather than
+step around it. There is no `widthOf` action any more: `widthFor` is a plain
+function of state and `usePanelWidth` selects the *number*. A selector returning
+a primitive cannot go quietly stale, and `panelStore.test.ts` fails if a
+resolver comes back.
+
+### Deleting the card took the fetch with it
+
+`ApprovalCard` was the only caller of `approvalStore.refresh()`. Removing the
+rail therefore removed the one thing that asks the backend what is waiting — and
+the whole M6 criterion is that a question can outlive the process that asked it.
+Nothing on screen would have looked wrong; a question from a previous session
+would simply never have appeared again.
+
+The call lives in `App.tsx` now, mounted for the life of the window. **A
+capability that only one component performs disappears when that component
+does**, and the loss is invisible exactly when the capability is about something
+that has not happened yet.
+
+### A run parked on a question is not "live"
+
+`missionStore.live` means *this backend process is driving it*, and a mission
+waiting on an interrupt has no task at all — so opening one reads it back off
+the log, correctly, and it is answerable there because `approvalStore` holds the
+question independently of the stream.
+
+Answering restarts it, and at that moment the record on screen stops being the
+present. Seen live: the run resumed, ran its task and finished, while the window
+went on showing **Working**, a sidebar row saying **Waiting on you**, and a
+transcript ending at `Ilse is waiting` — three surfaces describing a minute that
+was over (§1). The backend meanwhile reported `completed`, `pendingRequest:
+null`.
+
+`resolveRequest` already returns `resumed`, so the answer is the moment to
+attach — and only when this client was reading *that* mission, because a
+question can belong to a run you are not looking at and answering it must not
+drag the window away from what is in front of you.
+
+### The list has to notice a run that stopped, too
+
+`MissionList` reloaded on the id of the open run, which covers a run appearing.
+It did not cover one *ending*: a row fetched while a run was working went on
+saying "Working" after it finished in front of you. It reloads on `useEndReason`
+as well now — the log first, so it fires on the `mission.ended` itself rather
+than on a guess about timing.
+
+Which is also why the sidebar's waiting marker is derived from
+`approvalStore.pending` and **not** from the row's own `pendingRequest`. The row
+is a fetched snapshot; the store is the live answer, refreshed over REST on
+mount and updated off the stream. Reading both would be two answers to one
+question (§2.1), and the stale one wins whenever the list has not been reloaded.
+
+One thing had to move with it: `observe` now drops a mission's questions on
+`mission.ended`. A run cancelled or reaped while parked publishes no
+`agent.request.resolved`, and the entry used to sit in `pending` until something
+happened to call `refresh()` — which was harmless while it only fed a card
+nobody was looking at, and is a triangle on a dead run now that the sidebar
+reads it.
+
+### Three ways in, for a choice made once
+
+The workspace picker offered a dashed drop-target, a text field and a list of
+recent folders, stacked, inside a form whose other two fields are a name and a
+dropdown. It was the tallest thing on the page for the least frequent decision
+on it.
+
+One field and one button now, and the button is whichever of the two things is
+useful: **Browse** while the field is empty, **Use this folder** once there is a
+path in it. The field is the same 38px control as the title above it — a folder
+is not a more important thing to type than the name of the run.
+
+`recent` and `loadRecent` went with the list. A store slice that fetches on
+mount and feeds nothing is worse than an unused constant: it is a request per
+render of that form. `api.recentWorkspaces` stays, because the backend still
+records them and the client is the typed mirror of that API.
+
+**The plan gate now defaults to on.** The old comment said "opt-in — a gate on
+every run is a gate users switch off rather than one they read". That reasoning
+was about a gate you *cannot* turn off; this one is a checkbox in the launch
+form, one click, decided per run. Seeing the plan first is the only point where
+stopping still saves the cost of the work, so the default that costs nothing to
+refuse is the one that has it on.
+
+### A meter is a claim that somebody measured something
+
+"Can web search show how much allowance is left?" has a different answer per
+endpoint, and the only way to find out was to ask them. One request each, with
+the headers printed:
+
+* **Brave** answers with `x-ratelimit-policy`, `-limit`, `-remaining` and
+  `-reset` — several windows at once, a per-second cap beside a per-month one.
+* **Tavily** answers with nothing at all. No header, no field in the body.
+
+So the panel says three different things, and none of them is a zero:
+
+* a **bar**, where a window has a real limit over a real period;
+* a **sentence** — "up to 50 searches a second, no longer-term allowance
+  reported" — where only a rate came back. This machine's Brave key declares
+  its monthly window as `0;w=2592000`, and rendering that as 0 of 0 would say
+  the account is exhausted, which is the opposite of true;
+* **"this endpoint reports no allowance"**, for Tavily, permanently.
+
+The window lengths come from the policy header and nowhere else. A build that
+assumed "the second one is the month" would be wrong the day Brave adds a third.
+
+**And a fourth state, which the app got wrong first.** Every key configured
+before this existed showed *"this endpoint reports no allowance"* — a claim
+about Brave that had never been checked, because the column was null and null
+was being read as "reports none". It is three states now: null is *never asked*,
+`[]` is *asked and it reports none*, and a list is what it declared. Same
+distinction as `ProbeResult.conclusive`, and the same reason: our own gap must
+never be written down as a fact about the world.
+
+The bar fills with what has been **spent**, so full means gone. Drawn as
+remaining it read as a battery — the opposite meaning from the same picture.
+The sentence above it still says what is left, because that is the number
+anyone is actually asking for, and the bar carries its own label for what the
+bar draws.
+
+The reading is taken by "Test connection", because it only arrives on the
+response to a real search and there is nowhere to ask for it on its own. So the
+line underneath says *measured when this key was last tested, not since* — a
+meter that looked live would be the more comfortable lie.
+
+### The dashboard has a number, so somebody must return it
+
+"Can you fetch this?" — pointed at a Brave spend meter and a Tavily credit bar.
+Two dashboards, two different answers, and the only way to know either was to
+ask.
+
+**Tavily: yes.** `GET /usage` with a Bearer token returns
+`{"key": {"usage": 3, "limit": 1500, ...}, "account": {...}}`. Which corrects
+something written here a few hours earlier: "Tavily reports no allowance" was
+true of its *search response* and false about the endpoint. A search says
+nothing; there is a second place to ask. `read_quota` is that second question,
+and it is only asked when the search came back silent — Brave answers in headers
+on the way past and never reaches it.
+
+**Brave: no.** Every plausible account or usage path under
+`api.search.brave.com` answers 301 to the dashboard, and the community feature
+request asking for one is unanswered. Its postpaid ceiling is a *spend* limit in
+dollars, and that is the same wall as provider pricing (§6.2): the number exists,
+it is on a billing page, and no API hands it over.
+
+Two things had to become explicit rather than assumed:
+
+* **The unit.** Brave meters requests; Tavily meters credits, where a search is
+  one credit and a crawl is not. Calling Tavily's number "searches" would be
+  wrong the moment an agent uses another of its tools, so the unit travels with
+  the numbers.
+* **The period, or its absence.** Tavily states a total and never says over
+  what. Its dashboard says "Monthly plan" — and the dashboard is not the API.
+  `window_sec` is None there, the sentence ends after "credits left", and
+  nobody writes "this month" on the app's behalf (§3.1).
+
+A window with no period still gets a bar. It is an allowance — something you
+spend down — which is what a bar is for; a per-second cap is not, and that is
+the line `RATE_BELOW_SEC` draws.
+
+### The model id was the one field with no feedback
+
+Adding an endpoint was five text boxes, and `Model` was the one that went
+wrong: a bare string whose correct spelling exists in exactly one place — the
+endpoint — bought nothing until a mission failed on it three minutes in.
+
+`POST /providers/models` builds a throwaway client and calls its `/models`. The
+key travels in the body, is handed to the SDK for one call, and is stored
+nowhere; a profile is created afterwards, separately, by the form that used it.
+
+**No list of model names ships with this app**, and that is the point rather
+than an omission. Names go stale in silence and a stale list looks exactly like
+a fresh one — the mistake `pricing.json` is careful not to make with rates
+(§6.2), and this file already records two model ids the project could not be
+sure of. What ships is a base URL per preset, which the button then proves.
+
+A preset is therefore *a guess at your setup that you confirm by pressing a
+button*. "Ollama, port 11434" is that project's default, not a fact about this
+machine, so every field stays editable. And the text field stays too: an
+endpoint with no `/models` is a normal thing to meet and must not make the form
+unusable, so the failure shows the endpoint's own words — "could not reach the
+endpoint" and "invalid api key" need different fixes — and you type the id.
+
+Asked against the real DeepSeek endpoint, it answered `deepseek-v4-flash`,
+`deepseek-v4-flash-vision-exp`, `deepseek-v4-pro`. Which settles an open item
+that had been guesswork since M1.2, and turns up a vision model on an account
+whose main model refused an image (§12 M9.3).
+
+### A parse failure is ours, not the model's
+
+`deepseek-v4-pro` came back "3 of 4 passed · 1 failed — reply was not usable
+JSON", and `structured: none` was written onto its profile. Asked the same
+question again it answered `{"ok": false, "note": "No task was provided."}`,
+which parses. The endpoint had never refused JSON mode; one reply had not come
+back clean, and our reading of it became a recorded fact about the model.
+
+This is the M1.2 lesson at a different spot. That one added `inconclusive` for a
+*truncated* reply; a reply that arrived whole and did not parse was still a
+conclusive `fail`. So now:
+
+* **refused** — the endpoint errored on the mode. Its own answer, conclusive,
+  and `none` is the honest record.
+* **accepted, unparseable** — nothing was learned. Inconclusive, nothing
+  written, so one bad sample cannot overwrite a good earlier reading.
+* and the parse is lenient first: fenced or prefaced JSON is JSON.
+
+`extract_json` moved to `core/jsonish.py`, because `profile_gen` had been doing
+this since M2 — "stripping that here costs one regex; treating it as a failure
+costs a retry and the user's money" — while the probe next door did a strict
+`json.loads`. Two readers of the same thing, and the one nobody was looking at
+was the wrong one (§2.1). Re-tested: **4 of 4, `structured_output: json_object`.**
+
+### The summariser could not see the picture it was summarising
+
+Asked for the colours of four squares, the worker read the image and answered
+**`purple, yellow, teal, orange`** — correct, on the timeline, 259 input tokens
+with the picture in them. The leader then wrote the run's final answer *without*
+the image, and because the goal said "look at the image", it answered **"I
+cannot see the image."**
+
+That sentence became `mission.ended`'s summary and the text of
+`final-answer.md`. A run that answered correctly was recorded as having failed,
+which is the exact thing §1 forbids — and the comment above `images` said they
+were "handed to every agent's turn" while only the work turn ever got them.
+
+Fixed, and the comment now says what is true: work turns and the summary turn
+get them, the planning turn does not. A plan is made from the goal and is the
+one turn that never quotes the picture, so it is the one worth not paying for.
+Re-run: the summariser's input went 170 → 275 tokens and the recorded summary is
+`purple, yellow, teal, orange`.
+
+### The workspace chip opens the folder
+
+It had been a label for four milestones: the one path that says where the agents
+may write, on screen for the whole run because §16.2 is only checkable if it is
+visible — and the only way to act on it was to select the text.
+
+`reveal_folder` is the shell's first custom command, and it is a command rather
+than a shell permission for the webview because those are different offers: a
+shell permission lets the page run anything, this lets it show a directory.
+Three checks before anything spawns — the path exists, it is a **directory**
+(revealing a folder and opening a file are different risks), and it is
+canonicalised so `..` is resolved before it reaches the file manager. The
+program is fixed per platform and the path is one argument, never interpolated,
+so there is no string for a crafted path to break out of.
+
+In a browser it copies the path instead and says so, the same split the folder
+picker has. A button that silently does one of two different things would be
+worse than one that does neither, so the outcome is announced in an `aria-live`
+region rather than only implied by a taskbar the reader may not be looking at.
+
+**Verified in the browser** (copies, and says why); the Rust guards have tests
+for the three refusals. Explorer actually opening is the one part not checked
+end to end — it needs a native window, which cannot be driven from here.
+
+### A tool only the leader carries is a tool nobody can use
+
+A research team was pointed at a real question with `web_search` and `web_fetch`
+on its roster. It produced a well-formatted DECISION.md with quotes and URLs,
+and buried in it:
+
+> No live web access existed when either research file was produced.
+
+Every task had gone to the one worker. The agent holding the web tools was the
+**leader**, and `_assignable()` excludes the leader whenever a team has workers
+— the M4 fix for a leader that kept all the work — while the two turns a leader
+does take, planning and summarising, are handed no toolbox at all. So the tools
+were on the roster, counted as covered by `tool_uncovered`, and dead. The worker
+improvised by calling `read_file` on a URL, failed, and answered from memory.
+
+Nothing on screen said why, because from the outside the team was correctly
+equipped. `leader_only_tool` says it now, by name, with the fix in the message.
+It immediately found a second case nobody had noticed: Art Lab's `ask_user` has
+been unusable since the day that team was made.
+
+**Writing the test found the sharper version of the rule.** The obvious fix —
+swap the roles, put the web tools on a worker — reported `write_file` instead,
+because the new leader was carrying that. What the warning is actually asking
+for is a leader that carries **nothing**: it coordinates, and every tool lives
+with the workers. That team then validated clean and the run fetched the pages.
+
+### A round that only calls tools spent money nowhere on the log
+
+The same research question, run again with the team fixed, ended
+`budget_exceeded` having produced no files. Its timeline totalled **7,540
+tokens** across two `web_fetch` results of 15,321 and 20,018 characters, which
+cannot be true — 35KB of fetched text is several thousand tokens on its own, and
+it is re-sent on every following turn.
+
+**Correction, and it is the point of writing this down.** The first version of
+this entry said those fetches "ate the whole 200,000". They did not: the run was
+stopped by the **time** limit, and `mission.ended` says so in words — *stopped at
+the time limit (1234.6/900)*. What the log undercounts is real; the number I put
+next to it was invented, from the same habit of reading `budget_exceeded` as
+"out of tokens". The true token spend of that run is still unknown, because the
+log did not carry it. That is the bug.
+
+`run_agent_turn` publishes no `agent.message` for a round that asked for tools
+and said nothing — an empty bubble would suggest the agent said nothing when in
+fact it acted, which is right — and the usage was *inside* that message. The
+budget guard counted those tokens; the log never saw them. So the rail drew a
+meter at 4% of a run being killed for being full.
+
+This file already records fixing that symptom once, by making the rail count the
+same four fields as the guard. That fix could not have closed this: whole rounds
+emitted nothing to count.
+
+`agent.usage` is the missing event — what a round cost, for a round with nothing
+to say. Same numbers, kept, attributed, and tied to its round by `messageId`.
+The message stays absent for the original good reason; only the cost is
+recovered. Re-run: **95,902 tokens on the log, four `agent.usage` events**, and
+the mission finished with the quotes and the URLs.
+
+### The budget is a setting now, and Settings says where the work is kept
+
+`AppBudget`'s four numbers enforced every run from the first release and were
+editable from nowhere. A team was killed at 200,000 tokens with no screen saying
+what that number was, where it came from, or how to raise it. `resolve_limits`
+had taken an `app_default` since M4 and nothing had ever passed one.
+
+Stored per field and read per field, the same rule the precedence chain already
+follows: a value that is missing, out of range or the wrong type falls back to
+the shipped one instead of taking the other three down with it. A corrupt row
+does not stop the app launching.
+
+Two details worth keeping:
+
+* **`isinstance(True, int)` is True in Python**, so a budget of `True` would be
+  a ceiling of one. Booleans are refused by name.
+* The **shipped values come from the backend**, so "back to the shipped values"
+  cannot drift from what a fresh install actually gets.
+
+Precedence is untouched: mission > team > app. Raising the app default does not
+overrule a run that asked for something specific, and it reaches the *next round*
+of a continued conversation rather than only brand-new runs.
+
+The panel says whose limits these are, because nothing on screen had: *they are
+not limits your provider sets — they are the point at which Agent Studio stops
+paying for a run*. And each row says what running out of **that** one looks
+like, since "Out of budget" is one phrase for four problems with four fixes.
+
+**Settings also stopped being only about credentials.** "Where your work is
+kept" names the data folder, measures the three things inside it, and opens it
+with the same `reveal_folder` the workspace chip uses. Runs, produced files and
+attachments all lived in a folder nothing on screen had ever named. Sizes are
+measured rather than estimated, and a folder that does not exist yet reports
+zero rather than being omitted — "no artifacts yet" and "no such thing" read
+very differently to someone hunting a missing file.
+
+Verified end to end rather than by reading it: saved 400,000 / 1,800 in the
+panel, and the next run's frozen budget row came back
+`{"max_tokens": 400000, ..., "timeout_sec": 1800}`.
+
+### The other two layers of the budget, and a settings page that is four pages
+
+`resolve_limits` has picked mission > team > app **field by field** since M4,
+and only the app layer had a screen. The other two were reachable by editing the
+row yourself, which is to say not reachable.
+
+`BudgetOverrides` is one component used by the team form and the launch form,
+and the per-field rule is its whole design: a **blank box means inherit**, and
+its placeholder is what inheriting gets you. Nobody has to work out the
+effective limit, and nobody is made to fill in four numbers to change one —
+which is exactly how two layers quietly stop agreeing. Empty and zero are
+different things, so the value is held as a **string** rather than a number:
+`Number("")` is 0, and a token ceiling of 0 is a run that cannot take a step.
+
+The launch form's placeholder is the app's numbers **with the team's on top** —
+precedence resolved for display the same way `resolve_limits` resolves it for
+the run (§2.1). Its label follows: *the team's limits* when the team set
+something, *the app default* when it did not.
+
+**`validate_overrides` is now the single answer to "is this a legal limit".**
+The mission endpoint had its own `ge=1` on each field, so a run could ask for a
+ceiling of 1 token that a team was refused — two tables of the same numbers,
+which is the drift that function exists to prevent. `BudgetIn` declares the
+shape and nothing about the bounds.
+
+An empty override set is sent as **no budget at all** rather than an empty one,
+so the chain falls straight through instead of stopping at a layer that said
+nothing.
+
+**Settings is a row of tabs.** Four things share that page and nothing else: a
+model endpoint is what an agent thinks with, a search key is what one of its
+tools uses, the limits are this app's own ceilings, and storage is where the
+work landed. Stacked they read as one pile. A left rail was tried first and was
+worse — it sat immediately beside the app's own left sidebar, two columns of
+vertical links against each other, with a whole column spent on four words. Not
+`role="tablist"`: these are four places, and a real tablist owes the reader
+arrow-key roving focus, which would be extra code to make Tab behave worse than
+it already does.
+
+### `taskkill /F` on "a Vite" is every Vite
+
+`reclaimWebPort` frees port 5173 when a leftover of *ours* is holding it, and
+decided ours by `cmd.includes("agent-studio") || cmd.includes("vite.js")`. Every
+Vite dev server in the world has `vite.js` on its command line. Another
+project's server was on 5173 on this machine, and `npm run dev` would have
+killed it — force, whole tree, no warning.
+
+Fixed to match this launcher by name, `/scripts[\\/]dev\.mjs/`, and the first
+attempt at the fix is worth recording too: matching only the **repository root**
+looked stricter and was wrong in the other direction, because our own command
+line is usually the relative `node scripts/dev.mjs` with no path in it at all.
+It failed to recognise a leftover of ours immediately.
+
+`AGENT_STUDIO_WEB_PORT` came out of the same session — with 5173 legitimately
+taken, a second copy has somewhere to go. Two things had to move with it, and
+each was a separate failure to find out about:
+
+* The port has to reach **Vite**, not just the log line. `strictPort` is on by
+  design, so a port Vite silently moved off would be a page that cannot reach
+  its own backend.
+* The backend's CORS allowlist is explicit, so the page loaded on the new port
+  and then failed **every** request — reported as a CORS violation, pointing at
+  the one thing that was not wrong. `allowed_origins()` appends
+  `AGENT_STUDIO_DEV_ORIGIN` when the launcher sets it, and a shipped build sets
+  nothing. This file already carries that scar from M8; it is the second time
+  the same misleading error has cost time.
+
+### Running out no longer stops the run where it stands
+
+`BudgetExceeded` was raised on the next call and propagated out of the graph, so
+the summarise node never ran. A run that had written seven files and not started
+six tasks ended with no account of itself beyond a number — and the files it did
+write were left for whoever opened the folder to sort out.
+
+A slice of each limit is held back now. Crossing the *working* share stops the
+team **starting** anything new, lets whatever is running finish, and spends what
+was kept on the leader writing a handover. The ceiling is unchanged: the reserve
+is inside it, not on top of it, and `check()` still raises at the number the
+user actually set.
+
+Sized per limit, and the sizing came from a test failing. A flat 90 seconds
+against a 60-second timeout left **no working share at all** — the run would
+have stopped before it started. Tokens and seconds are `min(flat, 15% of the
+limit)`; calls and supersteps reserve exactly one, because the summary is one of
+each and there is no useful fraction of a call — unless the limit *is* one,
+where reserving it would leave nothing able to run.
+
+The summariser is told which situation it is in. A finished run gets "write the
+final answer"; a run cut short gets "write the handover: what is finished and
+where it is, what is missing, and what the next round should do first" — because
+the reader's next question is *what do I still not have*, and only the leader can
+answer it in the goal's own terms.
+
+`_run_team` corrects the reason afterwards. No exception is raised on this path
+— that is the point of it — so a run that ran out would otherwise be recorded
+`completed`. The leader's text is kept and the numbers go in front of it.
+
+**Verified on the run that motivated it**, the same mission continued:
+
+    before   605,853 / 600,000   "5 of 11 tasks done. produced nothing: ..."
+    after    593,338 / 600,000   a handover naming all 11 files, what was
+                                 missing, and the order to do it in
+
+Under the ceiling rather than through it. And the handover was better than
+expected: it labelled its own list *"reported by team, not yet build-verified"*,
+said plainly that `npx next build` had never been run so the exit code was
+unknown, and **found a bug nobody had noticed** — the cart page's empty state
+links to `/products`, which does not exist, because products are on `/`. Checked
+against the route list: correct. That is precisely the kind of finding the
+verification tasks always used to lose.
+
+### A number and a limit, and the third time this rule has been needed
+
+`BudgetTracker.elapsed_sec` subtracts time parked on a question — deliberately,
+with two real runs measured at 93% and 90% parked behind it. `deriveVitals`
+counted plain wall clock and drew it against that same limit.
+
+So a run parked 58 minutes on an approval read **1:27:47 / 1:00:00**: past its
+ceiling, still working, because the number and the limit beside it were
+measuring two different things. A third run measured **91% parked** — 146
+minutes wall, 133 waiting, 13 working — and was stopped by tokens, not the
+clock, which is the backend's arithmetic being right while the screen's was not.
+
+Fixed in the derivation, from the log rather than a new field: the waits are
+`agent.request` → `agent.request.resolved`. Re-entrant like the tracker, a
+question still on screen counts to now, and a wait that was never answered
+because the run was cancelled closes at `mission.ended` rather than growing for
+ever over a finished record. The panel says what was taken off, because a clock
+that stalls looks broken and one that explains itself does not.
+
+That is the same rule as the token meter counting the four fields the guard
+counts, and as "model calls" being kept off the panel entirely. **Anything drawn
+as `used / limit` has to count what the limit counts.**
+
+### The scene was captioning a round that had ended hours earlier
+
+`round finished — crashed` over a team three tasks into its next round, with
+every character sat down. `sceneState` set `endReason` on `mission.ended` and
+never cleared it — and `mission.ended` is the end of a *round*, since a
+continued run appends to the same log.
+
+`deriveVitals` had been given exactly this rule a few hours before, for its
+counters: **the first event after an ending opens the next round.** Two places
+derive per-round state from one log, and only one of them had it. Worth
+assuming there is a third.
+
+### Opening a run looked like watching a replay of it
+
+Attaching subscribes from seq 0, so opening a mission that has been going for a
+while delivers its whole history — 729 frames on the run this was noticed on —
+as one socket message per event. Each one was its own `set`, so 729 renders,
+each copying an array that was growing, and the transcript visibly typed itself
+in.
+
+React batches updates inside one task; these arrive in a task each. So the
+batching has to be ours: frames are buffered and applied together on the next
+animation frame. A frame is the fastest anything on screen can change anyway,
+and live tokens still land inside one. The fallback is a microtask, for a test
+runner and — the case that actually matters — **a hidden tab, where rAF does
+not fire at all** and events would otherwise pile up unapplied until someone
+looked.
+
+`attach`, `replay` and `detach` throw the buffer away, because frames from the
+run you just left must not land on the one you just opened.
+
+### `glob` said a folder was empty when it was not
+
+`**/*.{ts,tsx,json,md}` — the ordinary way to say "the source files", understood
+by bash, ripgrep, fd, VS Code and every JS glob library — returned **0 matches**
+over a folder holding two `.json` and one `.ts`. `pathlib` does not expand
+braces, and the result was not an error: it was a false statement about the
+workspace (§1).
+
+What it cost is the interesting part. The agent had just written those files,
+was told they were not there, went to `list_dir` a directory at a time, and then
+reached for `bash` to run `find` — which raised an approval question, which is
+where that run stopped. **A missing glob feature escalated a read to a dangerous
+tool.**
+
+`expand_braces` expands, unions the results and de-duplicates. Nested braces
+work; an unbalanced one is left exactly as typed, because `{` is a legal
+character in a filename and guessing would be worse than matching what was
+written.
+
+### An agent that mutates the workspace to diagnose it, and is then cut off
+
+A worker suspected its own code was breaking a build, so it bisected:
+`mv components /tmp/components.bak && mv app/admin /tmp/admin.bak && npm run
+build`. Correct instinct. Then `tool_rounds_exhausted` stopped it at twelve
+rounds — **in the middle of the bisect, with the directories still moved away**.
+
+The next agent read a workspace that was a debugging artefact and reported on it
+as though it were the deliverable. The run was recorded `failed` with a summary
+saying the build was broken; the build passes. Nothing on the log was untrue,
+and the conclusion drawn from it was.
+
+Every stopping condition — `tool_rounds_exhausted`, `task_budget_spent`, the
+budget — ends a turn where it stands, and none of them has any notion of undoing
+what that turn had temporarily done. A half-written file is visible; a moved
+directory is not. Recorded rather than fixed: the fix is either a cleanup
+contract for tools that move things, or telling agents not to mutate the
+workspace to test a hypothesis, and neither is a small change.
+
+### A framework CLI works, and is cheaper than writing the framework out
+
+Asked directly: can an agent run `create-next-app`, or must it write every file?
+It can, and it should.
+
+    npx create-next-app@latest . --typescript --eslint --app --no-tailwind \
+      --no-src-dir --no-turbopack --no-git --import-alias "@/*" --use-npm --yes
+    -> exit 0, 41 seconds, 344 packages
+
+The model chose every flag itself, from a brief that said only that stdin is
+closed. That constraint is the one that matters: `shell.py` passes
+`stdin=DEVNULL`, so an interactive prompt gets EOF, and `create-next-app` asks
+five questions unless every answer is on the command line. The other two are the
+600-second cap on one call (an install takes ~40s, so it fits) and piping the
+output through `tail`, since npm's log is thousands of lines and every one of
+them is re-sent on the next turn.
+
+Two runs of the same shape, one CLI-first and one hand-written:
+
+    hand-written   605,853 tokens   5/11 tasks   7 files, no page renders
+    CLI-first      379,270 tokens   4/5 tasks    scaffold + /admin, build passes
+
+The hand-written run produced `Button`, `ProductCard`, `DataTable`, `Header`,
+a data layer and a cart store — and no `app/layout.tsx` and no `app/page.tsx`,
+so every route 404'd. Components with no house to live in. The CLI run had a
+layout and a page 41 seconds in and spent its budget on the part that was
+actually asked for.
+
+**And `--no-git` was ignored.** The CLI initialised a repository and committed.
+The agent flagged the discrepancy and said it had *not verified* whether `.git`
+existed rather than asserting either way; it does exist. Saying which of two
+things you checked is worth more than being right by accident.
+
+### A shell command is grammar, not text
+
+Not the app — a scratch approval script written to watch these runs — but the
+same mistake five times, and the app has made it before (`is_secret_key`
+matching substrings and redacting `inputTokens`, destroying usage numbers in an
+append-only table).
+
+    \bgit\b anywhere      caught `find . -not -path '*/.git/*'`
+    split on a bare |     tore `grep -E '"(a|b)"'` apart inside its own quotes
+    any > at all          caught `ls >/dev/null`, which writes nothing
+    shlex.split           left `sort;` as one word, so `;` never separated
+    no substitution rule  `cd "$(rm -rf x)"` hides a command in an argument
+
+Each held a read-only command for a round trip, and the last one was a real
+hole. The version that works reads the structure: redirections are judged by
+where they point and then removed, `$(` and backticks refuse the whole line,
+`shlex` runs with `punctuation_chars` so operators separate from words, and a
+word only counts as a command at a position where a command may begin.
+
+### The one thing a background log cannot do is ask
+
+An `ask_user` question sat unanswered while a run was parked, because the
+watcher printed it into a file nobody was reading. Printing is not asking.
+
+Which is the same shape as the two failures in the app this week — a question
+that outlives the process that asked it needs somewhere to be *found*, and a
+run parked for 58 minutes was parked because the card was on a screen nobody had
+open. The watcher exits on a question it cannot answer now, because exiting is
+what produces a notification.
+
+### The app could not show what a run had made
+
+`artifact.created` was published from **exactly one place in the codebase** —
+the `final-answer.md` written when a run completed. So every file an agent
+produced was invisible: the Files tab read **Files 0** over a workspace holding
+twenty files and a Next.js app that built and served eight routes. All day, the
+only way to see what a team had done was Explorer, and the only way to know
+whether it worked was to run the build by hand.
+
+A workspace file is **recorded, not copied**. `write_text` puts a file under the
+app's own artifact root and owns it from then on; this points at a file in the
+folder the user chose, which the agents keep editing and the user can open in
+their editor. A copy taken at write time would be a stale duplicate claiming to
+be the work, and there would be two answers to "what did this run produce"
+(§2.1). The honest cost is a row that can outlive its file, and `read_text` says
+so plainly instead of crashing.
+
+Watched in the runner rather than emitted by the runtime, which has no database
+and should not grow one: the runner already reads every draft on its way to the
+bus, so correlating an `agent.tool.start` with its end by `callId` is the whole
+of it. A second write to the same path refreshes the row and publishes nothing
+— a timeline saying a file was created four times would be describing four
+files.
+
+Reading one back resolves it through `resolve_within` against the mission's own
+workspace, the same resolver and the same resolve-first-compare-second rule the
+file tools use. A stored path is data, and data that chooses which file to open
+is data that has to be checked — this process holds the keychain.
+
+### "Out of budget" was one word for four different problems
+
+Tokens, model calls, graph supersteps and wall-clock time all end a run as
+`budget_exceeded`, and every list rendered that as one phrase. Three runs in a
+row were stopped by the **clock** and read as having run out of tokens —
+including by the person writing them up, who then went looking for the tokens
+and wrote a number into this file that had to be corrected afterwards.
+
+The real reason was on the log the whole time, inside the ending's summary
+prose. `missions.end_limit` and a `limit` on `mission.ended` put it where a
+label can read it: **Out of tokens**, **Out of time**, **Too many steps**, **Too
+many model calls** — four different fixes, four different words.
+
+Nullable and **not backfilled**. A run recorded before the column has no honest
+value to put there, and a guess written into a column reads as a fact for ever
+(§5.1). Those rows keep the general phrase, which was true of them.
+
+### One task can be picked up again without paying for the round
+
+A round that stops early leaves its plan half-executed, and the only way to
+retry one task was to run the whole round again. On the run this came from what
+was left was `Review pages against component contracts` — a *verification* task,
+which is both the kind that gets cut most often and the kind whose absence
+matters most, since it is what would have said whether the rest is true.
+
+The blocker was that the instruction existed nowhere durable: the plan message
+renders titles and seats, which is what a person needs to approve a plan and not
+enough to run a task again. `mission.progress` carries it now, on the `pending`
+event that announces the task and nowhere else — bounded by the plan's own task
+limit, and on the append-only record where a plan belongs.
+
+The button says what it does: **"Starts a new round with just that task."** It
+is not a rewind into the round that stopped, because there is no way to resume
+mid-plan, and a label implying otherwise would describe something that does not
+happen. `failed` and `pending` are shown as different things, because *ran and
+came back empty* needs a different approach and *never started* needs room.
+
+### A continued round could not see the round before it
+
+`make_plan` was handed one message: `Goal: {the new message}`. So "carry on" was
+a goal that read, in full, "carry on" — the leader could not see the original
+instruction, what the team had built, or **the handover it had itself written
+one event earlier**. That last part is the sharp one: the handover names every
+file, what is missing and what to do first, it is produced on every round that
+runs out, and the only thing that ever read it was a person.
+
+`earlier_rounds` assembles it off `mission_events` — each round's instruction and
+each round's ending — and nothing is stored. The log is the record, and a second
+place saying what a run achieved is a second place to be wrong: a status file
+claiming the admin pages are done, when they were never written, is worse than
+no file at all.
+
+The prompt guards both directions, because they fail differently. *Do not re-do
+what is already finished* stops the most expensive possible answer, which is the
+original plan again. *Do not assume anything is finished that the record does
+not say was* stops the cheapest wrong one, where a leader reads "most files are
+created" as "done" and plans nothing.
+
+### rAF exists here and does not fire
+
+Opening a run delivers its whole history as one socket message per event — 729
+on a real run — and each was its own `set`, so 729 renders over a growing array
+and the transcript visibly typed itself in. Batching them is right; the first
+attempt at *when* to flush was not.
+
+It used `requestAnimationFrame`, with a microtask fallback for where the
+function does not exist. That is the wrong test. In the browser this was
+verified in, `requestAnimationFrame` exists, `document.hidden` is false,
+`visibilityState` is `"visible"` — and **the callback never fires**. The
+transcript stayed empty for as long as it was watched.
+
+Which is `find_shell` again, already in this file: *a shell that exists is not a
+shell that runs*. Present and working are two different questions, and only the
+second one matters. A frame and a 32ms timer are scheduled together now and the
+first to arrive wins.
+
+`replay` does not go through the buffer at all. It has a finite list already in
+hand — nothing to wait for, nothing to coalesce — and deferring it was what made
+the transcript sit empty on a client where the frame never comes.
+
+### A task could spend the whole run, and the checks were always last
+
+The reading-log build wrote three correct files and then died at
+`stopped at the tokens limit (201882/200000) — 1 of 4 tasks done`. The three
+tasks that never started were the UI review, the requirements audit and the QA
+pass.
+
+That is not a random quarter of the value. **It is precisely the part that was
+going to say whether the rest is true**, and it is last in every plan, so it is
+first to go every time.
+
+Where the 200,000 went, from the log rather than from a guess:
+
+    call  1  out=21,509  cacheR= 1,536   writing the files
+    call  5  out= 2,968  cacheR=11,648
+    call 13  out=   303  cacheR=20,864   21k of context for 303 tokens of answer
+
+**79% was `cacheReadTokens`** — the conversation being re-sent on every one of
+thirteen rounds, growing as the files it had written accumulated inside it. The
+deliverable was 21KB; re-sending it a dozen times was the bill. (Worth knowing:
+the guard counts a cache read at the same weight as a fresh input token, so a
+long conversation reaches a *token* ceiling far sooner than it reaches the
+matching cost.)
+
+`spend_ceiling` gives one turn a limit of its own, and reaching it ends **that
+task** the way `tool_rounds_exhausted` does — not the mission. That difference
+is the whole fix: `BudgetExceeded` leaves you files nobody checked, a task-level
+stop leaves you files *and* three reviewers saying what is wrong with them.
+
+`task_allowance()` is a **floor, not a share**. Splitting 200,000 four ways
+would have capped the implementation at 50,000 and produced nothing at all; the
+reserve only protects what the queued tasks need to run — 20,000 each — and
+everything above that is still available. On the real numbers the implementation
+would have had 140,000, which is more than it had spent by the time all three
+files were on disk.
+
+The two failures also get different codes. `tool_rounds_exhausted` is an agent
+that stopped converging; `task_budget_spent` is one that ran out of money. They
+need different answers from whoever reads the log.
+
+**Still open, and the honest larger answer:** `AppBudget`'s 200,000 is not
+editable anywhere. A four-task run with a reasoning model writing 21KB is simply
+bigger than that default, and no amount of rationing inside the run fixes a
+ceiling nobody can raise.
+
+### The rail read 0 tokens under a run that had spent 201,882
+
+Spotted by looking at the screen, not by a test. **Tokens used 0 / 200,000** and
+**Replies 0**, three inches above an ending line reading *stopped at the tokens
+limit (201882/200000)* — and a timeline row saying *Developer (Dev) used 21,201
+tokens on tools*.
+
+`deriveVitals` reset the counters inside its `mission.ended` branch, and
+`mission.ended` is the **last event of a finished run**. Everything counted was
+wiped one event before anyone could read it. Every finished run in this app has
+shown 0 since that reset was written — including several in this session that I
+looked straight at and did not question.
+
+The reset itself is right: a round's tokens count against a round's limit,
+because continuing a run gives it a fresh budget. It just belongs at the *start
+of the next round*, which is where the same function already restarts the clock
+— "the first event after a round ended opens the next one". Two halves of one
+rule, and only one of them had it.
+
+**Fifteen tests passed the whole time.** Every one of them ended its fixture
+before the ending, so none ever saw the reset fire. The three new ones fail on
+the old code with `expected +0 to be 1090`.
+
+### A plan cut off three times needs room, not a shorter plan
+
+A five-agent team was given a detailed brief — three files, six behaviours, two
+constraints — and **failed all three planning attempts** with *the plan was cut
+off before the JSON closed*. The mission never started; nothing but an error
+reached the log.
+
+The correction cannot help, and that is the whole point. The tokens went on
+reasoning before the first visible character, so "write each instruction much
+more briefly" is advice about output the model never reached. Same wall
+`MAX_TOKENS_PER_TASK` hit twice, where raising the cap once did not fix it
+either.
+
+So the room grows where it was actually needed: `TOKENS_PER_RETRY` adds 8,192
+per truncated attempt, and **only** for truncation. A plan rejected for naming a
+seat nobody occupies is not short of budget, and on a reasoning model paying for
+a bigger one is real money spent on the wrong problem. A plan that fits first
+time still costs what it always did.
+
+Re-run of the same brief: planned on the first attempt, and the plan was a good
+one — build once, then three reviewers at the same time.
+
+### The medium web build, and what it says about the shape of a run
+
+Asked for a reading log: three files, no build step, no CDN, no account, must
+work from `file://`, must not lose data when what is saved is corrupt.
+
+**The code is good.** Checked by driving it, not by reading it: adding, changing
+a status from a per-row `<select>`, deleting, filtering, and the counts — all
+correct, all surviving a reload. `reading-log.v1` is a versioned key. Feeding it
+`{not json at all` and reloading rendered an empty log with no console error,
+which is exactly the promise that was made. No `http(s)` URL and no ES module
+anywhere, so `file://` really works. It also falls back to memory when
+localStorage is unavailable, which nobody asked for.
+
+**And nobody on the team checked any of that.** The run stopped at
+`stopped at the tokens limit (201882/200000) — 1 of 4 tasks done. never started:
+Review UI/UX of reading log; Audit requirements and data robustness; Run QA
+checks on delivered files`.
+
+One implementation task spent the entire 200,000-token budget. The driver is
+the tool loop: twelve rounds, each re-sending the whole conversation, and the
+conversation contains the files as they are written. 21KB of deliverable is
+cheap; 21KB re-sent a dozen times is not.
+
+Two things follow, and the second is the uncomfortable one:
+
+* The new ending line paid for itself on its first real run. Without it this
+  would have read "Out of budget" and looked like a finished job with three
+  files in the folder.
+* **The verification steps are always last, so they are always what gets cut.**
+  A run that stops early does not lose a random quarter of its value — it loses
+  precisely the part that was going to tell you whether the rest is true.
+
+### Tasks that do not need each other now run together
+
+Work was strictly sequential: task n+1 started when n finished, whatever the two
+had to do with each other. *Research A / research B / write it up* spent two
+model calls' worth of waiting in a row for nothing.
+
+The decision belongs to the plan, because the plan is the only thing that knows.
+Each task may declare `depends_on`, and the field has **three** states:
+
+    absent    after the task before it — what every plan did before this
+              existed, and what a model that ignores the field still gets
+    []        needs nothing; may start immediately
+    ["t1"]    waits for t1
+
+So parallelism never happens by accident. It happens because a leader said two
+things are independent, and `plan_waves()` groups by that claim. `MAX_PARALLEL`
+caps a wave at three, because every task in one is a separate conversation with
+the same endpoint and five at once is a rate limit rather than five times the
+speed.
+
+The planner refuses a plan it cannot schedule, with the same validate-and-retry
+the seats get: a dependency on a task that does not exist, a task waiting on
+itself, duplicate ids, and cycles — **including the cycle a naive check misses**,
+where `t1` waits for `t2` and `t2` says nothing and so implicitly waits for `t1`.
+
+**And the plan message says what will run together.** Running two things at once
+happens because someone claimed they were independent, and a claim nobody can
+read is not one the approval gate can be used to check. A sequential plan says
+nothing extra, because there is nothing extra to say.
+
+Live, on a fan-out-then-gather brief: tasks 1 and 2 both `running` in the same
+second, task 3 waiting for both, whole run **12 seconds**.
+
+### The leader was choosing assignees blind
+
+The same run gave "create INDEX.md" to the UX/UI Designer, whose tools are
+`ask_user, glob, grep, list_dir, read_file, send_message`. It could not write
+the file. It spent five turns trying to hand the work on — `implementer`,
+`Dev`, `Developer`, `PM`, `Project Manager` — every one refused. The file was
+never written and the run still ended `completed`.
+
+Neither half was the model being careless.
+
+**`_roster_text` never said who could do what.** The leader was picking an
+assignee from a name and a title. It lists each member's tools now, and the
+prompt says the obvious thing out loud: a task that writes a file goes to
+someone with `write_file`, they cannot borrow each other's tools.
+
+**And a teammate's name had to be typed in full.** The roster reads
+`Developer (Dev)`, so every sensible shortening missed. `Mailbox.resolve` now
+tries exact, then prefix, then contains — narrower before wider, so `Dev` prefers
+the teammate whose name *starts* with it. The rule that has not moved: two
+teammates that both fit still raises `Ambiguous`. Delivering to the wrong person
+and telling the sender it worked is the worst failure available here.
+
+Re-run: all three files written, dependencies respected, 12 seconds.
+
+### An ending said why it stopped, never what was left
+
+Asked for a tool, tests for it, and a test run. The leader planned all three
+correctly — the plan is on the log, task 2 is *Write unit tests for
+summarise.py*. The clock killed the run during task 1, and it ended honestly:
+`budget_exceeded`, *stopped at the time limit (1302/900)*.
+
+What it never said was **which two things you did not get**. Both the plan and
+the task states were on the timeline, so the information was there; using it
+meant reading the log and comparing it against what you had asked for. The way
+it was actually noticed was looking in the folder for a test file.
+
+`unfinished_note()` now names them, on every ending and not only on `completed`.
+Nothing is judged or generated — the titles and states come straight off
+`mission.progress`. Two kinds, named separately because they need different
+fixes: a task that **never started** ran out of room, and a task that
+**produced nothing** ran and came back empty.
+
+The note goes on the ending, never into `final-answer.md`. That falls out of the
+existing gating rather than a new rule: the artifact is only written on
+`completed`, and a note only exists when something is unfinished, which forces
+`failed`.
+
+**And the shape of the fix broke everything for one commit.** The state map
+became `(state, title)`, and `any(s != "done" for s in tasks)` compared a
+*tuple* against a string — always true, so every finished mission was recorded
+`failed`. Caught by the M6 test asserting a resumed mission completes. The
+normaliser is now one function both readers share, which is what it should have
+been from the first line.
+
+### The clock was counting the time someone spent reading
+
+Two builds, both stopped as `budget_exceeded` at the 900-second limit:
+
+    Unit price comparer    ran 1314s, 1217s of it waiting for approval  (93%)
+    Sales CSV summariser   ran 1302s, 1176s of it waiting for approval  (90%)
+
+The work took **97 and 126 seconds**. Everything else was the mission timeout
+running while a `bash` command sat on screen waiting to be read — which is
+exactly what the approval gate is for. So turning the gate on made runs die of
+the clock, and the harder someone looked at a command before approving it, the
+more likely the mission was to be killed for it. A limit punishing the one thing
+it should encourage.
+
+`BudgetTracker.paused_for_a_person()` holds the clock across both places a run
+stops for someone: a tool approval inside a turn, and `ask_user`. It is
+re-entrant, because a tool approval can happen inside a turn that is itself
+inside a paused graph, and an inner wait ending must not restart the timer while
+the outer one is still open.
+
+**Only the clock.** Tokens, calls and supersteps were spent and stay spent —
+waiting does not give any of them back, and a test says so.
+
+### `budget_exceeded` is one word for four different limits
+
+`AppBudget` caps tokens, LLM calls, supersteps **and** wall-clock time, and all
+four end a run as `budget_exceeded` — which the sidebar and the header render as
+**Out of budget**. Three runs in a row were stopped by the 900-second clock and
+read as though they had run out of tokens, including by the person writing this
+file, who then went looking for the tokens.
+
+The reason is on the log: `mission.ended` carries *stopped at the time limit
+(1234.6/900)* in its summary. It is the label above it that flattens four
+different things into one, and each has a different fix — more time, a smaller
+task, fewer agents, a bigger allowance.
+
+### One team, two missions at once
+
+Asked whether it works. It does, and the reason is that per-mission state is
+keyed by mission id everywhere it matters: the task, the finaliser, the mailbox,
+the checkpointer thread, the frozen roster, the budget, the event stream. There
+is no team-level guard in `start_mission` and there does not need to be —
+`MissionAlreadyRunning` is per mission, which is the thing that actually cannot
+happen twice.
+
+Verified rather than reasoned: two runs of the same one-agent team, launched in
+the same instant, answered `alpha` and `beta`, both `completed`, 18 events each,
+**no event from either appearing on the other's log**.
+
+What is genuinely shared, and worth knowing before running two of anything:
+
+* **The workspace.** Nothing stops two missions being given the same folder, and
+  then two agents write the same files. The path is validated, never claimed.
+* **Agent memory.** `recall` is scoped to the agent, not the mission, so a note
+  written in one run is visible in the other. That is what agent memory *is*,
+  but it is cross-talk between runs that otherwise cannot see each other.
+* **The budget is per mission**, so two runs is two ceilings — 400,000 tokens,
+  not 200,000 split.
+* **The provider and the search keys**, so both runs spend one allowance and
+  share one rate limit.
+
+`total_missions` was the one thing that could quietly come out wrong:
+`total_missions += 1` read the value and wrote it back with an `await` in
+between. **Not reproduced** — each session takes its own connection and SQLite
+serialises the writes — but it is one `UPDATE ... SET total_missions =
+total_missions + 1` now regardless. That number survived the gamification
+rollback because it is the one figure on the card that is a fact, and
+"probably fine given how the driver happens to schedule" is not the guarantee it
+deserves.
+
+### An image cannot reach the round that arrived with it
+
+The first message is what creates the mission, so there is no id to attach to
+until the round is already under way — the images land on the *next* one. The
+composer says so in its hint and the code says so in a comment, and it is still
+the first thing anyone hits: attach a picture, ask about it, and the model
+answers that it cannot see an image.
+
+Left as it is for now and written down here, because closing it means either
+`POST /missions` accepting attachments or a create-without-starting mode, and
+both are bigger than the sentence in the hint. **The vision path itself works** —
+that was what this run was testing — and it works from the second message on.
+
+### A local model could not be used at all
+
+`build_from_profile` raised `no_api_key` before the endpoint had any say, and
+`needsOnboarding` counted only providers with a key. Ollama and LM Studio
+authenticate nothing, so anyone running one was held on the onboarding screen
+for ever with a working endpoint already configured — and no error explaining
+it, because from the app's point of view nothing had gone wrong.
+
+Whether a key is required is a fact about the endpoint, and the endpoint is the
+only thing that knows it. So the client is built either way, with
+`NO_KEY_NEEDED` — a deliberately readable string, not a plausible-looking token,
+so anyone who sees it in a request knows immediately that none was configured —
+and a 401 comes back in the endpoint's own wording if it did want one.
+
+Onboarding is satisfied by `hasKey || verifiedAt`: you supplied a key, or the
+endpoint answered without one. Both are established facts rather than a guess
+about which endpoints need what.
+
+### "Tried in the order they were added" was never a decision
+
+The fallback chain was `ORDER BY created_at`. That is not an ordering anyone
+chose — it is a record of which key you happened to type in first — and the two
+stop being the same thing the moment you want the cheaper allowance spent
+before the metered one. There was no way to say so.
+
+Migration 0015 adds `sort_order`, nullable, sorting last. A chain nobody has
+touched still runs oldest-first, and there is **no backfill**: writing positions
+into rows nobody ordered would be recording a decision that was never made
+(§5.1). A key added later has no position either, so it falls in behind the ones
+someone deliberately arranged rather than jumping the queue.
+
+`registry.search_order()` is the one ORDER BY, used by the runner that spends
+the keys and the panel that lists them. Two clauses would be two answers to
+"which is tried first", and the one on screen would be the wrong one (§2.1) —
+there is a test that reads the chain both ways and compares.
+
+**The endpoint takes the whole chain, not one row's position.** Two reasons,
+both deciding: a position is a claim about the other rows, so a per-row PATCH
+leaves two keys briefly claiming one place with the runner reading the table in
+between; and a partial list has no honest reading — naming two of three says
+nothing about where the third goes. So `POST /providers/search-order` refuses
+anything that is not a permutation of exactly the configured keys, and says
+which ids were wrong.
+
+In the panel it is two menu items, `Try this one earlier` / `Try this one
+later`, disabled at the ends with a hint saying why rather than a dead row.
+Keyboard-reachable for free, which a drag handle would not have been.
+
+### Two engines, several keys
+
+"Should we just fix it to these two?" is half right. The engines *are* fixed:
+Brave and Tavily are the two APIs this build has adapters for, and a third means
+writing one. What is not fixed is the number of **keys** — a second free account
+of either is exactly what the fallback chain is for, and that was already built.
+The button said "Add another search endpoint", which is what made it look
+otherwise. It says "Add another key" now.
+
+The section stopped being cards with it. A card says "a thing on its own", and
+these are one ordered chain: tried top to bottom, and the only reason to have
+two is that the first runs out. So a numbered list with hairlines, the position
+drawn as the number it is, and "Test connection" on the surface with the two
+things nobody does twice a year behind `⋯`.
+
+### Every menu in the app opened the wrong way
+
+`align === "end" ? "left-0" : "right-0"` — backwards. `end` means the panel's
+end lines up with the trigger's, so it should grow *leftward*. Every menu had
+been growing rightward from its trigger, and it was invisible for as long as no
+trigger sat near the window edge. The search list's `⋯` does, and half the menu
+was outside the window with a horizontal scrollbar underneath it.
+
+`TeamsPanel` had `align="start"` on it, which cancelled the bug out. That is the
+tell worth remembering: **a lone override of a shared default is usually
+somebody working around it**, not a local preference.
+
+**And fixing the direction was only half of it.** The composer's autonomy menu
+sits 16px from the left edge of `main`, which is `overflow-hidden`. Opening
+leftward — correct — a 362px panel started at x=12 and everything left of the
+column edge was cut off: two items visible as slivers, mid-word.
+
+Two causes, both fixed in `Menu` rather than at the call site. The panel had a
+`min-w` and no `max-w`, so one long `hint` stretched it to whatever the text
+wanted; it is capped now and hints wrap. And the vertical flip — measured, not
+assumed, since M10 — had no horizontal twin, so it flips sideways too.
+
+The bound for that is the nearest **clipping ancestor**, not the window. The
+panel was comfortably inside the viewport the whole time; `main` was doing the
+cutting, three levels up, and a viewport check would have found nothing wrong.
+
+### Providers is two lists with the same manners
+
+Models followed the search keys out of their cards, and for the same reason:
+the rows relate to each other. One model is the default a new agent is created
+with and the rest are alternatives to it, which a border around each one hid.
+
+Making them radio rows fixed something the cards had been quiet about. Clicking
+a card highlighted it and never said what that *meant* — the selection is "this
+is what a new agent gets", and the row says so now instead of leaving a blue
+border to be interpreted.
+
+Capabilities are read from the stored profile rather than from the last probe,
+so they survive a reload and are what an agent will actually be run against.
+An endpoint nobody has tested shows none, because none was recorded — an
+"unknown x3" row would be our own ignorance dressed as data (§1.1).
+
+**And the two "add" buttons became one component.** They had drifted into a
+filled button in the Models header and a bare text link at the foot of the
+search list: the same job, in the same page, looking like two different kinds
+of thing. Both sit at the foot of the list they add to now, which is where the
+list ends.
+
+### A panel with nothing in it is a column of window spent on an instruction
+
+The right panel was rendered on Roster, Teams and Settings — where "This run"
+means nothing — and on the launch form, where it read *"open a run to see who is
+on it"*. Both things it can hold belong to a mission that exists: the terminal
+runs in one's workspace, the summary is one's members and budget.
+
+So it is absent on those pages, and absent before the first message creates the
+row. The mode is remembered rather than switched off, so it comes back with the
+run. On a draft the two header buttons are disabled and say *available once the
+run has started*, which is the same sentence the empty panel was spending a
+column to say.
+
+### The one screen where a limit is chosen knew nothing about what runs cost
+
+`AppBudget`'s ceiling is typed into a box beside a team that has, on this
+machine, spent **23,538 tokens** on one job and **1,262,610** on another. Fifty
+times apart, and the form knew neither number.
+
+`GET /teams/{id}/history` is the record, and it is deliberately **not** a
+forecast. There is no honest way to estimate a run before it happens (§1.1) and
+no provider will say, so what is shown is the last five endings: title, tasks
+done out of planned, tokens, and which limit stopped it.
+
+The tokens are counted off `mission_events`, adding the same four fields
+`BudgetTracker.record_call` adds — **including cache reads, which are 79% of a
+long run**. That rule has now been needed four times in this file, and this is
+the first place it was applied without first shipping the wrong version.
+
+`tasksDone/tasksTotal` come back `null` for every run recorded before migration
+0018 and are not backfilled. Those runs were not counted at the time, and a
+number invented for them would read as a fact for ever (§5.1).
+
+### A model can staff a team. It cannot say whether the team will work.
+
+Two features, and the line between them is the whole design.
+
+`POST /teams/suggest` reads a brief and staffs a team **from the agents that
+already exist** — who leads, who sits where, and which tools each person is
+missing for this particular job. It saves nothing: the proposal fills in the
+seats and the user saves, exactly as §11 requires of a generated profile.
+`POST /teams/{id}/review` reads a team against a brief and returns prose.
+
+Neither is allowed to say a team is ready. **The validator is still the gate**,
+and the reason is a bug this project shipped: a research team carrying
+`web_search` and `web_fetch` ran to completion and answered from memory,
+because the tools were on the **leader**, and a leader with workers is never
+assigned a task. A model looking at that roster sees every tool present, on a
+real member, spelled correctly.
+
+So both endpoints run `validate()` over what they are discussing and return its
+findings under their own key, and `TeamAdvisor` renders them under their own
+heading — *"What the run gate says about it"* — never merged into the model's
+list.
+
+**Then the app demonstrated its own argument, live, twice.** Asked about `Desk
+Research`, a real team on this machine:
+
+    the model   "Yes — Wren can research SQLite concurrency via the web tools"
+    the gate    "Only Wren carries web_fetch, web_search, and the leader of a
+                 team with workers is never assigned a task"
+
+Wren is the leader. Asked the identical question a second time, the same model
+on the same team got it right — *"the only research path requires Wren to act
+as a worker, which her leader role rules out"*. That inconsistency is the
+argument in one line: **a check that is right most of the time is not a check**,
+and it is why the model composes and a rule decides.
+
+The suggestion path found the same thing from the other direction. Given a
+research-and-write brief it proposed a sensible four-person team and added
+`web_fetch` to the QA engineer — who already carries `bash` and `write_file` —
+and `web_and_write_in_one_agent` fired on **the model's own addition**, which
+the model had not mentioned. The gate is not only catching what a model missed
+about an existing team; it is catching what a model just did.
+
+Three smaller decisions that had to be made along the way:
+
+* **A note has a `kind`, never a `severity`.** A `warn` from a model would sit
+  in the same list as a `warn` from `validator.py` and be read as the same kind
+  of claim. An unrecognised kind arrives as a plain `note` rather than being
+  dropped — §8, applied to a model instead of to a wire format.
+* **Added tools become a per-team `tool_subset`, not an edit to the agent.**
+  That agent is on other teams, and "this work needs grep" is a fact about this
+  job, not a permanent change to somebody's toolbox (§5.1).
+* **The proposal is validated as it would run** — each member's tools *after*
+  the additions — because that is the team the user would launch.
+
+### The default endpoint was a search key, and had been for months
+
+`POST /teams/suggest` failed on its first run in the app with
+`no provider registered for 'search'`. Not the new code: `settingsStore.load`
+chose the active endpoint as `providers.find((p) => p.hasKey)` — the first
+profile with a key of **any kind** — and on this machine Tavily was configured
+before DeepSeek.
+
+So `activeId` has been a search endpoint here for as long as both have existed,
+and every "generate a profile" in the agent creator defaulted to an endpoint
+that cannot complete anything. Nobody noticed because the dropdown is right
+there and gets changed by hand.
+
+The store's own `needsOnboarding` draws exactly this distinction, correctly,
+**on the line directly above**. Two readers of one idea and the one nobody was
+looking at was the wrong one (§2.1). `pickActive` is now the single answer, it
+re-checks a stored id rather than trusting it — a machine that ran the old build
+has a search profile saved — and six tests cover it.
+
+The same session's second version of that mistake: `TeamAdvisor` held the
+chosen provider in `useState(activeId ?? usable[0]?.id ?? "")`, which runs once,
+while the store is usually still loading. The selection is derived from the
+list now, so the two cannot disagree — the fourth time this file has recorded a
+value that went quietly stale.
+
+### Six warnings that are one fact
+
+`tool_uncovered` fires once per tool the team does not carry, so a two-person
+team holding four of thirteen tools produced six lines of *"Nobody on this team
+carries X"* — and pushed `leader_only_tool`, the finding that mattered, into
+seventh place.
+
+They are one line now, naming all six, with everything specific above them and
+errors above warnings. Not hidden: the same information, stated once, because a
+tool the work does not need is not a problem and six lines saying so is how a
+reader learns to skim the list that also contains the real one.
+
+### `100vw` is wider than the window
+
+Reported as "the page scrolls sideways into nothing". Both halves of it came
+from one wrong unit. The app shell was `h-screen w-screen`, and **`100vw`
+includes the vertical scrollbar** — so the shell was exactly one scrollbar wider
+than the space it had (1697 against 1687). That produced a horizontal
+scrollbar, which took 10px of height, which made `100vh` taller than the
+visible area too. One wrong unit, both axes.
+
+`h-full w-full` instead: the parent is `#root`, whose content box excludes the
+scrollbar, which is the measurement that was wanted all along.
+
+The second half is `overflow: hidden` on `html, body, #root`. **The document is
+not a scrolling surface in this app** — every scrollable region is a panel
+inside a fixed frame — and without saying so, anything that briefly overflows
+leaves the *document* scrolled. What you see then is the app sitting above a
+tall grey void, because whatever caused it has already gone. The scroll
+position outlives its content, which is why hunting the "tall element" found
+nothing: `scrollHeight` was `scrollTop + clientHeight` and there was no element
+there at all.
+
+### One box, two meanings
+
+`/` in the composer is not a shortcut for typing. It is the app's own menu,
+which is why Claude Code has one — a terminal has no menu bar, no sidebar and
+no buttons, so `/` has to be all three. This app *has* those, so copying the
+list wholesale would have meant rebuilding the existing menus inside a text
+box. `/config`, `/model` and `/usage` were rejected on exactly that ground:
+they already have screens, and a second way in is a second thing to be wrong
+(§2.1).
+
+What was worth taking is the shape, for three things that had no control at
+all. Each one already existed as a mechanism with no way in.
+
+**`@Name`** — `runner.note()` posted to `mailbox.recipients()`, meaning
+everybody, while `Mailbox.post(recipient=...)` has taken a single recipient
+since M8. So noticing that one agent was going wrong meant telling all four.
+The name is resolved by the same `Mailbox.resolve` an agent's `send_message`
+uses — exact, then prefix, then contains, and `Ambiguous` rather than a guess.
+`to` goes on the event, because a note that reached one person and reads as a
+broadcast is the timeline being untrue about what happened.
+
+**`/plan`** — `_run_team` has taken `require_approval` since M6 and only
+`start_mission` ever passed it. So the plan gate was something you could ask
+for once, at launch, and never again in that conversation — while the plan is
+the one point where stopping still saves the cost of the work. `/plan` on a
+continued round now gates it. It cannot turn the gate *off*: nobody types a
+command to get less of a safety check.
+
+**`/fork`** — the roster snapshot has been copyable all along. Continuing
+appends to a conversation and cannot be taken back; starting fresh forgets the
+team and the workspace. "Run that again but let the designer do it" fell
+between the two. The snapshot is **copied, not re-resolved**, because the point
+of a fork is to compare two attempts and re-reading the agents table would let
+them differ in ways neither record mentions.
+
+**The rule that makes it safe** is in `commands.ts` and is a negative one:
+*only a command this build knows is a command.* `/usr/local/bin is missing` is
+an ordinary sentence and has to reach the team. There is no unknown-command
+error anywhere, by design — a composer that refused that line would be
+withholding something the person plainly meant to say, and they would read it
+as the app being broken. The same rule covers `@`: a name is only a name when
+one was given, and whether it matches anybody is `Mailbox.resolve`'s answer,
+never a second copy of that check in the client.
+
+And the intent is stated **before** Enter, not implied by a slash: *"/plan —
+the app does this, nothing is sent"*, or *"Only Wren will read this"*. The
+whole risk of putting commands in this box is meaning one and getting the
+other, and one of the two costs money and reaches four models.
+
+### `/rewind`, and the limit it has to say out loud
+
+Everything for this existed except the operation: `file_versions` keeps what
+each file held after each write, the Files tab diffs them, and the log is
+addressable by seq. What was missing was **undo**.
+
+The plan is fetched and shown first, always, because of what it cannot do.
+`FILE_TOOLS = ("write_file", "edit_file")` is what the runner records, so a
+file `bash` created or moved has no stored copy. That is not a footnote — the
+case in these notes, an agent that ran `mv components /tmp/components.bak` to
+bisect a build and was cut off mid-bisect, is precisely the one this **cannot**
+fix. Discovering that from a half-restored workspace would be the worst way to
+learn it.
+
+A rewind is itself a change, so the file as it stands is recorded as a version
+first. It is therefore undoable by rewinding again, and it appears in the Files
+tab as what it is — an entry attributed to nobody, because no agent wrote it.
+Proved on the real `Diff check` run: `alpha/BETA CHANGED/gamma/delta` → rewind
+to seq 20 → `alpha/beta/gamma` → rewind to seq 47 → back again, with
+`rewind-before-20` and `rewind-20` on the history in between. Then again
+through the UI, which is where the `label` bug above surfaced.
+
+A file created *after* the chosen point is reported and left alone. Deleting
+something we have no copy of is not an undo, it is a second kind of loss.
+
+### Three bugs the real data found that the tests had not
+
+**A naive timestamp is read as local time.** `_epoch` exists because
+`DateTime(timezone=True)` is a no-op on SQLite, so both the event and the
+version come back naive — and `datetime.timestamp()` on a naive value uses the
+machine's zone. On this one that is UTC+7, so the comparison was seven hours
+out and the first rewind restored files it should have left alone. Third time
+in this project: `_wire` in M1, `as_utc_iso` in M10, this.
+
+**One file offered three times.** `seen` was keyed off the `newest` dictionary,
+which only gains a path that *has* a version early enough — so a file whose
+every version came after the cutoff was appended once per version. A run that
+wrote `NOTE.md` three times offered `NOTE.md` three times. Found by pointing
+the endpoint at a real run, not by a test.
+
+**The envelope nests under `draft`.** `pointsFrom` read `ev.type`, got
+`undefined`, matched nothing, and reported "this run has no recorded file
+changes" over 48 events and three saved versions. No crash, no error — the same
+shape as the watcher script in these notes that missed an approval for forty
+minutes.
+
+**And then the same function did it again, with `p.title`.** The field is
+`label`; `title` does not exist on `mission.progress`. So after the envelope
+was fixed the dialog offered exactly one point — the round's message — and
+silently dropped every task. Two wrong field names in one function, both
+producing an empty list rather than an error.
+
+The part worth keeping is why the test did not catch it. `rewindPoints.test.ts`
+was written at the same time as the code, from the same assumption, and its
+fixture said `title` too — so it passed over code that dropped every task.
+**A test written from the same guess as the code proves nothing.** It is built
+from a real run's payloads now, copied off the log rather than typed from
+memory, and the schema is the authority for what a field is called.
+
+### Two dev launchers, and the duplicate-module symptom again
+
+`TimelinePanel` threw duplicate-React-key warnings and `RewindDialog` read an
+**empty** `eventStore` while the transcript beside it rendered fifty rows —
+same selector, same store, two different answers. CLAUDE.md already records
+this: Vite serving two copies of a module is two zustand stores, and it looks
+exactly like a bug in the code just written.
+
+The cause this time was two `node scripts/dev.mjs` processes running at once —
+and four backends under them. Worth knowing that the symptom of that is not
+"port in use", which the launcher handles, but **a UI that disagrees with
+itself**. The tell was the tab label: `Timeline 0` beside a transcript
+rendering fifty rows, and `Timeline 48` the moment one launcher was left.
+
+### `/fork`, and what a fork must not re-read
+
+Verified against `Diff check`: the fork ran, wrote `HAIKU.md`, and ended
+`completed` 2/2 — while the original kept its 95 events, its own ending and its
+own counts, untouched. `forkedFrom` is on the new run's `mission.started`, and
+`roster_snapshot` compares **byte-identical** to the parent's.
+
+That identity is the whole point rather than an implementation detail. A fork
+exists to compare two attempts, so the roster is copied rather than resolved
+again from the `agents` table — otherwise an agent edited between the two runs
+would make them differ in a way neither record mentions (§5.1). The workspace
+is *shared*, and that is stated rather than hidden: two runs pointed at one
+folder write the same files, and nothing in this app has ever claimed a path.
+
+### Picking a name from a list, and the bug that only picking could find
+
+`@` opens the roster the same way `/` opens the commands, because a teammate's
+name is not something anyone should have to remember exactly: this machine's
+roster reads `Developer (Dev)` and `Tester (QA Engineer)`, and while
+`Mailbox.resolve` accepts a prefix, a name that fits two people is refused, so
+guessing has a real cost.
+
+The two menus are **two components**, not one with a flag. Their footers make
+opposite claims — *"these are things the app does, they are not sent to the
+team"* against *"sent to this teammate only"* — and that sentence is the entire
+reason either menu exists. A conditional there is a conditional in the one
+place that must never be wrong.
+
+**And the picker immediately broke the parser.** `NAME` was `^@([^\s]+)\s+…`,
+which stops at the first space — fine for a hand-typed `@Dev`, and wrong the
+moment the list inserts `@Developer (Dev)`: the recipient came out as
+`Developer` and **`(Dev)` was left at the front of the message the agent would
+read**. Nothing in the bare-word tests could have shown it; it took picking a
+name off the list and looking at what came out.
+
+Real names are matched first now, longest first, and a name with *nothing*
+after it is treated as an address half-typed rather than as a message — because
+otherwise `@Developer (Dev)` on its own reads as "(Dev)", said to Developer,
+which is a message nobody wrote.
+
+### A count worth showing is a count that fell short
+
+The sidebar printed `2/2` on every finished run. That is the ordinary outcome,
+so a column of it down the whole list makes the one row saying `1/4` **harder**
+to find, not easier — the same reasoning that folded six `tool_uncovered` lines
+into one. The badge now appears only when a run did not get through what it
+planned. A run recorded before the counts existed still shows nothing at all,
+because "0 of 0" is a different claim from "nobody counted" (§5.1).
+
+### `@Name`, on a live run
+
+Verified against a running mission rather than argued from the tests. The
+composer said *"Only Dev will read this"* before Enter, and the log carries it:
+
+    seq 49  -> everyone               "Write a file called STORY.md ..."
+    seq 51  -> Developer (Dev)        "keep every line under 40 characters."
+    seq 58  -> Tester (QA Engineer)   "check the line lengths"
+    seq 59  -> Tester (QA Engineer)   "and the file name"
+
+Three different match rules on one team: `@Dev` by prefix, `@QA` by contains,
+`@Tester` by prefix. `@Nobody` answers 404 with the three real names, because
+"no such teammate" is not something a person can act on.
+
+The private note was obeyed — every line Dev wrote came in at 33-38
+characters against a 40 limit — though that is corroboration rather than proof,
+since a model might write short lines anyway. What is proof is the `to` on the
+log and the mailbox tests underneath it.
+
 ---
 
 ## Decisions made while building
@@ -763,6 +2839,14 @@ the forward-compat test points.
   there is a comment at the top of the file now.
 - **Alembic's async `env.py` calls `asyncio.run()`**, which cannot nest inside a running
   loop. The pytest fixture migrates via `asyncio.to_thread(upgrade_to_head, url)`.
+- **`open(p, "w").write(open(p).read()...)` destroys the file.** The outer open
+  truncates to zero *before* the inner one reads, so the read returns "". It ate
+  `tools/search.py` whole. `git checkout` got the committed version back and the
+  session's changes were re-applied by hand. Always read into a variable first,
+  transform, then write.
+- **A long heredoc gets truncated in this harness**, and bash then dies with
+  `unexpected EOF while looking for matching '`. Twice, both around 200 lines.
+  Write long files with the editor tooling; keep heredocs to a few dozen lines.
 - **A `@dataclass` is unhashable by default** (`eq=True` sets `__hash__ = None`), so
   `Subscriber` needs `eq=False` to live in a set.
 
@@ -770,16 +2854,18 @@ the forward-compat test points.
 
 ## Open items
 
-- `deepseek-v4-flash` / `deepseek-v4-pro` and the retirement of `deepseek-chat` /
-  `deepseek-reasoner` are **unverified** (brief §3.1). The test-connection flow resolves
-  this empirically via `GET /v1/models`; no model id is hardcoded anywhere.
+- ~~`deepseek-v4-flash` / `deepseek-v4-pro` unverified~~ — **resolved.** The endpoint
+  was asked directly and answered `deepseek-v4-flash`, `deepseek-v4-flash-vision-exp`,
+  `deepseek-v4-pro`. Still no model id hardcoded anywhere: the add-a-model form fetches
+  the list from whichever endpoint you are configuring.
 - Haiku 4.5 has two ids in circulation (`claude-haiku-4-5` vs
   `claude-haiku-4-5-20251001`). Same resolution: ask the endpoint, don't guess.
-- **`web_search` has not run against a real endpoint yet** — it needs a Brave or Tavily
-  key, and there is none on this machine. Both adapters are tested against their own
-  recorded response shapes, and the request each one builds is asserted (a POST with the
-  key in the body for Tavily, a GET with `X-Subscription-Token` for Brave), but nobody
-  has typed a key in. Brave's free tier is the cheapest way to close that.
+- ~~No team has been pointed at a task that needs the web~~ — **done.** A research
+  team fetched `sqlite.org/whentouse.html` (15,321 chars) and `faq.html` (20,018) and
+  wrote a document quoting them with URLs. Two things that cost a run each to learn:
+  the web tools must not sit on the leader, and a fetched page is re-sent every turn,
+  so two pages can spend a 200,000-token budget. `web_search` itself is *still*
+  unexercised — the model went straight to URLs it already knew both times.
 - **DeepSeek's native search has been sent once and never wired into a mission.** The
   probe that established it works was a raw request, not a run: the adapter, the
   `origin` field and the UI switch are all tested, but no team has been pointed at an
@@ -791,6 +2877,35 @@ the forward-compat test points.
   is no checkpoint mid-turn: the mission is reaped as `crashed` and the tool never ran.
   Seen live and documented rather than fixed — fixing it means checkpointing inside a
   turn, which is a larger change than M8 was.
+- ~~**Budget limits are not editable anywhere**~~ — **done.** Settings has them,
+  they are stored per field, and a new run or a continued round picks them up.
+- ~~**A run that hits a limit stops where it stands**~~ — **done.** A reserve
+  is held back from each limit: the work phase stops starting new tasks, what
+  is running finishes, and the leader writes a handover with what remains.
+- **`suggest` and `review` have been run against one endpoint only.** DeepSeek
+  produced a usable proposal on the first attempt both times, so the
+  validate-and-retry loop's corrections are covered by tests and have never
+  fired against a real model. A model that seats somebody who does not exist is
+  the case that has not been seen for real.
+- **`/rewind` cannot undo what `bash` did.** Only `write_file` and `edit_file`
+  leave a stored version, so a file a shell command created, moved or deleted
+  has no copy to go back to. Said on the dialog before it is agreed to rather
+  than discovered afterwards, and it means the bisect case below is still open.
+- **Nothing undoes what a stopped turn had temporarily done.** An agent that
+  moved two directories aside to bisect a build failure was cut off by
+  `tool_rounds_exhausted` mid-bisect, and the next agent reported on the
+  debugging state as though it were the deliverable. A half-written file is
+  visible; a moved directory is not.
+- ~~**`budget_exceeded` does not say which limit**~~ — **done.** The kind is on
+  the ending and on the row, so the label names it. Runs recorded before the
+  column keep the general phrase, which was true of them.
+- ~~**A team or mission budget still has no screen**~~ — **done.** All three
+  layers of §10 are editable, per field, with what a blank box inherits shown
+  as its placeholder.
+- **An image attached with the *first* message reaches the agents only on the next
+  round.** The mission has no id until that message creates it, so the upload lands
+  after the round has started. Said in the composer's hint rather than hidden, and
+  the fix is `POST /missions` taking attachments, or a create-without-starting mode.
 - **The installers are unsigned.** Windows SmartScreen will warn on first run, and macOS
   would refuse outright without notarisation. Nothing to fix in the code — it needs a
   certificate — but anyone handing the MSI to someone else should expect the warning and

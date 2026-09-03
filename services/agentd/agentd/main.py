@@ -22,12 +22,14 @@ from .api import (
     chat,
     hitl,
     settings as settings_api,
+    team_ai,
     teams,
+    terminal,
     tools,
     ws,
 )
 from .api.deps import require_token
-from .core.config import ALLOWED_ORIGINS, Settings, get_settings
+from .core.config import Settings, allowed_origins, get_settings
 from .core.events import EventBus
 from .db.session import Database
 
@@ -110,7 +112,7 @@ def create_app(*, settings: Settings | None = None, db: Database | None = None) 
     # automatically to a cross-site request.
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=list(ALLOWED_ORIGINS),
+        allow_origins=list(allowed_origins()),
         allow_credentials=False,
         allow_methods=["GET", "POST", "PATCH", "DELETE", "PUT", "OPTIONS"],
         allow_headers=["Content-Type", "X-Agent-Studio-Token"],
@@ -122,10 +124,12 @@ def create_app(*, settings: Settings | None = None, db: Database | None = None) 
 
     app.include_router(agents.router)
     app.include_router(teams.router)
+    app.include_router(team_ai.router)
     app.include_router(settings_api.router)
     app.include_router(chat.router)
     app.include_router(hitl.router)
     app.include_router(tools.router)
+    app.include_router(terminal.router)
     app.include_router(ws.router)
     return app
 

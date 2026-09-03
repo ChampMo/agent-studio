@@ -41,7 +41,14 @@ describe("the known-type list comes from the contract", () => {
     expect(KNOWN_EVENT_TYPES.has("agent.message")).toBe(true);
     expect(KNOWN_EVENT_TYPES.has("mission.ended")).toBe(true);
     expect(KNOWN_EVENT_TYPES.has("agent.request.resolved")).toBe(true);
-    expect(KNOWN_EVENT_TYPES.size).toBe(14);
+    // Added with images (§12 M9.3), and this count is why the addition could
+    // not be made quietly on one side of the contract.
+    expect(KNOWN_EVENT_TYPES.has("attachment.added")).toBe(true);
+    // What a tool-only round cost. Added because the budget guard counted
+    // those tokens and the log did not, so a run stopped at 200,000 showed
+    // 7,540 on its own timeline (§1).
+    expect(KNOWN_EVENT_TYPES.has("agent.usage")).toBe(true);
+    expect(KNOWN_EVENT_TYPES.size).toBe(16);
   });
 });
 

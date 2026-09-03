@@ -14,7 +14,8 @@ import { strings } from "../../lib/constants/strings.en";
 import { cn } from "../../lib/cn";
 import { useToolStore } from "../../stores/toolStore";
 import { Badge, Field } from "../../components/ui/primitives";
-import type { Autonomy, ToolRisk } from "../../transport/rest";
+import { Checkbox } from "../../components/ui/Checkbox";
+import type { ToolRisk } from "../../transport/rest";
 
 const TONE: Record<ToolRisk, "neutral" | "warn" | "bad"> = {
   safe: "neutral",
@@ -24,14 +25,10 @@ const TONE: Record<ToolRisk, "neutral" | "warn" | "bad"> = {
 
 export function ToolPicker({
   value,
-  autonomy,
   onChange,
-  onAutonomyChange,
 }: {
   value: string[];
-  autonomy: Autonomy;
   onChange: (tools: string[]) => void;
-  onAutonomyChange: (autonomy: Autonomy) => void;
 }) {
   const tools = useToolStore((s) => s.tools);
   const load = useToolStore((s) => s.load);
@@ -44,10 +41,6 @@ export function ToolPicker({
     onChange(value.includes(id) ? value.filter((t) => t !== id) : [...value, id]);
   };
 
-  const holdsDangerous = tools.some(
-    (t) => value.includes(t.id) && t.risk === "dangerous",
-  );
-
   return (
     <div className="space-y-3">
       <Field label={strings.tools.title}>
@@ -56,65 +49,41 @@ export function ToolPicker({
         ) : (
           <div className="space-y-1">
             {tools.map((tool) => (
-              <label
+              <Checkbox
                 key={tool.id}
+                checked={value.includes(tool.id)}
+                onChange={() => toggle(tool.id)}
                 className={cn(
-                  "flex cursor-pointer items-start gap-2 rounded-md border px-3 py-2",
+                  "rounded-card border px-3 transition-colors",
                   value.includes(tool.id)
-                    ? "border-sky-800 bg-sky-950/30"
-                    : "border-slate-800 bg-slate-900/40",
+                    ? "border-accent/50 bg-accent/5"
+                    : "border-line bg-solid",
                 )}
-              >
-                <input
-                  type="checkbox"
-                  checked={value.includes(tool.id)}
-                  onChange={() => toggle(tool.id)}
-                  className="mt-1 accent-sky-500"
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-2">
-                    <span className="text-sm text-slate-200">{tool.title}</span>
-                    <code className="text-[11px] text-slate-500">{tool.id}</code>
+                label={
+                  <span className="flex flex-wrap items-center gap-2">
+                    <span>{tool.title}</span>
+                    <code className="text-[11px] text-faint">{tool.id}</code>
                     <Badge tone={TONE[tool.risk]}>
                       {strings.tools.risk[tool.risk] ?? tool.risk}
                     </Badge>
                     {tool.requires.includes("workspace") ? (
-                      <span className="text-[11px] text-slate-500">
+                      <span className="text-[11px] text-faint">
                         {strings.tools.needsWorkspace}
                       </span>
                     ) : null}
                   </span>
-                  <span className="mt-0.5 block text-xs text-slate-400">
-                    {tool.description}
-                  </span>
-                </span>
-              </label>
+                }
+                hint={tool.description}
+              />
             ))}
           </div>
         )}
       </Field>
 
-      <Field label={strings.tools.autonomy}>
-        <select
-          value={autonomy}
-          onChange={(e) => onAutonomyChange(e.target.value as Autonomy)}
-          className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
-        >
-          {(["ask_always", "ask_dangerous", "trusted"] as const).map((option) => (
-            <option key={option} value={option}>
-              {strings.tools.autonomyOptions[option]}
-            </option>
-          ))}
-        </select>
-      </Field>
 
-      {autonomy === "trusted" && holdsDangerous ? (
-        // Said plainly, because it is true and because the alternative is an
-        // app that implies a container it does not have (§2.7).
-        <p className="rounded-md border border-red-900/60 bg-red-950/30 p-3 text-xs text-red-300">
-          {strings.tools.trustedWarning}
-        </p>
-      ) : null}
+      {/* The "trusted removes the only gate" warning moved with the setting,
+          to the control that now owns it beside the composer. Warning about a
+          choice on a page where the choice no longer lives is noise. */}
     </div>
   );
 }

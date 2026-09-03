@@ -10,6 +10,7 @@ import {
   api,
   type ProbeResult,
   type ProviderProfile,
+  type ModelPreset,
   type SearchEngine,
 } from "../transport/rest";
 
@@ -21,6 +22,9 @@ interface SettingsState {
   /** The search APIs this build can talk to, served by the backend so the UI
    *  never has to remember a base URL (§16.5). */
   searchEngines: SearchEngine[];
+  /** Starting points for adding a model endpoint, from the backend so the UI
+   *  never has to remember a base URL (§3.2). */
+  modelPresets: ModelPreset[];
   activeId: string | null;
   probe: Record<string, ProbeResult>;
   probing: string | null;
@@ -41,8 +45,24 @@ interface SettingsState {
   }) => Promise<ProviderProfile>;
   removeProvider: (id: string) => Promise<void>;
   setNativeSearch: (id: string, on: boolean) => Promise<void>;
+  /** Move a search key up or down the fallback chain. */
+  moveSearchKey: (id: string, by: -1 | 1) => Promise<void>;
   setKey: (id: string, key: string) => Promise<void>;
   test: (id: string) => Promise<ProbeResult>;
+}
+
+/** The default model endpoint: still present, and not a search key.
+ *
+ *  A stored id is re-checked rather than trusted, because a profile can be
+ *  deleted, and because a machine that ran the older version has a search
+ *  profile saved here. */
+export function pickActive(
+  providers: ProviderProfile[],
+  current: string | null,
+): string | null {
+  const models = providers.filter((p) => p.kind !== "search");
+  if (current && models.some((p) => p.id === current)) return current;
+  return models.find((p) => p.hasKey || p.verifiedAt)?.id ?? models[0]?.id ?? null;
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
@@ -51,6 +71,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   error: null,
   providers: [],
   searchEngines: [],
+  modelPresets: [],
   activeId: null,
   probe: {},
   probing: null,
@@ -58,8 +79,16 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   // A search endpoint is not something to run a mission on, so it does not
   // count towards having a provider: an app with only a Brave key still needs
   // a model before anything can happen (§3.2).
+  //
+  // `hasKey || verifiedAt`, not `hasKey` alone. A server on this machine wants
+  // no key, so the old rule left anyone running Ollama stuck on the onboarding
+  // screen for ever with a working endpoint already configured. Both halves are
+  // established facts — you supplied a key, or the endpoint answered — rather
+  // than a guess about which endpoints need one.
   needsOnboarding: () =>
-    get().providers.every((p) => !p.hasKey || p.kind === "search"),
+    get().providers.every(
+      (p) => p.kind === "search" || (!p.hasKey && p.verifiedAt === null),
+    ),
   active: () => get().providers.find((p) => p.id === get().activeId) ?? null,
 
   waitForBackend: async () => {
@@ -84,14 +113,19 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   refresh: async () => {
     set({ loading: true, error: null });
     try {
-      const { providers, searchEngines } = await api.listProviders();
+      const { providers, searchEngines, modelPresets } = await api.listProviders();
       set((s) => ({
         providers,
         searchEngines: searchEngines ?? [],
-        activeId:
-          s.activeId && providers.some((p) => p.id === s.activeId)
-            ? s.activeId
-            : (providers.find((p) => p.hasKey)?.id ?? providers[0]?.id ?? null),
+        modelPresets: modelPresets ?? [],
+        // The endpoint a new agent thinks with — which a search key is not.
+        // `find((p) => p.hasKey)` chose the first key of any kind, and on a
+        // machine whose Tavily key was added before its model key that is a
+        // search profile: every "generate a profile" defaulted to an endpoint
+        // that cannot complete anything, and failed with `no provider
+        // registered for 'search'`. The line above already draws this
+        // distinction for onboarding; this one did not.
+        activeId: pickActive(providers, s.activeId),
       }));
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) });
@@ -114,6 +148,20 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   removeProvider: async (id) => {
     await api.deleteProvider(id);
+    await get().refresh();
+  },
+
+  moveSearchKey: async (id, by) => {
+    // Built here rather than in the component, because the chain is a property
+    // of the whole list and the component only ever holds one row's id. The
+    // backend takes the finished order and refuses anything that is not a
+    // permutation of what it has.
+    const chain = get().providers.filter((p) => p.kind === "search").map((p) => p.id);
+    const from = chain.indexOf(id);
+    const to = from + by;
+    if (from < 0 || to < 0 || to >= chain.length) return;
+    [chain[from], chain[to]] = [chain[to]!, chain[from]!];
+    await api.setSearchOrder(chain);
     await get().refresh();
   },
 

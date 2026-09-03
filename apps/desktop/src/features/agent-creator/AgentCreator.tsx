@@ -8,6 +8,7 @@
  */
 import { useEffect, useState } from "react";
 import { strings } from "../../lib/constants/strings.en";
+import { Select } from "../../components/ui/Select";
 import {
   api,
   type Agent,
@@ -154,12 +155,30 @@ export function AgentCreator({
   }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6 p-6">
-      <div>
-        <h2 className="text-lg font-semibold text-slate-100">
+    // One <form> around the whole page, with the actions in a header that stays
+    // put. They used to sit at the very bottom, past the tool list and the
+    // avatar pickers — so on a long form the only way to save was to scroll to
+    // the end and find them, and there was nothing at the top to say the page
+    // was even editable. Matches the team editor, which already worked this
+    // way.
+    <form onSubmit={save} className="flex h-full flex-col">
+      <div className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-line bg-glass px-4 py-3 backdrop-blur">
+        <h2 className="truncate text-sm font-medium text-text">
           {agent ? strings.creator.editTitle : strings.creator.title}
         </h2>
-        <p className="mt-1 text-sm text-slate-400">
+        <div className="flex shrink-0 gap-2">
+          <Button type="submit" disabled={busy || !draft.name.trim()}>
+            {agent ? strings.creator.saveEdit : strings.creator.save}
+          </Button>
+          <Button type="button" variant="ghost" onClick={onDone}>
+            {strings.creator.cancel}
+          </Button>
+        </div>
+      </div>
+
+      <div className="mx-auto w-full max-w-2xl space-y-6 p-6">
+      <div>
+        <p className="text-sm text-muted">
           {agent ? strings.creator.editIntro : strings.creator.intro}
         </p>
       </div>
@@ -171,18 +190,16 @@ export function AgentCreator({
         className="space-y-3 rounded-lg border border-slate-800 bg-slate-900/40 p-4"
       >
         <Field label={strings.creator.providerLabel}>
-          <select
+          <Select
             value={providerId}
-            onChange={(e) => setProviderId(e.target.value)}
-            className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
-          >
-            {usable.length === 0 ? <option value="">—</option> : null}
-            {usable.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name} · {p.model}
-              </option>
-            ))}
-          </select>
+            onChange={setProviderId}
+            placeholder="—"
+            options={usable.map((p) => ({
+              value: p.id,
+              label: p.name,
+              hint: p.model ?? undefined,
+            }))}
+          />
         </Field>
 
         <Field label={strings.creator.roleLabel} hint={strings.creator.roleHint}>
@@ -231,9 +248,9 @@ export function AgentCreator({
         <p className="rounded-md bg-red-950/60 px-3 py-2 text-sm text-red-300">{error}</p>
       ) : null}
 
-      <form onSubmit={save} className="space-y-4">
+      <div className="space-y-4">
         <div className="flex items-center gap-2">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+          <h3 className="text-sm font-medium text-text">
             {strings.creator.reviewTitle}
           </h3>
           {agent ? null : <Badge tone="warn">{strings.creator.reviewBadge}</Badge>}
@@ -300,14 +317,13 @@ export function AgentCreator({
 
         <ToolPicker
           value={draft.tools ?? []}
-          autonomy={draft.autonomy ?? "ask_dangerous"}
           onChange={(tools) => setDraft({ ...draft, tools })}
-          onAutonomyChange={(autonomy) => setDraft({ ...draft, autonomy })}
         />
 
         <AvatarPicker
           assets={assets}
           value={draft.avatar_config ?? {}}
+          name={draft.name ?? ""}
           onChange={(avatar_config) => setDraft({ ...draft, avatar_config })}
         />
 
@@ -315,15 +331,8 @@ export function AgentCreator({
           <p className="text-xs text-amber-400">{strings.creator.samplingIgnored}</p>
         ) : null}
 
-        <div className="flex gap-2">
-          <Button type="submit" disabled={busy || !draft.name.trim()}>
-            {agent ? strings.creator.saveEdit : strings.creator.save}
-          </Button>
-          <Button type="button" variant="ghost" onClick={onDone}>
-            {strings.creator.cancel}
-          </Button>
-        </div>
-      </form>
-    </div>
+      </div>
+      </div>
+    </form>
   );
 }

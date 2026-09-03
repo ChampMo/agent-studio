@@ -79,6 +79,31 @@ def validate(
             )
         )
 
+    # Two members with the same name is a functional failure, not a style
+    # problem: `send_message` addresses a teammate *by name*, and
+    # `Mailbox.resolve` returns the first match — so a message meant for one of
+    # them is silently delivered to the other. The timeline and the scene label
+    # everyone by name too, so the record cannot say which of them acted.
+    #
+    # An error rather than a warning, because there is no way to use the team
+    # correctly while it holds two agents nobody can tell apart. Two agents may
+    # still *share* a name across different teams; it only breaks inside one.
+    seen: dict[str, list[str]] = {}
+    for member in members:
+        if agent := agents.get(member.agent_id):
+            seen.setdefault(agent.name.strip().casefold(), []).append(agent.name)
+    for clashing in seen.values():
+        if len(clashing) > 1:
+            findings.append(
+                Finding(
+                    "duplicate_name",
+                    "error",
+                    f"{len(clashing)} members are called {clashing[0]!r}. "
+                    "Teammates are addressed by name, so a message meant for "
+                    "one would reach the other. Rename one of them.",
+                )
+            )
+
     for member in members:
         agent = agents.get(member.agent_id)
         if agent is None:
@@ -152,6 +177,47 @@ def validate(
                     missing,
                 )
             )
+
+    # A tool the leader alone carries is a tool nobody can use.
+    #
+    # `_assignable()` excludes the leader whenever the team has workers — the
+    # leader supervises — and the two turns a leader does take, planning and
+    # summarising, are given no toolbox at all. So the tool is on the roster,
+    # covered as far as `tool_uncovered` is concerned, and dead.
+    #
+    # Found by a run that produced a confident-looking research document
+    # written entirely from the model's memory: the only agent with
+    # `web_search` was the leader, every task went to the one worker, and the
+    # worker improvised by calling `read_file` on a URL. Nothing on screen said
+    # why, because from the outside the team was correctly equipped.
+    leader = next((m for m in members if m.role_in_team == "leader"), None)
+    workers = [m for m in members if m.role_in_team != "leader"]
+    if leader is not None and workers:
+        leader_agent = agents.get(leader.agent_id)
+        if leader_agent is not None:
+            leader_tools = set(_effective_tools(leader, leader_agent))
+            worker_tools = {
+                tool
+                for m in workers
+                if (a := agents.get(m.agent_id)) is not None
+                for tool in _effective_tools(m, a)
+            }
+            # `send_message` is the exception that proves the rule: it is how a
+            # leader talks to its team, and it is used from turns that are not
+            # tasks.
+            stranded = sorted(leader_tools - worker_tools - {"send_message"})
+            if stranded:
+                findings.append(
+                    Finding(
+                        "leader_only_tool",
+                        "warn",
+                        f"Only {leader_agent.name} carries {', '.join(stranded)}, and the leader "
+                        "of a team with workers is never assigned a task — so those "
+                        "tools cannot be used. Give them to a worker, or the work "
+                        "that needs them will be done without them.",
+                        leader.agent_id,
+                    )
+                )
 
     for member in members:
         agent = agents.get(member.agent_id)

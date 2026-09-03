@@ -165,6 +165,69 @@ def _walk(root: Path, start: Path):
             yield Path(current) / name
 
 
+#: How many patterns one set of braces may expand into. A guard, not a policy:
+#: `{a,b}{c,d}{e,f}...` multiplies, and each branch is a full tree walk.
+MAX_BRACE_BRANCHES = 64
+
+
+def expand_braces(pattern: str) -> list[str]:
+    """`a/*.{ts,tsx}` -> `["a/*.ts", "a/*.tsx"]`.
+
+    `pathlib` does not do this, and the agent that found out wrote five files
+    and then asked for `**/*.{ts,tsx,json,md}` — the ordinary way to say "the
+    source files", understood by bash, ripgrep, fd, VS Code and every JS glob
+    library. It got `0 file(s) matched` over a folder holding two `.json` and
+    one `.ts`, which is not an error message but a false statement about the
+    workspace (§1). It then reached for `bash` to run `find`, which raised an
+    approval question, which is where that run stopped.
+
+    Nested braces expand too, by re-expanding each branch. An unbalanced brace
+    is left exactly as it was: `{` is a legal character in a filename, and
+    guessing what was meant would be worse than matching what was typed.
+    """
+    open_at = pattern.find("{")
+    if open_at == -1:
+        return [pattern]
+
+    depth = 0
+    close_at = -1
+    for i in range(open_at, len(pattern)):
+        if pattern[i] == "{":
+            depth += 1
+        elif pattern[i] == "}":
+            depth -= 1
+            if depth == 0:
+                close_at = i
+                break
+    if close_at == -1:
+        return [pattern]
+
+    head, tail = pattern[:open_at], pattern[close_at + 1 :]
+    # Split on commas at this level only, so `{a,{b,c}}` keeps its inner group.
+    options: list[str] = []
+    depth, part = 0, ""
+    for ch in pattern[open_at + 1 : close_at]:
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+        if ch == "," and depth == 0:
+            options.append(part)
+            part = ""
+        else:
+            part += ch
+    options.append(part)
+
+    out: list[str] = []
+    for option in options:
+        for expanded in expand_braces(head + option + tail):
+            if expanded not in out:
+                out.append(expanded)
+            if len(out) >= MAX_BRACE_BRANCHES:
+                return out
+    return out
+
+
 async def glob(ctx: ToolContext, *, pattern: str, path: str = ".") -> ToolResult:
     """Find files by name pattern, most recently changed first."""
     root = canonical(ctx.require_workspace())
@@ -178,12 +241,21 @@ async def glob(ctx: ToolContext, *, pattern: str, path: str = ".") -> ToolResult
         raise ToolFailed("bad_pattern", "a glob pattern is required")
 
     matches: list[Path] = []
+    seen: set[Path] = set()
     try:
-        for found in start.glob(pattern):
-            if any(part in SKIP_DIRS for part in found.parts):
-                continue
-            if found.is_file():
-                matches.append(found)
+        # One walk per branch, unioned. `{ts,tsx}` overlaps nothing, but
+        # `{*.ts,lib/*}` can, so a file found twice is listed once.
+        for branch in expand_braces(pattern):
+            for found in start.glob(branch):
+                if any(part in SKIP_DIRS for part in found.parts):
+                    continue
+                if found in seen:
+                    continue
+                if found.is_file():
+                    seen.add(found)
+                    matches.append(found)
+                if len(matches) > MAX_ENTRIES * 4:
+                    break
             if len(matches) > MAX_ENTRIES * 4:
                 break
     except (OSError, ValueError) as exc:

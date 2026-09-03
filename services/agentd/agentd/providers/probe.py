@@ -18,6 +18,8 @@ of nothing, and evidence of nothing must never reach the database.
 from __future__ import annotations
 
 import json
+
+from ..core.jsonish import extract_json
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -268,10 +270,24 @@ async def run_probe(provider: LLMProvider, model: str) -> ProbeResult:
         result.checks.append(CheckResult("tools", "Tool calling", "fail", exc.message))
 
     # ---- 4. structured output, strongest mode first --------------------
+    #
+    # Three outcomes, and the middle one is the whole point. A mode the endpoint
+    # *refuses* is unavailable — that is a fact about the endpoint. A mode it
+    # *accepts* whose reply this build could not parse is not: it is one sample,
+    # and JSON mode is documented here as "the shape is not enforced, so replies
+    # must be validated and retried by the caller". Recording `none` for that
+    # says the endpoint has no JSON mode, about an endpoint that had just taken
+    # `response_format: json_object` without complaint.
+    #
+    # Seen live on `deepseek-v4-pro`: reported "reply was not usable JSON" and
+    # wrote `structured: none`, while the same model answered
+    # `{"ok": false, "note": "No task was provided."}` when asked again.
     structured: str = "none"
     status: CheckStatus = "fail"
     detail = "no structured-output mode worked"
     conclusive = True
+    #: A mode the endpoint took without erroring, even if the text was unusable.
+    accepted: str | None = None
 
     for mode in ("schema", "json_object"):
         try:
@@ -300,7 +316,13 @@ async def run_probe(provider: LLMProvider, model: str) -> ProbeResult:
                 detail, conclusive, status = _TRUNCATED_DETAIL, False, "inconclusive"
                 break
 
-            parsed = json.loads(text)
+            # The endpoint did not refuse the parameter, so the mode exists
+            # here whatever the text turns out to be.
+            accepted = accepted or mode
+
+            # Fenced or prefaced JSON is JSON. Stripping it costs one regex;
+            # calling it a failure costs the user a capability they have.
+            parsed = json.loads(extract_json(text))
             if not isinstance(parsed, dict) or "ok" not in parsed:
                 raise ValueError("the reply was JSON but not the requested shape")
 
@@ -317,6 +339,16 @@ async def run_probe(provider: LLMProvider, model: str) -> ProbeResult:
             detail = exc.message
         except (json.JSONDecodeError, ValueError) as exc:
             detail = f"reply was not usable JSON: {exc}"
+
+    if status == "fail" and accepted is not None:
+        # Accepted, and this one reply did not parse. Neither "it works" nor
+        # "it cannot" — so nothing is written and the report says which it is.
+        status, conclusive = "inconclusive", False
+        detail = (
+            f"the endpoint accepted {accepted} mode but this reply did not parse "
+            f"({detail}). JSON mode does not enforce a shape, so a reply that "
+            "needs retrying is normal; nothing was recorded from this run."
+        )
 
     result.checks.append(CheckResult("structured", "Structured output", status, detail))
     if conclusive:

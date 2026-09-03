@@ -82,6 +82,12 @@ class PayloadMissionStarted(BaseModel):
             description="The folder this mission's file tools are confined to (section 16.2). Absent for a mission launched without one - a chat, or a team with no fs tool. On the log so a replay can say where the work actually happened."
         ),
     ] = None
+    forkedFrom: Annotated[
+        str | None,
+        Field(
+            description='The mission this one was forked from: same frozen roster, same workspace, a separate log. On the event rather than only in the title, because a fork whose origin has to be guessed from a name is a fork whose origin is not recorded.'
+        ),
+    ] = None
 
 
 class PayloadMissionProgress(BaseModel):
@@ -90,11 +96,23 @@ class PayloadMissionProgress(BaseModel):
     state: Literal['pending', 'running', 'done', 'failed']
     done: Annotated[int, Field(ge=0)]
     total: Annotated[int, Field(ge=0)]
+    instruction: Annotated[
+        str | None,
+        Field(
+            description="What this task was actually told to do, on the `pending` event that announces it and nowhere else. The plan message renders titles and seats, which is what a person needs to approve a plan and not enough to run a task again: a task that failed could only be retried by re-running the whole round. Bounded by the plan's own task limit."
+        ),
+    ] = None
 
 
 class PayloadMissionEnded(BaseModel):
     reason: Literal['completed', 'failed', 'budget_exceeded', 'cancelled', 'crashed']
     summary: str
+    limit: Annotated[
+        Literal['tokens', 'llm_calls', 'supersteps', 'time'] | None,
+        Field(
+            description='Which ceiling ended the run, when `reason` is budget_exceeded. Four different problems with four different fixes were being rendered as one phrase, and the reason only existed inside the summary prose. Absent for every other reason, and absent on rounds recorded before this field.'
+        ),
+    ] = None
 
 
 class PayloadAgentStatus(BaseModel):
@@ -160,6 +178,12 @@ class PayloadAgentToolEnd(BaseModel):
 
 class PayloadUserMessage(BaseModel):
     content: str
+    to: Annotated[
+        str | None,
+        Field(
+            description='Who the note was addressed to, when it was addressed to one teammate rather than the whole team. The agent id, resolved from the name that was typed. Absent means everybody, which is what a note has always been - so an older event and a broadcast are the same thing, correctly.'
+        ),
+    ] = None
 
 
 class PayloadAgentRequest(BaseModel):
@@ -190,6 +214,12 @@ class PayloadArtifactCreated(BaseModel):
         str, Field(description='Sandbox-relative. Never an absolute host path.')
     ]
     kind: Literal['code', 'doc', 'image']
+    source: Annotated[
+        Literal['store', 'workspace'] | None,
+        Field(
+            description='Where the file is. `store` is one the app wrote under its own artifact root; `workspace` is one an agent wrote into the folder the mission was given, which stays where the user can see it and may be edited again. Absent means `store`, which is what every row recorded before this field was.'
+        ),
+    ] = None
 
 
 class PayloadBudgetWarning(BaseModel):
@@ -280,6 +310,56 @@ class DraftError(BaseModel):
     payload: PayloadError
 
 
+class EphemeralFrame(BaseModel):
+    channel: Literal['ephemeral']
+    type: Literal['agent.message.delta']
+    missionId: str
+    agentId: str
+    messageId: Annotated[
+        str,
+        Field(
+            description='Matches the messageId of the agent.message that will follow.'
+        ),
+    ]
+    index: Annotated[
+        int, Field(description='Monotonic within one messageId. Not a seq.', ge=0)
+    ]
+    text: str
+
+
+class PayloadAttachmentAdded(BaseModel):
+    attachmentId: Annotated[
+        str, Field(description='Links this event to the stored file.')
+    ]
+    name: str
+    bytes: Annotated[int, Field(ge=0)]
+    mime: str
+    sha256: Annotated[
+        str, Field(description='Identifies the file without reproducing it.')
+    ]
+
+
+class DraftAttachmentAdded(BaseModel):
+    type: Literal['attachment.added']
+    payload: PayloadAttachmentAdded
+
+
+class PayloadAgentUsage(BaseModel):
+    agentId: str
+    messageId: Annotated[
+        str,
+        Field(
+            description='The round this cost belongs to, so it can be matched to the tool calls it paid for.'
+        ),
+    ]
+    usage: Usage
+
+
+class DraftAgentUsage(BaseModel):
+    type: Literal['agent.usage']
+    payload: PayloadAgentUsage
+
+
 class EventDraft(
     RootModel[
         DraftMissionStarted
@@ -288,6 +368,7 @@ class EventDraft(
         | DraftAgentStatus
         | DraftAgentThought
         | DraftAgentMessage
+        | DraftAgentUsage
         | DraftAgentToolStart
         | DraftAgentToolEnd
         | DraftUserMessage
@@ -296,6 +377,7 @@ class EventDraft(
         | DraftArtifactCreated
         | DraftBudgetWarning
         | DraftError
+        | DraftAttachmentAdded
     ]
 ):
     root: Annotated[
@@ -305,6 +387,7 @@ class EventDraft(
         | DraftAgentStatus
         | DraftAgentThought
         | DraftAgentMessage
+        | DraftAgentUsage
         | DraftAgentToolStart
         | DraftAgentToolEnd
         | DraftUserMessage
@@ -312,7 +395,8 @@ class EventDraft(
         | DraftAgentRequestResolved
         | DraftArtifactCreated
         | DraftBudgetWarning
-        | DraftError,
+        | DraftError
+        | DraftAttachmentAdded,
         Field(
             description='What runtime.py yields. The caller — never the runtime — hands this to the bus (§4.1).',
             discriminator='type',
@@ -346,23 +430,6 @@ class EventEnvelope(BaseModel):
         ),
     ]
     draft: EventDraft
-
-
-class EphemeralFrame(BaseModel):
-    channel: Literal['ephemeral']
-    type: Literal['agent.message.delta']
-    missionId: str
-    agentId: str
-    messageId: Annotated[
-        str,
-        Field(
-            description='Matches the messageId of the agent.message that will follow.'
-        ),
-    ]
-    index: Annotated[
-        int, Field(description='Monotonic within one messageId. Not a seq.', ge=0)
-    ]
-    text: str
 
 
 class AgentStudioEvents(RootModel[EventEnvelope | EphemeralFrame]):

@@ -167,6 +167,94 @@ mod tests {
         assert!(script.contains(r#"a\""#), "the quote was not escaped");
         assert!(!script.contains(r#""a"; alert"#), "the literal was broken out of");
     }
+
+    // ---- reveal_folder ----------------------------------------------------
+    //
+    // What is testable here is the refusing. Whether Explorer actually opened
+    // is the file manager's business and needs a desktop to see, so these cover
+    // the three checks that run before anything is spawned — and those are the
+    // ones that decide what this command is allowed to be pointed at.
+
+    #[test]
+    fn a_path_that_is_not_there_is_refused_before_anything_opens() {
+        let missing = std::env::temp_dir().join("agent-studio-no-such-folder-xyz");
+        let err = reveal_folder(missing.to_string_lossy().to_string()).unwrap_err();
+        assert!(err.contains("not there"), "unhelpful: {err}");
+    }
+
+    #[test]
+    fn a_file_is_refused_because_this_reveals_folders() {
+        // "Open the file at this path" is a different offer with a different
+        // risk, and this command does not make it.
+        let file = std::env::temp_dir().join("agent-studio-reveal-test.txt");
+        fs::write(&file, b"x").expect("could not write the fixture");
+        let err = reveal_folder(file.to_string_lossy().to_string()).unwrap_err();
+        let _ = fs::remove_file(&file);
+        assert!(err.contains("not a folder"), "unhelpful: {err}");
+    }
+
+    #[test]
+    fn an_empty_path_is_refused_rather_than_meaning_the_current_directory() {
+        assert!(reveal_folder(String::new()).is_err());
+    }
+}
+
+/// Open a folder in the OS file manager.
+///
+/// The one thing the page can ask this process to do, and it is written as a
+/// command rather than by granting the webview a shell permission, because
+/// those are not the same offer: a shell permission would let the page run
+/// anything, and this lets it show a directory.
+///
+/// Three checks before anything opens, in this order:
+///
+/// * the path must exist, so a stale workspace fails here rather than in a file
+///   manager the user then has to read an error out of;
+/// * it must be a **directory** — this reveals a folder, it does not open
+///   documents, and "open the file at this path" is a different offer with a
+///   different risk;
+/// * it is canonicalised, so `..` is resolved before it reaches the shell, the
+///   same rule the backend's workspace resolver keeps (§16.2).
+///
+/// The command is fixed per platform and the path is a single argument, never
+/// interpolated into a command line — there is no string for a crafted path to
+/// break out of.
+#[tauri::command]
+fn reveal_folder(path: String) -> Result<(), String> {
+    let target = PathBuf::from(&path);
+    if !target.exists() {
+        return Err(format!("{path} is not there any more"));
+    }
+    if !target.is_dir() {
+        return Err(format!("{path} is not a folder"));
+    }
+    let resolved = target
+        .canonicalize()
+        .map_err(|err| format!("could not resolve {path}: {err}"))?;
+
+    // Windows hands back a \\?\ prefixed path from canonicalize, which
+    // explorer.exe refuses. Strip it rather than skipping canonicalisation.
+    #[cfg(target_os = "windows")]
+    let resolved = {
+        let text = resolved.to_string_lossy().to_string();
+        PathBuf::from(text.strip_prefix(r"\\?\").unwrap_or(&text).to_string())
+    };
+
+    #[cfg(target_os = "windows")]
+    let program = "explorer.exe";
+    #[cfg(target_os = "macos")]
+    let program = "open";
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let program = "xdg-open";
+
+    std::process::Command::new(program)
+        .arg(&resolved)
+        .spawn()
+        .map(|_| ())
+        // explorer.exe returns a non-zero exit code even on success, so the
+        // child is not waited on: whether it opened is the file manager's
+        // business, and spawning is the part that can actually fail here.
+        .map_err(|err| format!("could not open the file manager: {err}"))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -177,6 +265,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         // The webview may open a folder picker; see capabilities/default.json.
         .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(tauri::generate_handler![reveal_folder])
         .manage(Backend::default())
         .setup(|app| {
             // The window is built here rather than declared in tauri.conf.json

@@ -61,6 +61,48 @@ class SearchEndpoint:
 
 
 @dataclass(frozen=True)
+class QuotaWindow:
+    """One allowance an endpoint reported about itself.
+
+    An endpoint can declare several at once — Brave sends a per-second cap and a
+    per-month one in the same headers — so this is a window, not "the quota".
+    `window_sec` is what makes them tellable apart, and what decides which is
+    worth showing a person: a monthly allowance is something you budget against,
+    a per-second cap is not.
+
+    Two fields exist because the endpoints genuinely differ. `window_sec` is
+    None when a total came back with **no period** — Tavily's `/usage` does
+    exactly that, and writing "a month" there because its dashboard says so
+    would be this app asserting something the API never returned (§3.1). `unit`
+    is what is counted: Brave meters requests, Tavily meters credits, and a
+    search is one credit while a crawl is not.
+    """
+
+    limit: int
+    remaining: int
+    #: Seconds the window covers, from the endpoint's own declaration. None when
+    #: it stated a total without saying over what period.
+    window_sec: int | None
+    #: Seconds until it refills, when the endpoint said.
+    reset_sec: int | None = None
+    #: What the numbers count, plural, for the sentence that shows them.
+    unit: str = "requests"
+
+
+@dataclass(frozen=True)
+class SearchResponse:
+    """What one search returned, and what the endpoint said about itself.
+
+    `quota` is None for an endpoint that says nothing on a search — a fact about
+    that response, not a zero, and not the last word either: some endpoints
+    answer the question somewhere else (see `read_quota`).
+    """
+
+    hits: list[SearchHit]
+    quota: tuple[QuotaWindow, ...] | None = None
+
+
+@dataclass(frozen=True)
 class SearchHit:
     title: str
     url: str
@@ -83,7 +125,25 @@ class SearchAdapter(Protocol):
 
     async def search(
         self, endpoint: SearchEndpoint, query: str, *, limit: int
-    ) -> list[SearchHit]: ...
+    ) -> SearchResponse: ...
+
+    async def read_quota(
+        self, endpoint: SearchEndpoint
+    ) -> tuple[QuotaWindow, ...] | None:
+        """The allowance, when it takes a request of its own to find out.
+
+        Brave reports on the way past, in headers on every search, so it has
+        nothing to do here. Tavily reports nothing on a search and answers at
+        `/usage` instead. Neither is smoothed into the other (§15 row 17): the
+        caller asks for the search first and only comes here if that told it
+        nothing.
+
+        Every adapter implements this, including the one that returns None.
+        Adapters match this `Protocol` structurally rather than inheriting from
+        it, so a body written here would be documentation and not a default — a
+        missing method is an `AttributeError` at the call site.
+        """
+        ...
 
 
 def _fail(status_code: int) -> ToolFailed:
@@ -137,15 +197,67 @@ class TavilyAdapter:
         if response.status_code >= 400:
             raise _fail(response.status_code)
 
-        return [
-            SearchHit(
-                title=str(item.get("title") or "").strip(),
-                url=str(item.get("url") or "").strip(),
-                text=str(item.get("content") or "").strip()[:MAX_RESULT_CHARS],
-                extracted=True,
-            )
-            for item in (_json(response).get("results") or [])[:limit]
-        ]
+        # A search carries no allowance: Tavily sends no rate-limit header and no
+        # credit field in the body. It answers that at `/usage` instead, which is
+        # what `read_quota` below is for. Both established against the live API
+        # rather than read about.
+        return SearchResponse(
+            hits=[
+                SearchHit(
+                    title=str(item.get("title") or "").strip(),
+                    url=str(item.get("url") or "").strip(),
+                    text=str(item.get("content") or "").strip()[:MAX_RESULT_CHARS],
+                    extracted=True,
+                )
+                for item in (_json(response).get("results") or [])[:limit]
+            ]
+        )
+
+    async def read_quota(
+        self, endpoint: SearchEndpoint
+    ) -> tuple[QuotaWindow, ...] | None:
+        """`GET /usage`, where Tavily keeps the number its dashboard draws.
+
+        Two figures come back, the key's and the account plan's. The key's is
+        reported, because this panel is about *this key*: an account whose plan
+        has room is no help when the key itself is capped.
+
+        **Credits, and no period.** A search costs one credit and a crawl does
+        not, so calling them searches would be wrong the moment an agent uses
+        another Tavily tool. And the response states a total with no window —
+        the dashboard calls it a monthly plan, but the dashboard is not the API,
+        and copying a period across is asserting something nobody returned.
+        """
+        try:
+            async with httpx.AsyncClient(timeout=TIMEOUT_SEC) as client:
+                response = await client.get(
+                    f"{endpoint.base_url}/usage",
+                    headers={"Authorization": f"Bearer {endpoint.api_key}"},
+                )
+        except httpx.HTTPError:
+            # Not knowing the allowance is no reason to call a working key
+            # broken. The caller records "nothing measured", which is its own
+            # state and reads as such.
+            return None
+        if response.status_code >= 400:
+            return None
+
+        key = _json(response).get("key") or {}
+        try:
+            limit = int(key["limit"])
+            used = int(key["usage"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        if limit <= 0:
+            return None
+        return (
+            QuotaWindow(
+                limit=limit,
+                remaining=max(0, limit - used),
+                window_sec=None,
+                unit="credits",
+            ),
+        )
 
 
 class BraveAdapter:
@@ -180,17 +292,89 @@ class BraveAdapter:
             raise _fail(response.status_code)
 
         results = (_json(response).get("web") or {}).get("results") or []
-        return [
-            SearchHit(
-                title=str(item.get("title") or "").strip(),
-                url=str(item.get("url") or "").strip(),
-                # `description` is a snippet built by the search engine, not the
-                # page. Marked as such rather than presented as content.
-                text=str(item.get("description") or "").strip()[:MAX_RESULT_CHARS],
-                extracted=False,
+        return SearchResponse(
+            hits=[
+                SearchHit(
+                    title=str(item.get("title") or "").strip(),
+                    url=str(item.get("url") or "").strip(),
+                    # `description` is a snippet built by the search engine, not
+                    # the page. Marked as such, not presented as content.
+                    text=str(item.get("description") or "").strip()[:MAX_RESULT_CHARS],
+                    extracted=False,
+                )
+                for item in results[:limit]
+            ],
+            quota=brave_quota(response.headers),
+        )
+
+    async def read_quota(
+        self, endpoint: SearchEndpoint
+    ) -> tuple[QuotaWindow, ...] | None:
+        """Nothing to do: Brave reports on the way past, in the headers of every
+        search, so the allowance is already on the `SearchResponse`.
+
+        There is also nowhere else to look. Every plausible account or usage path
+        under `api.search.brave.com` answers 301 to the dashboard — tried, not
+        assumed — and the open feature request asking Brave for such an endpoint
+        is unanswered. A postpaid plan's ceiling is a *spend* limit in dollars,
+        and no API returns it: the same wall as provider pricing (§6.2).
+        """
+        return None
+
+
+def _numbers(raw: str | None) -> list[int]:
+    """`"50, 0"` -> `[50, 0]`, skipping anything that is not a number."""
+    out: list[int] = []
+    for part in (raw or "").split(","):
+        try:
+            out.append(int(part.strip()))
+        except ValueError:
+            continue
+    return out
+
+
+def brave_quota(headers: Any) -> tuple[QuotaWindow, ...] | None:
+    """Brave's allowances, read off the headers it sends with every answer.
+
+        x-ratelimit-policy:    50;w=1, 0;w=2592000
+        x-ratelimit-limit:     50, 0
+        x-ratelimit-remaining: 49, 0
+        x-ratelimit-reset:     1, 2462826
+
+    The three value headers are positional lists matching the policy, so the
+    window lengths come from the policy and nowhere else — a build that guessed
+    "the second one is the month" would be wrong the day Brave adds a third.
+
+    Anything that does not line up is dropped rather than half-read: a window
+    whose length is unknown cannot be labelled, and an unlabelled meter is a
+    number with no unit.
+    """
+    policy = str(headers.get("x-ratelimit-policy") or "")
+    limits = _numbers(headers.get("x-ratelimit-limit"))
+    remaining = _numbers(headers.get("x-ratelimit-remaining"))
+    resets = _numbers(headers.get("x-ratelimit-reset"))
+    if not policy or not limits:
+        return None
+
+    windows: list[QuotaWindow] = []
+    for i, clause in enumerate(policy.split(",")):
+        _, _, spec = clause.strip().partition(";w=")
+        try:
+            window_sec = int(spec.strip())
+        except ValueError:
+            continue
+        if i >= len(limits) or i >= len(remaining):
+            continue
+        windows.append(
+            QuotaWindow(
+                limit=limits[i],
+                remaining=remaining[i],
+                window_sec=window_sec,
+                reset_sec=resets[i] if i < len(resets) else None,
+                unit="requests",
             )
-            for item in results[:limit]
-        ]
+        )
+    return tuple(windows) or None
 
 
 ADAPTERS: tuple[SearchAdapter, ...] = (TavilyAdapter(), BraveAdapter())
@@ -284,7 +468,7 @@ async def web_search(ctx: ToolContext, *, query: str) -> ToolResult:
     for endpoint in endpoints:
         try:
             candidate = adapter_for(endpoint.base_url)
-            hits = await candidate.search(endpoint, query, limit=MAX_RESULTS)
+            hits = (await candidate.search(endpoint, query, limit=MAX_RESULTS)).hits
         except ToolFailed as failure:
             skipped.append(f"{_name_of(endpoint)}: {failure.message}")
             last = failure
@@ -332,19 +516,38 @@ async def web_search(ctx: ToolContext, *, query: str) -> ToolResult:
     )
 
 
-async def probe(endpoint: SearchEndpoint) -> tuple[bool, str]:
+async def probe(
+    endpoint: SearchEndpoint,
+) -> tuple[bool, str, tuple[QuotaWindow, ...] | None]:
     """One real search, to check the key before a mission depends on it.
 
     The same shape as the model probe (§3.1): asked, not assumed. A key that is
     wrong should be found here rather than three minutes into a run.
+
+    It also brings back whatever the endpoint says about its own allowance. That
+    answer has no place of its own to live — Brave attaches it to the response of
+    a real search, Tavily keeps it behind another request — so the number a
+    person sees is a measurement taken at a moment they can name, the same moment
+    as "last tested", rather than a gauge pretending to be live.
     """
     try:
         adapter = adapter_for(endpoint.base_url)
     except ToolFailed as exc:
-        return False, exc.message
+        return False, exc.message, None
 
     try:
-        hits = await adapter.search(endpoint, "agent studio connectivity check", limit=1)
+        answer = await adapter.search(endpoint, "agent studio connectivity check", limit=1)
     except ToolFailed as exc:
-        return False, exc.message
-    return True, f"{adapter.name} works ({len(hits)} result(s) for a test query)"
+        return False, exc.message, None
+
+    # The search first, because it is the check; the extra call only when the
+    # search said nothing. Brave answers in headers and never reaches line two.
+    quota = answer.quota
+    if quota is None:
+        quota = await adapter.read_quota(endpoint)
+
+    return (
+        True,
+        f"{adapter.name} works ({len(answer.hits)} result(s) for a test query)",
+        quota,
+    )

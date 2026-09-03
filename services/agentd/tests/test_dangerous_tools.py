@@ -9,8 +9,10 @@ and the cloud metadata endpoint.
 
 from __future__ import annotations
 
+import asyncio
 import socket
 import sys
+import time
 from pathlib import Path
 
 import httpx
@@ -18,7 +20,13 @@ import pytest
 
 from agentd.tools import web
 from agentd.tools.base import ToolContext, ToolFailed
-from agentd.tools.shell import DEFAULT_TIMEOUT_SEC, _runs, bash, find_shell
+from agentd.tools.shell import (
+    DEFAULT_TIMEOUT_SEC,
+    KILL_GRACE_SEC,
+    _runs,
+    bash,
+    find_shell,
+)
 
 
 @pytest.fixture
@@ -176,6 +184,49 @@ async def test_a_command_that_hangs_is_stopped(ctx: ToolContext):
     with pytest.raises(ToolFailed) as caught:
         await bash(ctx, command="sleep 30", timeout=1)
     assert caught.value.code == "timed_out"
+
+
+@pytest.mark.skipif(find_shell() is None, reason="no POSIX shell on this machine")
+async def test_a_timeout_is_enforced_on_the_clock_not_just_reported(ctx: ToolContext):
+    """The regression that cost a real mission its whole budget.
+
+    A **pipeline** is the case that matters: bash forks rather than execs, so
+    killing the shell leaves the workers alive, they go on holding the write end
+    of the stdout pipe, and the read this coroutine is blocked on cannot finish
+    until they exit on their own. The old code reported `timed_out` — correctly,
+    and 12 seconds late.
+
+    Asserting the error code alone is what let that through: it passed the whole
+    time. The assertion has to be the clock, because "was stopped" is a claim
+    about *when*.
+    """
+    started = time.monotonic()
+    with pytest.raises(ToolFailed) as caught:
+        await bash(ctx, command="sleep 25 | cat", timeout=1)
+    elapsed = time.monotonic() - started
+
+    assert caught.value.code == "timed_out"
+    # 1s asked + up to KILL_GRACE_SEC to collect, and generous headroom for a
+    # loaded CI box — still nowhere near the 25s the command wanted.
+    assert elapsed < 1 + KILL_GRACE_SEC + 8, f"took {elapsed:.1f}s to stop a 1s timeout"
+
+
+@pytest.mark.skipif(find_shell() is None, reason="no POSIX shell on this machine")
+async def test_a_timed_out_command_leaves_nothing_running(ctx: ToolContext):
+    # The other half: not merely returning on time, but taking the tree with it.
+    # A survivor would go on writing to the workspace after the timeline said
+    # the call was stopped — the record describing something that is still
+    # happening (§1).
+    marker = Path(ctx.workspace_root) / "survivor.txt"
+    with pytest.raises(ToolFailed):
+        await bash(
+            ctx,
+            command=f"(sleep 3; echo alive > {marker.as_posix()}) | cat",
+            timeout=1,
+        )
+
+    await asyncio.sleep(5)
+    assert not marker.exists(), "a child outlived the timeout and kept working"
 
 
 @pytest.mark.skipif(find_shell() is None, reason="no POSIX shell on this machine")

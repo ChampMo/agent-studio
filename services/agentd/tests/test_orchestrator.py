@@ -418,15 +418,52 @@ async def test_the_budget_counts_the_whole_team_not_each_agent():
     assert budget.tokens_used == 4 * 50
 
 
-async def test_hitting_the_ceiling_stops_the_mission():
+# Running out used to stop the mission where it stood: the next call raised
+# `BudgetExceeded`, the graph never reached its summary node, and the run's
+# whole account of itself was a number. On a real build that left seven files
+# on disk, six tasks unstarted, and nothing saying which was which.
+#
+# A slice of each limit is held back now. Crossing the working share stops the
+# team *starting* anything new, lets what is running finish, and spends the
+# reserve on the leader writing the handover. The ceiling is unchanged — the
+# reserve is inside it, not on top of it — and the run is still recorded as
+# having run out, because it did.
+
+
+async def test_running_out_stops_the_work_and_keeps_the_summary():
     budget = BudgetTracker(limits(max_llm_calls=2))
+    items = sequenced(await drain(TeamModel(), roster_of_three(), budget=budget))
+
+    # No exception: the graph reached its end.
+    assert budget.stopped_early is not None
+    assert budget.stopped_early[0] == "llm_calls"
+    # It said so on the log, at the moment it decided.
+    assert any(
+        i["type"] == "error"
+        and i["payload"]["code"] == "work_stopped_for_summary"
+        for i in items
+    )
+    # And the summary turn actually ran, which is the whole point of the reserve.
+    assert any(i["type"] == "agent.message" for i in items)
+
+
+async def test_a_run_with_room_to_spare_is_not_marked_as_stopping_early():
+    budget = BudgetTracker(limits())
+    await drain(TeamModel(), roster_of_three(), budget=budget)
+    assert budget.stopped_early is None
+
+
+async def test_the_ceiling_itself_still_raises():
+    # A limit so small that even the reserve cannot be honoured. The hard check
+    # is untouched, so this is still an exception rather than a quiet overrun.
+    budget = BudgetTracker(limits(max_llm_calls=1))
     with pytest.raises(BudgetExceeded) as exc:
         await drain(TeamModel(), roster_of_three(), budget=budget)
     assert exc.value.kind == "llm_calls"
 
 
 async def test_supersteps_are_counted_as_graph_nodes():
-    budget = BudgetTracker(limits(max_supersteps=2))
+    budget = BudgetTracker(limits(max_supersteps=1))
     with pytest.raises(BudgetExceeded) as exc:
         await drain(TeamModel(), roster_of_three(), budget=budget)
     assert exc.value.kind == "supersteps"
