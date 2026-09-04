@@ -23,7 +23,10 @@ export function ChatPanel() {
   // snapshot and loops forever.
   const events = useEventStore((s) => s.events);
   const streaming = useEventStore((s) => s.streaming);
-  const turns = useMemo(() => buildTurns(events, streaming), [events, streaming]);
+  const turns = useMemo(
+    () => buildTurns(events, streaming),
+    [events, streaming],
+  );
 
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -63,13 +66,13 @@ export function ChatPanel() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
+      <div className="flex items-center justify-between border-b border-line px-4 py-3">
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">
             {strings.nav.chat}
           </h2>
           {active ? (
-            <p className="truncate text-xs text-slate-500">
+            <p className="truncate text-xs text-faint">
               {active.name} · <span className="font-mono">{active.model}</span>
             </p>
           ) : null}
@@ -81,7 +84,7 @@ export function ChatPanel() {
 
       <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
         {turns.length === 0 ? (
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-faint">
             {active ? strings.chat.empty : strings.chat.noProvider}
           </p>
         ) : null}
@@ -89,18 +92,20 @@ export function ChatPanel() {
         {turns.map((turn) => (
           <div
             key={turn.id}
-            className={turn.role === "user" ? "flex justify-end" : "flex justify-start"}
+            className={
+              turn.role === "user" ? "flex justify-end" : "flex justify-start"
+            }
           >
             <div
               className={`max-w-[80%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm ${
                 turn.role === "user"
-                  ? "bg-sky-900/60 text-sky-50"
-                  : "bg-slate-800 text-slate-100"
+                  ? "bg-accent/20 text-text"
+                  : "bg-solid-2 text-text"
               }`}
             >
               {turn.text || (turn.streaming ? strings.chat.thinking : "")}
               {turn.usage ? (
-                <div className="mt-1.5 border-t border-slate-700 pt-1 text-[11px] text-slate-400">
+                <div className="mt-1.5 border-t border-line pt-1 text-[11px] text-muted">
                   {turn.usage.inputTokens} in · {turn.usage.outputTokens} out
                   {/* Absent for a model with no published rate: a guessed price
                       in an append-only table would read as fact (§6.2). */}
@@ -114,13 +119,13 @@ export function ChatPanel() {
         ))}
 
         {endReason && endReason !== "completed" ? (
-          <p className="text-xs text-amber-400">
+          <p className="text-xs text-attn">
             {strings.chat.endedPrefix}: {endReason}
           </p>
         ) : null}
 
         {error ? (
-          <p className="rounded-md bg-red-950/60 px-3 py-2 text-sm text-red-300">
+          <p className="rounded-md bg-stop/10 px-3 py-2 text-sm text-stop">
             {error}
           </p>
         ) : null}
@@ -128,7 +133,7 @@ export function ChatPanel() {
         <div ref={bottom} />
       </div>
 
-      <form onSubmit={send} className="flex gap-2 border-t border-slate-800 p-3">
+      <form onSubmit={send} className="flex gap-2 border-t border-line p-3">
         <Input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}

@@ -1,24 +1,95 @@
 /**
  * An agent's face, small enough to sit beside what they said (§11, §18.3).
  *
- * Drawn from the same `avatar_config` and the same `lookFor` table the scene
- * uses, so a character in the room and the same character in the transcript
- * cannot end up looking like two different people. If they ever disagree, one
- * of them is lying — the §2.1 argument, applied to a portrait.
+ * Drawn from the **same sprite sheet and the same `lookFor` table the scene
+ * uses**, so a cat in the room and the same cat in the transcript cannot end up
+ * looking like two different people. If they ever disagree, one of them is
+ * lying — the §2.1 argument, applied to a portrait.
  *
- * It is a silhouette, not a likeness: a head, hair with the right shape, and
- * the collar of the outfit, in that palette. That is all `avatar_config`
- * actually says, and drawing more than the data supports would be inventing a
- * face for an agent that has none (§1.1).
+ * It draws through a canvas rather than CSS. A `mask-image` would have been
+ * less code and would have thrown away the shading, since a mask keeps only
+ * alpha — and a flat portrait beside a shaded cat is exactly the disagreement
+ * this component exists to prevent. So it composites the three layers the same
+ * way the scene does: multiply for the tint, `destination-in` to put the
+ * sprite's own alpha back.
  *
- * Values this build does not know — an asset added by a newer version — fall
- * back to the first entry in each table rather than to `undefined`, the same
- * §8 rule the rest of the frontend follows.
+ * Frame coordinates come from the atlas by **name**, never by arithmetic on a
+ * row index. The sheet's own JSON is then the only place that knows where
+ * anything is, which is what lets Aseprite re-export it in a different order
+ * without silently drawing the wrong cat.
+ *
+ * Values this build does not know — an asset added by a newer version, or the
+ * human catalogue frozen into an old mission's roster — fall back to the first
+ * entry in each table (§8), and a missing sheet falls back to initials.
  */
-import { lookFor } from "../../scene/entities/palette";
+import { useEffect, useRef, useState } from "react";
 
-function hex(colour: number): string {
-  return `#${colour.toString(16).padStart(6, "0")}`;
+import { lookFor } from "../../scene/entities/palette";
+import { roomColours } from "../../scene/entities/room";
+import { useThemeStore } from "../../stores/themeStore";
+
+interface Atlas {
+  frames: Record<
+    string,
+    { frame: { x: number; y: number; w: number; h: number } }
+  >;
+}
+
+//: Loaded once for the whole window. Both the image and the atlas, because a
+//: frame is a rectangle in one described by the other.
+let atlas: Atlas | null = null;
+let image: HTMLImageElement | null = null;
+let loading: Promise<boolean> | null = null;
+
+function load(): Promise<boolean> {
+  if (loading) return loading;
+  loading = (async () => {
+    try {
+      const [json, img] = await Promise.all([
+        fetch("/sprites/cats.json").then((r) => r.json() as Promise<Atlas>),
+        new Promise<HTMLImageElement>((resolve, reject) => {
+          const el = new Image();
+          el.onload = () => resolve(el);
+          el.onerror = reject;
+          el.src = "/sprites/cats.png";
+        }),
+      ]);
+      atlas = json;
+      image = img;
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+  return loading;
+}
+
+/** The pose the portrait uses: standing, facing the room, first frame. */
+const POSE = "idle.0";
+//: How much of the 40px cell is head. The rest is body, which a portrait at
+//: this size cannot show usefully.
+const HEAD_H = 22;
+
+function tinted(
+  source: HTMLImageElement,
+  rect: { x: number; y: number; w: number; h: number },
+  colour: number,
+): HTMLCanvasElement {
+  const c = document.createElement("canvas");
+  c.width = rect.w;
+  c.height = HEAD_H;
+  const ctx = c.getContext("2d")!;
+  ctx.drawImage(source, rect.x, rect.y, rect.w, HEAD_H, 0, 0, rect.w, HEAD_H);
+  // Multiply keeps the greys' shading proportional to the tint, which is why
+  // the sheet is drawn in white and grey and holds no colour of its own.
+  ctx.globalCompositeOperation = "multiply";
+  ctx.fillStyle = `#${colour.toString(16).padStart(6, "0")}`;
+  ctx.fillRect(0, 0, rect.w, HEAD_H);
+  // Multiply painted over the transparent pixels too; this puts the sprite's
+  // own silhouette back.
+  ctx.globalCompositeOperation = "destination-in";
+  ctx.drawImage(source, rect.x, rect.y, rect.w, HEAD_H, 0, 0, rect.w, HEAD_H);
+  return c;
 }
 
 export function Portrait({
@@ -31,6 +102,54 @@ export function Portrait({
   name: string;
   size?: number;
 }) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const [ready, setReady] = useState(atlas !== null);
+  // Redrawn when the theme changes: the fur colours are read out of the
+  // stylesheet, so a portrait that never re-ran would keep the previous
+  // theme's cat beside a scene showing this one's — which is the exact
+  // disagreement this component exists to prevent.
+  const theme = useThemeStore((s) => s.choice);
+
+  useEffect(() => {
+    let alive = true;
+    void load().then((ok) => alive && ok && setReady(true));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const el = canvas.current;
+    if (!ready || !el || !avatar || !atlas || !image) return;
+    const look = lookFor(avatar);
+    const paint = roomColours();
+    // The same rule the scene follows: from the stylesheet where the theme
+    // names this fur, from the table where it does not.
+    const fur = look.palette.token
+      ? paint[look.palette.token]
+      : look.palette.fur;
+    const rows: { name: string; tint: number }[] = [
+      { name: `base.${POSE}`, tint: fur },
+      { name: `coat.${look.keys.coat}.${POSE}`, tint: look.palette.marking },
+      { name: `outfit.${look.keys.outfit}.${POSE}`, tint: look.palette.cloth },
+    ];
+
+    const ctx = el.getContext("2d")!;
+    ctx.clearRect(0, 0, el.width, el.height);
+    ctx.imageSmoothingEnabled = false;
+    for (const row of rows) {
+      const cell = atlas.frames[row.name];
+      if (!cell) continue;
+      ctx.drawImage(
+        tinted(image, cell.frame, row.tint),
+        0,
+        0,
+        el.width,
+        el.height,
+      );
+    }
+  }, [ready, avatar, size, theme]);
+
   const initials = name
     .split(/\s+/)
     .filter(Boolean)
@@ -38,10 +157,9 @@ export function Portrait({
     .map((word) => word[0]!.toUpperCase())
     .join("");
 
-  // No avatar at all — an agent that predates the catalogue, or a speaker who
-  // is not in the roster. Initials, rather than a generic face that would
-  // imply we know something about them.
-  if (!avatar) {
+  // No avatar at all — a speaker who is not in the roster. Initials, rather
+  // than a generic cat that would imply we know something about them.
+  if (!avatar || !ready) {
     return (
       <span
         aria-hidden="true"
@@ -53,67 +171,21 @@ export function Portrait({
     );
   }
 
-  const look = lookFor(avatar);
-  const skin = hex(look.palette.skin);
-  const hair = hex(look.palette.hair);
-  const cloth = hex(look.palette.cloth);
-  const trim = hex(look.palette.trim);
-
-  // One 40×40 box, head centred, shoulders running off the bottom edge — the
-  // framing of a portrait rather than a figure standing in a circle.
-  const headR = 11 * (look.body.w * 0.35 + 0.72);
-  const headY = 17;
-
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 40 40"
+    <canvas
+      ref={canvas}
+      // The backing store is the sprite's own pixels; CSS scales it up whole.
+      width={32}
+      height={HEAD_H}
       role="img"
       aria-label={name}
-      className="shrink-0 rounded-full"
-    >
-      <circle cx="20" cy="20" r="20" fill={cloth} opacity="0.22" />
-      <clipPath id={`portrait-${initials}-${look.palette.skin}`}>
-        <circle cx="20" cy="20" r="20" />
-      </clipPath>
-      <g clipPath={`url(#portrait-${initials}-${look.palette.skin})`}>
-        {/* Shoulders, and the collar if the outfit has one. */}
-        <ellipse cx="20" cy="44" rx={13 * look.body.w} ry="13" fill={cloth} />
-        {look.outfit.collar ? (
-          <path
-            d={`M ${20 - 7 * look.body.w} 34 L 20 40 L ${20 + 7 * look.body.w} 34`}
-            fill="none"
-            stroke={trim}
-            strokeWidth="2"
-          />
-        ) : null}
-
-        {/* Hair behind the head: how far down the sides it falls is the slot. */}
-        {look.hair.side > 0.01 ? (
-          <ellipse
-            cx="20"
-            cy={headY + 2}
-            rx={headR + 2.5}
-            ry={headR + look.hair.side * 14}
-            fill={look.hair.hood ? cloth : hair}
-          />
-        ) : null}
-
-        <circle cx="20" cy={headY} r={headR} fill={skin} />
-
-        {/* And in front: the fringe, as tall as the slot says. */}
-        {look.hair.top > 0.01 ? (
-          <path
-            d={`M ${20 - headR} ${headY} a ${headR} ${headR} 0 0 1 ${headR * 2} 0
-                l 0 ${-look.hair.top * 5} a ${headR} ${headR} 0 0 0 ${-headR * 2} 0 z`}
-            fill={look.hair.hood ? cloth : hair}
-          />
-        ) : null}
-        {look.hair.tail ? (
-          <circle cx={20 + headR} cy={headY + 3} r="3.4" fill={hair} />
-        ) : null}
-      </g>
-    </svg>
+      style={{
+        width: size,
+        height: size,
+        objectFit: "contain",
+        imageRendering: "pixelated",
+      }}
+      className="shrink-0 rounded-full bg-solid-2"
+    />
   );
 }

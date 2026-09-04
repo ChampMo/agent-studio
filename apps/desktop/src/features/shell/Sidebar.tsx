@@ -19,6 +19,7 @@ import {
   SettingsIcon,
   TeamIcon,
 } from "../../components/ui/icons";
+import { ThemeToggle } from "../../components/ui/ThemeToggle";
 import { MissionList } from "./MissionList";
 
 export type SidebarPlace = "work" | "roster" | "teams" | "settings";
@@ -26,9 +27,17 @@ export type SidebarPlace = "work" | "roster" | "teams" | "settings";
 const PLACES: { id: SidebarPlace; label: string; icon: React.ReactNode }[] = [
   // The icon is decorative and the label carries the meaning — these are never
   // icon-only, so the picture only has to make the row scannable (§18.3).
-  { id: "roster", label: strings.sidebar.roster, icon: <PersonIcon size={15} /> },
+  {
+    id: "roster",
+    label: strings.sidebar.roster,
+    icon: <PersonIcon size={15} />,
+  },
   { id: "teams", label: strings.sidebar.teams, icon: <TeamIcon size={15} /> },
-  { id: "settings", label: strings.sidebar.settings, icon: <SettingsIcon size={15} /> },
+  {
+    id: "settings",
+    label: strings.sidebar.settings,
+    icon: <SettingsIcon size={15} />,
+  },
 ];
 
 export function Sidebar({
@@ -45,7 +54,14 @@ export function Sidebar({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 p-3">
       <div className="flex items-center gap-2 px-1 pt-1">
-        <span className="text-sm font-semibold text-text">{strings.app.name}</span>
+        <span className="text-sm font-semibold text-text">
+          {strings.app.name}
+        </span>
+        {/* Pushed to the far end: it is the one control up here that is about
+            the app rather than about the work. */}
+        <span className="ml-auto">
+          <ThemeToggle />
+        </span>
       </div>
 
       {/* Search first. Finding a run you already have is the thing done most
@@ -80,14 +96,19 @@ export function Sidebar({
         aria-label={strings.sidebar.newRun}
         className={cn(
           "flex min-h-[32px] w-fit items-center gap-1.5 rounded-card px-2 text-sm",
-          "text-muted transition-colors hover:bg-solid hover:text-text",
+          "text-muted transition-colors hover:bg-solid-2 hover:text-text",
         )}
       >
         <PlusIcon size={15} />
         {strings.sidebar.newShort}
       </button>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      {/* Pulled out through the column's own padding so the scrollbar can sit
+          against the border, then given a little back on the inside so the
+          rows do not touch the thumb. Left as padding on the container, the
+          bar floated 12px in from the edge and read as unattached to the
+          column it belongs to. */}
+      <div className="-mr-3 min-h-0 flex-1 overflow-y-auto pr-1.5">
         <MissionList query={query} onOpened={() => onGo("work")} />
       </div>
 
@@ -102,7 +123,7 @@ export function Sidebar({
               "flex w-full items-center gap-2.5 rounded-card px-2.5 py-2 text-left text-sm",
               place === entry.id
                 ? "bg-solid-2 text-text"
-                : "text-muted hover:bg-solid hover:text-text",
+                : "text-muted hover:bg-solid-2 hover:text-text",
             )}
           >
             <span aria-hidden="true" className="shrink-0">

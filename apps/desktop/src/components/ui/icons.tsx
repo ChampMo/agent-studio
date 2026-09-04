@@ -198,7 +198,10 @@ export function ChevronDownIcon(props: IconProps) {
  * One shape in two states rather than a star plus a "Leader" badge — the badge
  * was a second thing saying what the star could say by itself.
  */
-export function StarIcon({ filled, ...props }: IconProps & { filled?: boolean }) {
+export function StarIcon({
+  filled,
+  ...props
+}: IconProps & { filled?: boolean }) {
   return (
     <Svg {...props}>
       <path
@@ -234,5 +237,71 @@ export function CloseIcon(props: IconProps) {
     <Svg {...props}>
       <path d="m4 4 8 8M12 4l-8 8" />
     </Svg>
+  );
+}
+
+/** A pencil, for renaming things in place. */
+export function PencilIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M11.2 2.3a1.4 1.4 0 0 1 2 2L5.6 11.9l-2.7.8.8-2.7z" />
+      <path d="M10.1 3.4 12.6 5.9" />
+    </svg>
+  );
+}
+
+/**
+ * The twelve-bar throbber, for a character who is thinking or working.
+ *
+ * Drawn rather than animated with a transform on a single arc, because the
+ * bars are what carry the state when nothing is allowed to move: the ramp of
+ * opacity around the ring reads as "part way round" even frozen, so someone
+ * who has asked for less motion still sees an indicator rather than a circle
+ * of identical dashes (§18.3).
+ *
+ * It ticks in twelve steps rather than sweeping. A smooth rotation of twelve
+ * discrete bars beats against its own geometry and reads as a wobble; landing
+ * each bar exactly where the last one was is what makes it look like the thing
+ * everyone recognises.
+ *
+ * `aria-hidden`, like every other icon here: the status word sits beside it
+ * and is what gets announced. An icon that also spoke would say it twice.
+ */
+export function ThrobberIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+      className="throbber"
+    >
+      {Array.from({ length: 12 }, (_, i) => (
+        <rect
+          key={i}
+          x="10.9"
+          y="1.6"
+          width="2.2"
+          height="6.4"
+          rx="1.1"
+          transform={`rotate(${i * 30} 12 12)`}
+          // Brightest at the head, fading backwards round the ring. Floored
+          // rather than run to zero: a bar that disappears entirely leaves a
+          // gap, and the gap is what makes a throbber look broken.
+          opacity={(0.14 + (i / 11) * 0.86).toFixed(3)}
+        />
+      ))}
+    </svg>
   );
 }

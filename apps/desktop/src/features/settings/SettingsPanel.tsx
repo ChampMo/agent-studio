@@ -41,12 +41,17 @@ const SECTIONS: { id: Where; label: string; blurb: string }[] = [
   },
   { id: "limits", label: strings.budget.title, blurb: strings.budget.intro },
   { id: "storage", label: strings.storage.title, blurb: strings.storage.intro },
+  // No theme section. It is one setting with three values and a button for it
+  // in the corner of the window, which is where it belongs — and a page that
+  // held nothing else printed its own one-line description under the section
+  // blurb that already said the same sentence.
 ];
 
 export function SettingsPanel() {
   const [where, setWhere] = useState<Where>("models");
   const { providers, activeId, probe, probing } = useSettingsStore();
-  const { setActive, test, removeProvider, setKey, setNativeSearch } = useSettingsStore();
+  const { setActive, test, removeProvider, setKey, setNativeSearch } =
+    useSettingsStore();
   const moveSearchKey = useSettingsStore((s) => s.moveSearchKey);
   const [addingModel, setAddingModel] = useState(false);
 
@@ -104,7 +109,9 @@ export function SettingsPanel() {
           {section.id === "models" ? (
             <div className="space-y-3 pt-1">
               {models.length === 0 ? (
-                <p className="text-xs text-faint">{strings.settings.noModels}</p>
+                <p className="text-xs text-faint">
+                  {strings.settings.noModels}
+                </p>
               ) : (
                 <ModelList
                   models={models}
@@ -132,7 +139,9 @@ export function SettingsPanel() {
           {section.id === "search" ? (
             <div className="space-y-3 pt-1">
               {searches.length === 0 ? (
-                <p className="text-xs text-faint">{strings.settings.noSearch}</p>
+                <p className="text-xs text-faint">
+                  {strings.settings.noSearch}
+                </p>
               ) : (
                 <SearchKeys
                   keys={searches}
@@ -226,8 +235,8 @@ function SearchEndpointForm() {
   }
 
   return (
-    <div className="space-y-2 rounded-lg border border-slate-800 bg-slate-900/40 p-3">
-      <p className="text-xs text-slate-400">{strings.settings.searchHint}</p>
+    <div className="space-y-2 rounded-lg border border-line bg-solid p-3">
+      <p className="text-xs text-muted">{strings.settings.searchHint}</p>
 
       <Select
         value={engine.id}
@@ -236,7 +245,9 @@ function SearchEndpointForm() {
       />
       {/* The base URL is shown rather than typed: it is what tells the backend
           which API this is, so it is not something to get wrong by hand. */}
-      <code className="block truncate text-[11px] text-slate-500">{engine.baseUrl}</code>
+      <code className="block truncate text-[11px] text-faint">
+        {engine.baseUrl}
+      </code>
 
       <Input
         type="password"
@@ -245,7 +256,7 @@ function SearchEndpointForm() {
         onChange={(e) => setKey(e.target.value)}
         placeholder={strings.onboarding.keyPlaceholder}
       />
-      {error ? <p className="text-xs text-red-400">{error}</p> : null}
+      {error ? <p className="text-xs text-stop">{error}</p> : null}
 
       <div className="flex gap-2">
         <Button

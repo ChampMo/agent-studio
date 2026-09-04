@@ -29,7 +29,13 @@ import { cn } from "../../lib/cn";
 import { Button } from "../../components/ui/primitives";
 import { Select } from "../../components/ui/Select";
 import { useAgentStore } from "../../stores/agentStore";
-import { useSettingsStore } from "../../stores/settingsStore";
+import { chatProviders, useSettingsStore } from "../../stores/settingsStore";
+import {
+  AiButton,
+  AiPanel,
+  useAiRun,
+  type AiState,
+} from "../../components/ui/AiPanel";
 import {
   api,
   type Finding,
@@ -69,9 +75,7 @@ type Outcome =
 export function TeamAdvisor({ teamId, draft, onApply }: Props) {
   const providers = useSettingsStore((s) => s.providers);
   const activeId = useSettingsStore((s) => s.activeId);
-  const usable = providers.filter(
-    (p) => p.kind !== "search" && (p.hasKey || p.verifiedAt),
-  );
+  const usable = chatProviders(providers);
   const [chosen, setProviderId] = useState<string | null>(null);
   // Derived, not stored. `useState(activeId ?? …)` runs once, and on this
   // screen the store is often still loading then — so the initial value would
@@ -86,12 +90,34 @@ export function TeamAdvisor({ teamId, draft, onApply }: Props) {
 
   const ready = Boolean(providerId) && brief.trim().length > 0;
   const busy = state.kind === "busy";
+  const run = useAiRun();
+
+  //: The panel's four states, read off the outcome this component already
+  //: keeps. `suggested` and `reviewed` are both "the model answered and you
+  //: have not acted on it", which is what unreviewed means.
+  const aiState: AiState =
+    state.kind === "busy"
+      ? "working"
+      : state.kind === "failed"
+        ? "failed"
+        : state.kind === "idle"
+          ? "idle"
+          : "unreviewed";
+
+  function cancel() {
+    run.cancel();
+    setState({ kind: "failed", message: strings.ai.cancelled });
+  }
 
   async function suggest() {
     if (!ready) return;
+    const signal = run.begin();
     setState({ kind: "busy", what: "suggest" });
     try {
-      const res = await api.suggestTeam({ provider_id: providerId, brief });
+      const res = await api.suggestTeam(
+        { provider_id: providerId, brief },
+        signal,
+      );
       setState({
         kind: "suggested",
         proposal: res.proposal,
@@ -99,19 +125,29 @@ export function TeamAdvisor({ teamId, draft, onApply }: Props) {
         attempts: res.attempts,
       });
     } catch (err) {
+      // `cancel` has already said what happened. Replacing that with the
+      // fetch's own wording would report a deliberate press as a fault.
+      if (signal.aborted) return;
       setState({ kind: "failed", message: message(err) });
+    } finally {
+      if (!signal.aborted) run.end();
     }
   }
 
   async function review() {
     if (!ready || !teamId) return;
+    const signal = run.begin();
     setState({ kind: "busy", what: "review" });
     try {
-      const res = await api.reviewTeam(teamId, {
-        provider_id: providerId,
-        brief,
-        members: draft,
-      });
+      const res = await api.reviewTeam(
+        teamId,
+        {
+          provider_id: providerId,
+          brief,
+          members: draft,
+        },
+        signal,
+      );
       setState({
         kind: "reviewed",
         verdict: res.verdict,
@@ -120,7 +156,10 @@ export function TeamAdvisor({ teamId, draft, onApply }: Props) {
         attempts: res.attempts,
       });
     } catch (err) {
+      if (signal.aborted) return;
       setState({ kind: "failed", message: message(err) });
+    } finally {
+      if (!signal.aborted) run.end();
     }
   }
 
@@ -130,20 +169,68 @@ export function TeamAdvisor({ teamId, draft, onApply }: Props) {
 
   return (
     <div className="space-y-2">
-      <textarea
-        value={brief}
-        onChange={(e) => setBrief(e.target.value)}
-        rows={3}
-        placeholder={strings.advisor.briefPlaceholder}
-        className={cn(
-          "w-full resize-y rounded-card border border-line bg-solid px-2.5 py-2",
-          "text-xs text-text placeholder:text-faint",
-          "focus:border-accent focus:outline-none",
-        )}
-      />
+      <AiPanel
+        state={aiState}
+        title={strings.advisor.title}
+        model={usable.find((p) => p.id === providerId)?.model ?? null}
+        startedAt={run.startedAt}
+        // The seats it fills in are the thing to check, and the panel says so
+        // where the button that fills them is.
+        reviewNote={strings.advisor.applyHint}
+        error={state.kind === "failed" ? state.message : null}
+        actions={
+          <>
+            <AiButton
+              onClick={() => void suggest()}
+              disabled={!ready}
+              busy={busy && state.what === "suggest"}
+            >
+              {busy && state.what === "suggest"
+                ? strings.advisor.thinking
+                : strings.advisor.suggest}
+            </AiButton>
+            {/* Absent, not disabled, while there is no saved team: reviewing
+                something that does not exist is not a thing to grey out. */}
+            {teamId ? (
+              <button
+                type="button"
+                onClick={() => void review()}
+                disabled={!ready || busy || draft.length === 0}
+                className={cn(
+                  "min-h-[32px] rounded-card border border-line px-3 text-xs",
+                  "text-muted hover:text-text disabled:opacity-55",
+                )}
+              >
+                {busy && state.what === "review"
+                  ? strings.advisor.thinking
+                  : strings.advisor.review}
+              </button>
+            ) : null}
+            {busy ? (
+              <button
+                type="button"
+                onClick={cancel}
+                className="min-h-[32px] rounded-card border border-line px-3 text-xs text-muted hover:text-text"
+              >
+                {strings.ai.cancel}
+              </button>
+            ) : null}
+          </>
+        }
+      >
+        <textarea
+          value={brief}
+          onChange={(e) => setBrief(e.target.value)}
+          rows={3}
+          placeholder={strings.advisor.briefPlaceholder}
+          className={cn(
+            "w-full resize-y rounded-card border border-line bg-solid-2 px-2.5 py-2",
+            "text-xs text-text placeholder:text-faint",
+            "focus:border-accent focus:outline-none",
+          )}
+        />
 
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="min-w-[9rem] flex-1">
+        <div className="min-w-[9rem]">
           <Select
             value={providerId}
             onChange={setProviderId}
@@ -154,34 +241,7 @@ export function TeamAdvisor({ teamId, draft, onApply }: Props) {
             }))}
           />
         </div>
-        <Button
-          type="button"
-          onClick={() => void suggest()}
-          disabled={!ready || busy}
-        >
-          {busy && state.what === "suggest"
-            ? strings.advisor.thinking
-            : strings.advisor.suggest}
-        </Button>
-        {/* Absent, not disabled, while there is no saved team: reviewing
-            something that does not exist is not a thing to grey out. */}
-        {teamId ? (
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => void review()}
-            disabled={!ready || busy || draft.length === 0}
-          >
-            {busy && state.what === "review"
-              ? strings.advisor.thinking
-              : strings.advisor.review}
-          </Button>
-        ) : null}
-      </div>
-
-      {state.kind === "failed" ? (
-        <p className="text-xs text-stop">{state.message}</p>
-      ) : null}
+      </AiPanel>
 
       {state.kind === "suggested" ? (
         <Suggestion

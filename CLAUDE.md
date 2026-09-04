@@ -2344,6 +2344,197 @@ while the store is usually still loading. The selection is derived from the
 list now, so the two cannot disagree — the fourth time this file has recorded a
 value that went quietly stale.
 
+### One violet, and what it is not allowed to say
+
+Two places ask a model to fill in a form — the agent creator drafts a
+character, the team builder staffs a team — and both had the same shape of
+problem: press a button, nothing changes for between five and forty seconds,
+then a form is suddenly full of text with nothing saying where it came from.
+
+The treatment is a gradient border that runs from the accent that already
+exists to **one new hue**, and that hue means exactly one thing: *a model wrote
+this and you have not checked it.* It is the visual form of a sentence the app
+already prints — "nothing is saved until you press Save" — which is why it has
+to *leave* when the thing is saved or edited by hand. Same discipline
+`--color-attn` is under, and for the same reason: a colour spent on decoration
+stops meaning anything, and then the one time it matters nobody reads it.
+`themeTokens.test.ts` fails the build if `--color-ai-*` appears in any file but
+`AiPanel.tsx`.
+
+Four states, each of which also changes something with a **shape** — the word
+in the header, the button label, a rule down the side of a field — because
+colour alone is never a status (§18.3). Only `working` moves, and `working` is
+the only one that is temporary: an effect that runs all day is one nobody sees
+on the day it means something.
+
+### The step captions were the tempting part, and they would have been invented
+
+*Reading the brief → drafting → choosing an avatar → writing the system prompt*
+is what the mockup had, and it is the obvious thing to put in a forty-second
+wait. It is also fiction. `POST /agents/generate` returns one JSON object at
+the end; nothing streams, and the backend reports no progress at all. A bar
+walking through four captions would be the screen narrating work it cannot
+see — the same reasoning that keeps a "model calls 18 / 60" row off the budget
+panel (§1.1).
+
+What is drawn instead is an indeterminate bar, which claims that something is
+running and no proportion, and **the elapsed second**, which is real and is
+what actually answers the question a stalled screen provokes: *is this stuck,
+or is it thinking?*
+
+And the one piece of progress that **is** real gets reported: `attempts` and
+`recovered_from`. On the run this was verified with, a 40-second wait explained
+itself — *"The model needed 2 attempts. What was corrected: the reply was cut
+off at max_tokens before the JSON closed"*. A caption would have said
+"drafting" for those forty seconds and told nobody anything.
+
+### Cancel has to abort, not tidy up
+
+A model that hangs for sixty seconds behind a screen with nothing to press is
+worse than not having the feature — and hiding the spinner while the fetch
+carries on is worse still, because the reply then lands on a form the person
+has moved on from. So there is an `AbortController` per run and the button acts
+on it.
+
+Two things had to move for that to be honest. `request()` retries and then
+throws *"the backend is not reachable"* on any network-level failure — and an
+abort rejects exactly like a dead host, so pressing Cancel reported the machine
+as gone. It rethrows an aborted request untouched now. And the `catch` in each
+caller returns early when the signal is aborted, so the fetch's wording never
+overwrites the sentence the person's own button already wrote.
+
+### `overflow: hidden` is not "clip", it is "clip and make it scrollable"
+
+The gradient border is a 1px padding box with an opaque inner panel on top, and
+the rotating conic gradient sits at `inset: -45%` so it still covers the corners
+as it turns. That combination has a trap in it, and it took a measurement
+rather than a guess.
+
+`overflow: hidden` makes a box a **scroll container**. The `::before` hanging
+45% above the top gave that container something to scroll to — and then any
+focus change inside it, the Generate button going disabled being quite enough,
+made the browser scroll the nearest scrollable ancestor to keep the focused
+thing in view. The *panel* scrolled: the opaque inner box slid 151px up and the
+gradient showed underneath it as a solid block.
+
+Reading the CSS would not have found it, because nothing in the CSS is wrong.
+`scrollTop: 151, scrollHeight: 575, clientHeight: 397` on a box nobody had
+scrolled is what found it. `overflow: clip` clips without creating a scroll
+container, which is the one thing that was actually wanted.
+
+**And the test for it nearly passed over the bug**, because the rule's own
+comment names the thing it warns against — `not.toMatch(/overflow:\s*hidden/)`
+matched the explanation. Comments are stripped before the assertion reads the
+declarations. Matching prose is not reading the CSS.
+
+### What the mockup asked for and did not get
+
+A **streaming** state, where fields fill in one at a time. Nothing streams, so
+staggering them would be a reveal animation dressed as an observation. The
+stagger is kept — the eye needs to see what changed — and the comment says
+plainly that it claims nothing about the order the model wrote in.
+
+The **reduced-motion** block, which the mockup would have added to. This file's
+blanket rule sets `animation-duration: 0.01ms`, and on an *infinite rotation*
+that is not "stopped", it is a strobe. Every animation here is declared inside
+`@media (prefers-reduced-motion: no-preference)` instead, the same way
+`fish-bite-*` already was — while the working state's `opacity: 1` stays at the
+top level, so the motion is optional and the state is not.
+
+`--color-ai-ink` measures **7.20:1** on white and **7.45:1** on the dark panel,
+so unlike `--color-accent-bright` it is safe on type. Checked, not assumed.
+
+### One question, four answers, and the one on screen was the wrong one
+
+The agent creator's "Generate with" dropdown listed **Tavily** and **Brave
+Search**. Neither can complete anything: picking one fails the generation with
+`no provider registered for 'search'`. Found by opening the list and reading it.
+
+`providers.filter((p) => p.hasKey)` — wrong in both directions at once. It
+offered the search keys, which are providers with keys, and it hid a local
+Ollama or LM Studio, which authenticates nothing and therefore has no key to
+have. Both of those exact mistakes are already written up in this file, one of
+them in the entry immediately about `activeId` and the other about onboarding.
+
+So the count matters more than the bug: **"which endpoints can something be
+generated against" had four implementations** — `pickActive`, `needsOnboarding`,
+`TeamAdvisor` and `AgentCreator` — and the two nobody was looking at were the
+two that were wrong. `chatProviders()` is the one answer now, and the other
+three are built on it. §2.1 has been recorded here for `can_run`, `lookFor`,
+`activeId` and `search_order`; this is the same shape at four copies rather than
+two, which is what happens when a rule is right in the place you keep reading.
+
+### A generated name has to fit the cat, and not be somebody
+
+Two halves, and only one of them is a prompt.
+
+Every character is drawn as a cat, so the name sits on one whether or not
+anyone thought about it. The prompt now says so and asks for a name that works
+for a cat *and* a colleague — Pepper, Juniper, Moss — while `title` and `role`
+stay entirely serious. Explicitly not the joke version: a team of Whiskers and
+Miss Paws is not a record of who did what.
+
+The duplicate rule is a **check**, because a prompt is a request. This project
+has already paid for the difference: the generator named two different agents
+"Mara", `send_message` addresses teammates by name, and one of them would have
+received the other's mail with the sender told it worked. The gate for that
+landed in `validator.py` and refuses the *team* — which is the right place for
+it and arrives late, after both agents are saved and seated. `taken` is checked
+where the name is invented, using `_norm` — the same `strip().casefold()` the
+validator uses, so the two cannot disagree about what "the same name" means.
+
+A clash is a correction rather than a failure: the model keeps everything else
+and moves one field. Archived agents count as taken, because they are still in
+the roster list and can be restored.
+
+Verified live: asked for "a research scout who reads pages carefully instead of
+trusting snippets" against a roster holding Wren (Research scout), it returned
+**Clove**, Research Scout, on the first attempt.
+
+### The composer's `+` had one item and two invisible ones
+
+`/` and `@` work and are findable only by knowing to press them, which nothing
+on screen says. That is a discoverability gap, not a missing feature, so the
+fix is a menu rather than more code: `+` is a `Menu` again with three rows —
+a file, a command, a teammate — and the row's icon is **the character itself**,
+so pressing it once teaches the key for next time.
+
+Both typed forms parse only from the **start** of the line (`menuFilter` and
+`nameFilter` read the whole raw string), so both rows go dead once there is
+anything in the box: taking it over to insert one character would throw away
+what was being written. `@` also needs a run in progress, the same condition
+`whoFilter` uses, so the row and the menu it opens cannot disagree about
+whether there is anyone to address.
+
+**And the reason a dead row gives was being cut off.** `MenuItem.hint` exists
+to say *why* something is disabled, the panel has a `max-w` whose comment says
+"hints wrap instead" — and the span had `truncate` on it. So the one row with
+something to explain was the one row you could not read it on. A label may
+truncate; a hint that ends in an ellipsis has failed at its only job.
+
+### Three things on screen that were true and said nothing
+
+Removed rather than fixed, which is the harder half.
+
+**`open_desks` under every team name.** It printed the layout *id*, which is an
+internal string nobody chose by that name, and there are two layouts with
+everything defaulting to one — so seven cards in a grid carried the identical
+word. A field earns a place on a card by *differing between cards*; this one
+taught the reader that the second line is never worth looking at.
+
+**`round finished — completed` floating over the scene.** The same sentence was
+already in the mission header, beside the run's own title, and on the timeline
+in its proper position on the log. The floating copy was the one with no
+context — and it is the copy that got the M10 bug, captioning a round that had
+ended hours earlier over a team three tasks into the next one. `endReason` is
+still derived and still sits everyone down; what is gone is a third surface
+repeating it.
+
+**The avatar at the bottom of the agent editor.** You typed a name, scrolled
+past the system prompt and thirteen tools, and only then found out what you had
+been naming. It sits above the name field now, which makes the two one decision
+— and is the same reason the generator was told about the cat.
+
 ### Six warnings that are one fact
 
 `tool_uncovered` fires once per tool the team does not carry, so a two-person
@@ -2566,6 +2757,147 @@ The private note was obeyed — every line Dev wrote came in at 33-38
 characters against a 40 limit — though that is corroboration rather than proof,
 since a model might write short lines anyway. What is proof is the `to` on the
 log and the mailbox tests underneath it.
+
+### The cat office, and the number that decided its shape
+
+`body 5 x hair 8 x outfit 8 x palette 8` is **2,560 characters**. Nobody draws
+2,560 cats, so the first question was not what they look like but which slots
+cost artwork.
+
+Two of the four already cost none, and had since M5 without anyone noticing it
+was load-bearing: `BODIES` was a pair of scale multipliers and `PALETTES` a set
+of colours. So `build` is a transform and `palette` is a tint, leaving `coat`
+and `outfit` as one overlay layer each over one base cat — seventeen rows of
+art instead of 2,560 characters. The sprites are drawn in **white and greys**
+because a Pixi tint multiplies: white takes the palette exactly and grey keeps
+its shading proportional to it.
+
+M5 promised this: *"Swapping in artwork later replaces `ActorView.redraw`, not
+the data path."* It held. `sceneState.ts`, `poses.ts` and the stage were not
+touched.
+
+### The catalogue was rewritten, and the record was not
+
+New slots (`build`, `coat`) and new values, so every agent created before this
+held a config the validator refuses — which matters because `AgentService`
+re-checks on **edit**: without a migration, opening any existing agent and
+pressing save would fail on an avatar nobody had touched.
+
+Migration 0019 maps the `agents` table one-to-one, deliberately: a mapping that
+collapsed several old looks onto one cat would make agents that were chosen to
+look different start looking alike, and the person who chose them would have no
+way to tell why.
+
+**`missions.roster_snapshot` is not migrated.** It is the record of what a run
+used, and rewriting it would make a finished mission claim a look it never had
+(§5.1). Replaying an old run therefore hands `body: "slim"` to a build that has
+no such slot, and `lookFor` falls back — this build honestly saying it has no
+art for what was recorded (§8). What survives is what the two catalogues happen
+to share: `blazer` is still a blazer on a cat, and the test says so.
+
+`validate_avatar` refuses the old shape outright rather than translating.
+`migrate_avatar` is the only thing that translates, and it runs once, in a
+migration, over rows nobody is editing.
+
+### Props are a fact, and they made a bug visible
+
+What is on a desk comes from the tools that member carried **on that run**, off
+the frozen snapshot. That makes the room checkable: the research team that
+answered from memory had `web_search` on its leader, and a leader with workers
+is never assigned a task — with props you can *see* it, because the satellite
+dish is on the desk nobody works at.
+
+**Three slots, fixed priority.** Tester carries eleven tools, which is six prop
+groups, and a desk with six things on it says less than one showing the three
+that set this cat apart from the one beside it. Fixed rather than computed from
+the team, so an agent's desk looks the same on every team they are on.
+`send_message` gets no prop at all: everyone has it, so drawing it would spend a
+slot to say nothing — the same reason six `tool_uncovered` lines became one.
+
+Iris and Pell get bare desks, which is true of them.
+
+### Seat 0 is the head of the table
+
+Every arrangement is now a table with the leader at the head and the workers
+down the two sides. That is not decoration: seat 0 is the leader, and the
+leader is the one member the orchestrator never assigns a task to, so "who is
+in charge here" is a fact about how the run will behave. A row of identical
+desks was the one arrangement that could not show it. The generated fallback
+for an unknown layout follows the same shape, because that fact does not depend
+on which layout somebody picked.
+
+### Dusk and afternoon
+
+The first warm palette was all brown and read as *hot*. Two themes now, and the
+dark one is the better idea: **dusk, not night** — a deep blue outside the
+window and warm lamplight inside it. Cool ground, warm accents, which is what
+stops the app reading as either cold or overheated. Light is the same room in
+the afternoon: warm paper, brown ink, the same orange accenting.
+
+Three choices, not two. "Follow the system" is the default and is a different
+statement from "dark" — someone whose laptop switches at sunset has said
+something, and pinning dark on first run would override it.
+
+**The scene reads the stylesheet.** Pixi takes numbers and the theme lives in
+CSS variables, and there is one honest way to keep them together: ask the
+document. `--room-floor-a` and the rest are declared beside the DOM's tokens
+and resolved at draw time, because a second table of hex values in TypeScript
+would be a second answer to "what colour is the floor" — the mistake this
+codebase has already made with `activeId`, `can_run` and `lookFor` (§2.1).
+
+### Three bugs between a correct scene graph and a black rectangle
+
+Everything drew and nothing appeared, and each layer of that took a different
+kind of looking.
+
+**The sheet lost a race.** `loadCats().then(refresh every actor)` refreshes
+`this.actors`, which is **empty at mount**. When the sheet arrived after the
+first render every actor had already given up, and a finished mission produces
+no second state to try again with. It re-renders the last state now — the M7
+bug ("the scene only drew when something changed") in a new place, and the same
+fix: keep what you were asked for and draw it again when the thing you were
+missing turns up.
+
+**The camera only moved on the ticker.** `step()` is what turns `cameraWant`
+into `world.position`, and the ticker is stopped whenever the scene is not
+animating — which includes a background window. So opening a finished run in an
+unfocused window drew the room correctly at world (0, 0): desks, cats, captions,
+all of it just off the top-left corner.
+
+**And Pixi renders on the ticker too.** A stopped ticker means a scene graph
+that is entirely correct and never painted. That is worse than a crash, because
+every check downstream reports success — `world.children` was 4, the desk
+measured 130x75, the figure held three sprites, and the canvas was blank.
+
+The thing that finally found it was measuring the graph instead of reading the
+code: bounds of `(-73, -72, 145, 146)` on a canvas whose camera sat at the
+origin says exactly one thing.
+
+### `Assets.load` is not `fetch`
+
+The sheet loader read `data.frames` off what `Assets.load('cats.json')`
+returned. Pixi recognises spritesheet-shaped JSON and hands back an
+already-parsed `Spritesheet`, so `frames` was undefined, the `try` threw, and
+the catch turned a working sheet into "no art" with nothing on the console.
+
+The catch is right — a missing texture must not take the timeline down — which
+is exactly why the thing inside it has to be narrow. It uses `fetch` now.
+
+### What Aseprite writes, and what Pixi reads
+
+They are not the same key. Aseprite exports `meta.frameTags`, a list of index
+ranges; Pixi looks for `animations`, a map of names to frame names.
+`sheet.ts` converts one to the other, and that adapter is the whole reason
+`File > Export Sprite Sheet > JSON Data` drops in with nothing to post-process.
+
+`scripts/gen-cats.py` writes the identical shape, so the placeholder art is
+replaceable by exporting over it. It draws programmer pixel art and looks it;
+the point is that the atlas, the layering, the tinting and the timing are
+already right, so the only thing left to judge is the drawing.
+
+`nearest` on the texture and `antialias: false` on the app. Pixel art scaled
+with the default filter is the kind of wrong that looks like a bad drawing
+rather than a bad setting.
 
 ---
 
@@ -2887,6 +3219,14 @@ the forward-compat test points.
   validate-and-retry loop's corrections are covered by tests and have never
   fired against a real model. A model that seats somebody who does not exist is
   the case that has not been seen for real.
+- **The cat art is a placeholder.** `scripts/gen-cats.py` draws it, and it
+  looks like a program drew it. The pipeline around it — atlas, three-layer
+  compositing, tinting, integer scaling, the Aseprite `frameTags` adapter — is
+  finished and verified, so replacing the art is an export and no code change.
+- **Walking still uses one sprite row.** `walk` has four frames and they are
+  drawn facing the room; a cat crossing the room is mirrored rather than drawn
+  from the side, which reads acceptably at this size and would not with real
+  art.
 - **`/rewind` cannot undo what `bash` did.** Only `write_file` and `edit_file`
   leave a stored version, so a file a shell command created, moved or deleted
   has no copy to go back to. Said on the dialog before it is agreed to rather

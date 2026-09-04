@@ -52,7 +52,7 @@ async def seed(db) -> None:
                 name="Mira",
                 model="m1",
                 tools=["read_file"],
-                avatar_config={"body": "slim"},
+                avatar_config={"build": "lithe"},
                 created_at=now,
                 updated_at=now,
             )
@@ -88,7 +88,7 @@ async def seed(db) -> None:
                         "role_in_team": "leader",
                         "model": "m1",
                         "tools": ["read_file"],
-                        "avatar_config": {"body": "slim"},
+                        "avatar_config": {"build": "lithe"},
                     }
                 ],
                 started_at=now,

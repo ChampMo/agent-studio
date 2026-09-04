@@ -38,14 +38,16 @@ export function ToolPicker({
   }, [load]);
 
   const toggle = (id: string) => {
-    onChange(value.includes(id) ? value.filter((t) => t !== id) : [...value, id]);
+    onChange(
+      value.includes(id) ? value.filter((t) => t !== id) : [...value, id],
+    );
   };
 
   return (
     <div className="space-y-3">
       <Field label={strings.tools.title}>
         {tools.length === 0 ? (
-          <p className="text-xs text-slate-500">{strings.tools.none}</p>
+          <p className="text-xs text-faint">{strings.tools.none}</p>
         ) : (
           <div className="space-y-1">
             {tools.map((tool) => (
@@ -79,7 +81,6 @@ export function ToolPicker({
           </div>
         )}
       </Field>
-
 
       {/* The "trusted removes the only gate" warning moved with the setting,
           to the control that now owns it beside the composer. Warning about a

@@ -19,7 +19,7 @@
  *   leave a character thinking for ever.
  */
 import type { EventEnvelope } from "../../transport/events.generated";
-import type { SnapshotMember, } from "../../stores/missionStore";
+import type { SnapshotMember } from "../../stores/missionStore";
 import type { StreamingMessage } from "../../stores/eventStore";
 import { DEFAULT_POSE, poseFor, type AgentPose } from "../animation/poses";
 
@@ -32,8 +32,14 @@ export interface Actor {
   seatIndex: number;
   isLeader: boolean;
   pose: AgentPose;
-  /** Slots from the closed catalogue: body, hair, outfit, palette (§11). */
+  /** Slots from the closed catalogue: build, coat, outfit, palette (§11). */
   avatar: Record<string, string>;
+  /** Their job, off the frozen snapshot. Shown where there is room for it. */
+  title: string;
+  /** What this member carried **on this run**, off the frozen snapshot — so
+   *  the desk a replay draws is the desk that ran, not the one they would be
+   *  given today (§5.1). Props are derived from it. */
+  tools: string[];
   /** The task this character is on, when the plan named one. */
   task: string | null;
   /**
@@ -229,6 +235,8 @@ export function deriveSceneState({
       // said. A cancelled run is closed before it can report `idle`.
       pose: ended ? DEFAULT_POSE : (poses.get(member.agent_id) ?? DEFAULT_POSE),
       avatar: member.avatar_config ?? {},
+      title: member.title ?? "",
+      tools: member.tools ?? [],
       task: ended ? null : (tasks.get(member.agent_id) ?? null),
       place: member.agent_id === focusAgentId ? "floor" : "seat",
       says: ended

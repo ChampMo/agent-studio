@@ -45,7 +45,7 @@ def roster() -> RosterSnapshot:
             model="m",
             sampling=None,
             tools=["write_file"],
-            avatar_config={"body": "slim"},
+            avatar_config={"build": "lithe"},
         )
 
     return RosterSnapshot([member(0, "Lead", True), member(1, "Worker")])

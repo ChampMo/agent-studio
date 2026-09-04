@@ -9,6 +9,7 @@
  * not a tab you pass.
  */
 import { useEffect, useState } from "react";
+import { apply, useThemeStore } from "./stores/themeStore";
 import { strings } from "./lib/constants/strings.en";
 import { useSettingsStore } from "./stores/settingsStore";
 import { OnboardingScreen } from "./features/settings/OnboardingScreen";
@@ -39,6 +40,15 @@ export function App() {
   useEffect(() => {
     void waitForBackend();
   }, [waitForBackend]);
+
+  // Stamped for the life of the window. Read from localStorage on the first
+  // render rather than after the backend answers: waiting would show the
+  // default theme for a second and then swap, which is the one thing a theme
+  // setting must not do.
+  const theme = useThemeStore((s) => s.choice);
+  useEffect(() => {
+    apply(theme);
+  }, [theme]);
 
   // Asked once, here, because a question can outlive the process that asked it
   // (§12 M6) and nothing else in the app fetches it. It used to live on the

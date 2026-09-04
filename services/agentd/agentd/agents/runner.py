@@ -412,9 +412,11 @@ class MissionRunner:
             members=members,
             agents=agents,
             workspace_root=resolved_workspace,
-            # One setting for the whole app, frozen here — so a run started
-            # under "ask before everything" keeps asking even if the switch is
-            # moved while it works (§5.1).
+            # Recorded here as what this run *started* under. It is no longer
+            # what the gate reads: moving the switch takes effect on the next
+            # tool call (see `tools/execution.py`). Kept on the snapshot because
+            # it is a true thing about the launch, and because a replay should
+            # be able to say what the run began with.
             autonomy=await get_autonomy(self._db),
         )
         # The app default is read here rather than baked in, so the number a
@@ -860,6 +862,10 @@ class MissionRunner:
                     },
                 ),
                 autonomy=member.autonomy,
+                # Read per gated call, so "never ask" stops the questions on
+                # the next one rather than on the next run. `member.autonomy`
+                # above stays as what the run started under.
+                live_autonomy=lambda: get_autonomy(self._db),
                 gate=self,
             )
 

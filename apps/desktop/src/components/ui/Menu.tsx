@@ -288,7 +288,7 @@ export function Menu({
                 item.onSelect();
               }}
               className={cn(
-                "flex w-full min-h-[36px] items-center gap-3 px-3 text-left text-sm",
+                "flex w-full min-h-[36px] items-center gap-3 px-3 py-1 text-left text-sm",
                 item.disabled
                   ? "cursor-not-allowed text-faint"
                   : item.tone === "danger"
@@ -312,9 +312,18 @@ export function Menu({
               <span className="min-w-0 flex-1">
                 <span className="block truncate">{item.label}</span>
                 {/* Says why a row is dead, instead of leaving it dead and
-                    unexplained. */}
+                    unexplained.
+
+                    It wraps, which the panel's `max-w` was added for and this
+                    span then undid: `truncate` cut the reason off at the panel
+                    edge, so the one row that had something to explain was the
+                    one row you could not read. A label can truncate — it is a
+                    name and the menu is short — but a hint that ends in an
+                    ellipsis has failed at its only job. */}
                 {item.hint ? (
-                  <span className="block truncate text-xs text-faint">{item.hint}</span>
+                  <span className="block text-xs leading-snug text-faint">
+                    {item.hint}
+                  </span>
                 ) : null}
               </span>
             </button>

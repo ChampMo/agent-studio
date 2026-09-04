@@ -51,6 +51,31 @@ interface SettingsState {
   test: (id: string) => Promise<ProbeResult>;
 }
 
+/**
+ * The endpoints something can actually be generated against.
+ *
+ * One function, because this question had grown **four** answers — the default
+ * endpoint, the onboarding gate, the team advisor's dropdown and the agent
+ * creator's — and they did not agree. The creator's was
+ * `providers.filter((p) => p.hasKey)`, which got both halves wrong: it offered
+ * Tavily and Brave, which cannot complete anything and fail with
+ * `no provider registered for 'search'`, and it hid a local Ollama or LM
+ * Studio, which authenticates nothing and so has no key to have.
+ *
+ * Both halves are already written down elsewhere in this file, correctly, one
+ * on top of the other. That is the §2.1 shape exactly: two readers of one idea,
+ * and the one nobody was looking at was the wrong one.
+ *
+ * `hasKey || verifiedAt` — you supplied a key, or the endpoint answered without
+ * one. Both are established facts rather than a guess about which endpoints
+ * need what.
+ */
+export function chatProviders(providers: ProviderProfile[]): ProviderProfile[] {
+  return providers.filter(
+    (p) => p.kind !== "search" && (p.hasKey || p.verifiedAt !== null),
+  );
+}
+
 /** The default model endpoint: still present, and not a search key.
  *
  *  A stored id is re-checked rather than trusted, because a profile can be
@@ -62,7 +87,9 @@ export function pickActive(
 ): string | null {
   const models = providers.filter((p) => p.kind !== "search");
   if (current && models.some((p) => p.id === current)) return current;
-  return models.find((p) => p.hasKey || p.verifiedAt)?.id ?? models[0]?.id ?? null;
+  // A usable one first; failing that, any model endpoint at all, so the
+  // dropdown has something selected while it is still being set up.
+  return chatProviders(providers)[0]?.id ?? models[0]?.id ?? null;
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
@@ -85,10 +112,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   // screen for ever with a working endpoint already configured. Both halves are
   // established facts — you supplied a key, or the endpoint answered — rather
   // than a guess about which endpoints need one.
-  needsOnboarding: () =>
-    get().providers.every(
-      (p) => p.kind === "search" || (!p.hasKey && p.verifiedAt === null),
-    ),
+  needsOnboarding: () => chatProviders(get().providers).length === 0,
   active: () => get().providers.find((p) => p.id === get().activeId) ?? null,
 
   waitForBackend: async () => {

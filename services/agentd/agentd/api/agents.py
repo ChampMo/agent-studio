@@ -185,6 +185,11 @@ async def generate(request: Request, body: GenerateIn) -> dict[str, Any]:
         spec.id for spec in tool_registry.available(has_search_provider=has_search)
     ]
 
+    # The names already spoken for. Archived agents included: they are still in
+    # the roster list, they can be restored, and two agents nobody can tell
+    # apart are exactly as confusing greyed out as they are not.
+    taken = [agent.name for agent in await _service(request).list(include_archived=True)]
+
     try:
         result = await generate_profile(
             provider=provider,
@@ -193,6 +198,7 @@ async def generate(request: Request, body: GenerateIn) -> dict[str, Any]:
             role=body.role,
             brief=body.brief,
             available_tools=offerable,
+            taken=taken,
         )
     except ProfileGenerationFailed as exc:
         # Every attempt is returned, not just the last. "It failed" is not

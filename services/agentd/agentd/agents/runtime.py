@@ -472,7 +472,7 @@ async def _handle_call(
     safe_input = execution.redact_input(spec, arguments)
 
     # ---- ask, if this agent has to ask ------------------------------------
-    if tools.needs_approval(spec) and tools.gate is not None:
+    if tools.gate is not None and await tools.needs_approval(spec):
         request_id = f"req-{uuid.uuid4()}"
         # Registered before the question is published: publishing first leaves a
         # window in which a fast answer arrives for a question nobody is waiting

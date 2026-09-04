@@ -27,7 +27,10 @@
 import { useState } from "react";
 import { strings } from "../../lib/constants/strings.en";
 import { cn } from "../../lib/cn";
-import { canPickDirectory, useWorkspaceStore } from "../../stores/workspaceStore";
+import {
+  canPickDirectory,
+  useWorkspaceStore,
+} from "../../stores/workspaceStore";
 import { Button } from "../../components/ui/primitives";
 
 export function WorkspacePicker({ required }: { required: boolean }) {
@@ -46,27 +49,29 @@ export function WorkspacePicker({ required }: { required: boolean }) {
       className={cn(
         "space-y-2 rounded-lg border p-3",
         required && !chosen
-          ? "border-amber-800/70 bg-amber-950/20"
-          : "border-slate-800 bg-slate-900/40",
+          ? "border-attn-edge bg-attn-soft"
+          : "border-line bg-solid",
       )}
     >
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-sm font-medium text-slate-200">
+        <span className="text-sm font-medium text-text">
           {strings.workspace.title}
         </span>
         {required ? (
-          <span className="text-[11px] text-amber-400">{strings.workspace.required}</span>
+          <span className="text-[11px] text-attn">
+            {strings.workspace.required}
+          </span>
         ) : null}
       </div>
 
       {chosen ? (
         <div className="space-y-2">
           {/* The resolved path, not what was typed. */}
-          <code className="block break-all rounded bg-slate-950/60 px-2 py-1.5 text-xs text-emerald-300">
+          <code className="block break-all rounded bg-solid px-2 py-1.5 text-xs text-done">
             {chosen.path}
           </code>
           {chosen.warnings.map((warning) => (
-            <p key={warning.code} className="text-[11px] text-amber-400">
+            <p key={warning.code} className="text-[11px] text-attn">
               {warning.message} {strings.workspace.broadHint}
             </p>
           ))}
@@ -76,7 +81,7 @@ export function WorkspacePicker({ required }: { required: boolean }) {
         </div>
       ) : (
         <div className="space-y-2">
-          <p className="text-xs text-slate-400">{strings.workspace.hint}</p>
+          <p className="text-xs text-muted">{strings.workspace.hint}</p>
 
           {/* Deliberately not a <form>: this component is rendered inside the
               launch form, and HTML has no nested forms — the parser drops the
@@ -114,7 +119,11 @@ export function WorkspacePicker({ required }: { required: boolean }) {
               variant="secondary"
               className="shrink-0"
               disabled={checking || (browsing && !canBrowse)}
-              title={browsing && !canBrowse ? strings.workspace.browserOnly : undefined}
+              title={
+                browsing && !canBrowse
+                  ? strings.workspace.browserOnly
+                  : undefined
+              }
               onClick={() => (browsing ? void pick() : void choose(path))}
             >
               {checking
@@ -126,10 +135,12 @@ export function WorkspacePicker({ required }: { required: boolean }) {
           </div>
 
           {browsing && !canBrowse ? (
-            <p className="text-[11px] text-faint">{strings.workspace.browserOnly}</p>
+            <p className="text-[11px] text-faint">
+              {strings.workspace.browserOnly}
+            </p>
           ) : null}
 
-          {error ? <p className="text-xs text-red-400">{error}</p> : null}
+          {error ? <p className="text-xs text-stop">{error}</p> : null}
         </div>
       )}
     </div>
@@ -140,11 +151,11 @@ export function WorkspacePicker({ required }: { required: boolean }) {
 export function WorkspaceBanner({ path }: { path: string | null }) {
   if (!path) return null;
   return (
-    <div className="flex items-center gap-2 rounded-md border border-slate-800 bg-slate-900/40 px-3 py-1.5">
+    <div className="flex items-center gap-2 rounded-md border border-line bg-solid px-3 py-1.5">
       <span className="shrink-0 text-[11px] text-faint">
         {strings.workspace.working}
       </span>
-      <code className="min-w-0 flex-1 truncate text-xs text-emerald-300" title={path}>
+      <code className="min-w-0 flex-1 truncate text-xs text-done" title={path}>
         {path}
       </code>
     </div>

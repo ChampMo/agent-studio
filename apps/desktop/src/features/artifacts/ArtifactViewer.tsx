@@ -43,7 +43,10 @@ export function ArtifactViewer() {
   // whose identity never changes, so depending on it alone hands back rows
   // built before the roster arrived — a trap this codebase has now hit three
   // times.
-  const trails = useMemo(() => fileTrails(events, nameOf), [events, nameOf, roster]);
+  const trails = useMemo(
+    () => fileTrails(events, nameOf),
+    [events, nameOf, roster],
+  );
 
   //: Anything the app wrote itself — the final answer — that is not a file in
   //: the workspace and so has no change history to show.
@@ -56,7 +59,8 @@ export function ArtifactViewer() {
   }
 
   const idFor = (path: string) =>
-    artifacts.find((a) => a.source === "workspace" && a.path === path)?.id ?? null;
+    artifacts.find((a) => a.source === "workspace" && a.path === path)?.id ??
+    null;
 
   return (
     <div className="space-y-4">
@@ -84,7 +88,9 @@ export function ArtifactViewer() {
           {/* The run's own answer, which the app wrote rather than an agent —
               so it has no change history and does not belong in the list
               above. */}
-          <h3 className="text-xs font-medium text-muted">{strings.artifacts.title}</h3>
+          <h3 className="text-xs font-medium text-muted">
+            {strings.artifacts.title}
+          </h3>
           <ul className="space-y-1">
             {produced.map((artifact) => (
               <li key={artifact.id}>
@@ -96,7 +102,9 @@ export function ArtifactViewer() {
                     "text-left text-xs text-muted hover:bg-solid hover:text-text",
                   )}
                 >
-                  <span className="min-w-0 flex-1 truncate">{artifact.title}</span>
+                  <span className="min-w-0 flex-1 truncate">
+                    {artifact.title}
+                  </span>
                   <span className="shrink-0 text-[11px] text-faint tabular-nums">
                     {size(artifact.bytes)}
                   </span>
@@ -110,7 +118,9 @@ export function ArtifactViewer() {
       {open ? (
         <div className="space-y-2 rounded-[9px] border border-line bg-solid-2 p-3">
           <div className="flex items-center justify-between gap-2">
-            <span className="min-w-0 truncate text-xs text-faint">{open.path}</span>
+            <span className="min-w-0 truncate text-xs text-faint">
+              {open.path}
+            </span>
             <button
               type="button"
               onClick={closeArtifact}
@@ -142,12 +152,15 @@ function ChangeDiff({
   missionId,
   path,
   nth,
+  startOpen,
 }: {
   missionId: string | null;
   path: string;
   nth: number;
+  /** Whether this one starts open. See `TrailRow` for which does. */
+  startOpen: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(startOpen);
   const [versions, setVersions] = useState<FileVersion[] | null>(null);
 
   useEffect(() => {
@@ -172,13 +185,17 @@ function ChangeDiff({
       </button>
       {open ? (
         versions === null ? (
-          <p className="px-1 text-[11px] text-faint">{strings.artifacts.loading}</p>
+          <p className="px-1 text-[11px] text-faint">
+            {strings.artifacts.loading}
+          </p>
         ) : version ? (
           <div className="mt-1">
             <DiffView version={version} previous={versions[nth - 1] ?? null} />
           </div>
         ) : (
-          <p className="px-1 text-[11px] text-faint">{strings.artifacts.noVersions}</p>
+          <p className="px-1 text-[11px] text-faint">
+            {strings.artifacts.noVersions}
+          </p>
         )
       ) : null}
     </div>
@@ -200,7 +217,7 @@ function TrailRow({
   const last = trail.changes[trail.changes.length - 1];
 
   return (
-    <li className="rounded-[9px] bg-solid-2">
+    <li className="rounded-[9px] border border-line bg-solid-2">
       <div className="flex items-center gap-2 px-2 py-1.5">
         <button
           type="button"
@@ -262,19 +279,27 @@ function TrailRow({
                   missionId={missionId}
                   path={trail.path}
                   nth={index}
+                  // The newest change opens with the row. Opening a file is
+                  // asking what it looks like *now*, and having to press a
+                  // second time to find out was a step with no decision in it.
+                  //
+                  // Only the newest, though. Each open diff fetches two
+                  // versions, so a file written eleven times would fire
+                  // twenty-two requests on one click to show ten diffs nobody
+                  // asked for — the older ones are history and stay one press
+                  // away.
+                  startOpen={index === trail.changes.length - 1}
                 />
               ) : null}
             </li>
           ))}
         </ol>
-      ) : (
-        last ? (
-          <p className="truncate px-2 pb-1.5 pl-6 text-[11px] text-faint">
-            {last.summary}
-            {last.name ? ` · ${last.name}` : ""}
-          </p>
-        ) : null
-      )}
+      ) : last ? (
+        <p className="truncate px-2 pb-1.5 pl-6 text-[11px] text-faint">
+          {last.summary}
+          {last.name ? ` · ${last.name}` : ""}
+        </p>
+      ) : null}
     </li>
   );
 }

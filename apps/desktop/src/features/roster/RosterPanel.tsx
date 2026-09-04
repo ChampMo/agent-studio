@@ -66,7 +66,8 @@ function AgentCard({ agent, onEdit }: { agent: Agent; onEdit: () => void }) {
       // permits and no screen reader announces sensibly. So the div carries the
       // pointer affordance and the name button carries the keyboard one.
       onClick={(event) => {
-        if ((event.target as HTMLElement).closest('button,[role="menu"],a')) return;
+        if ((event.target as HTMLElement).closest('button,[role="menu"],a'))
+          return;
         onEdit();
       }}
       // `group` so the menu can appear on hover; it is always reachable by
@@ -83,7 +84,11 @@ function AgentCard({ agent, onEdit }: { agent: Agent; onEdit: () => void }) {
       )}
     >
       <div className="flex items-start gap-3">
-        <Portrait avatar={agent.avatarConfig ?? null} name={agent.name} size={34} />
+        <Portrait
+          avatar={agent.avatarConfig ?? null}
+          name={agent.name}
+          size={34}
+        />
 
         {/* The name is the button. Making the whole card one would nest the
             menu inside it, which no browser allows and no screen reader can
@@ -94,9 +99,13 @@ function AgentCard({ agent, onEdit }: { agent: Agent; onEdit: () => void }) {
             onClick={onEdit}
             className="block w-full min-w-0 text-left"
           >
-            <span className="block truncate font-medium text-text">{agent.name}</span>
+            <span className="block truncate font-medium text-text">
+              {agent.name}
+            </span>
             {echoes ? null : (
-              <span className="block truncate text-xs text-muted">{agent.title}</span>
+              <span className="block truncate text-xs text-muted">
+                {agent.title}
+              </span>
             )}
           </button>
         </div>
@@ -124,7 +133,10 @@ function AgentCard({ agent, onEdit }: { agent: Agent; onEdit: () => void }) {
               onSelect: () => void duplicate(agent.id),
             },
             archived
-              ? { label: strings.roster.restore, onSelect: () => void restore(agent.id) }
+              ? {
+                  label: strings.roster.restore,
+                  onSelect: () => void restore(agent.id),
+                }
               : {
                   label: strings.roster.archive,
                   hint: strings.roster.archiveHint,
@@ -154,7 +166,9 @@ function AgentCard({ agent, onEdit }: { agent: Agent; onEdit: () => void }) {
 
       {/* Facts only: what it runs on, and what it has actually done (§1.1). */}
       <div className="flex min-w-0 items-baseline justify-between gap-2 text-[11px] text-faint">
-        <span className="shrink-0">{strings.roster.missions(agent.totalMissions)}</span>
+        <span className="shrink-0">
+          {strings.roster.missions(agent.totalMissions)}
+        </span>
         {/* `min-w-0` again: without it `truncate` has nothing to truncate
             against and the model id pushes the row wider than the card. */}
         <span className="min-w-0 truncate font-mono">{agent.model ?? "—"}</span>
@@ -200,7 +214,7 @@ export function RosterPanel() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
+      <div className="flex items-center justify-between border-b border-line px-4 py-3">
         <h2 className="text-sm font-medium text-text">
           {strings.roster.title}
         </h2>
@@ -210,19 +224,21 @@ export function RosterPanel() {
             onChange={setShowArchived}
             label={strings.roster.showArchived}
           />
-          <Button onClick={() => setCreating(true)}>{strings.roster.create}</Button>
+          <Button onClick={() => setCreating(true)}>
+            {strings.roster.create}
+          </Button>
         </div>
       </div>
 
       <div key="agent-list" className="flex-1 overflow-y-auto p-4">
         {error ? (
-          <p className="rounded-md bg-red-950/60 px-3 py-2 text-sm text-red-300">
+          <p className="rounded-md bg-stop/10 px-3 py-2 text-sm text-stop">
             {error}
           </p>
         ) : null}
 
         {!loading && agents.length === 0 ? (
-          <p className="text-sm text-slate-500">{strings.roster.empty}</p>
+          <p className="text-sm text-faint">{strings.roster.empty}</p>
         ) : null}
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">

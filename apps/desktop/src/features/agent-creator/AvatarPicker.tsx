@@ -41,27 +41,30 @@ export function AvatarPicker({
           <Portrait avatar={value} name={name || "?"} size={56} />
         </div>
         <div className="min-w-0 flex-1 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {slots.map(([slot, options]) => (
-          // A <label> wrapping the control no longer associates: `Select`
-          // renders a button, and implicit labelling only works for form
-          // elements. `htmlFor` + `id` is the explicit form, and it works for
-          // both.
-          <div key={slot} className="space-y-1">
-            <label htmlFor={`avatar-${slot}`} className="block text-xs text-faint">
-              {slot}
-            </label>
-            <Select
-              id={`avatar-${slot}`}
-              label={slot}
-              value={value[slot] ?? options[0] ?? ""}
-              onChange={(next) => onChange({ ...value, [slot]: next })}
-              options={options.map((option) => ({
-                value: option,
-                label: option.replace(/_/g, " "),
-              }))}
-            />
-          </div>
-        ))}
+          {slots.map(([slot, options]) => (
+            // A <label> wrapping the control no longer associates: `Select`
+            // renders a button, and implicit labelling only works for form
+            // elements. `htmlFor` + `id` is the explicit form, and it works for
+            // both.
+            <div key={slot} className="space-y-1">
+              <label
+                htmlFor={`avatar-${slot}`}
+                className="block text-xs text-faint"
+              >
+                {slot}
+              </label>
+              <Select
+                id={`avatar-${slot}`}
+                label={slot}
+                value={value[slot] ?? options[0] ?? ""}
+                onChange={(next) => onChange({ ...value, [slot]: next })}
+                options={options.map((option) => ({
+                  value: option,
+                  label: option.replace(/_/g, " "),
+                }))}
+              />
+            </div>
+          ))}
         </div>
       </div>
       <p className="text-xs text-faint">{strings.creator.avatarHint}</p>

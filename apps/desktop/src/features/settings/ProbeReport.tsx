@@ -20,19 +20,25 @@ const MARK: Record<CheckStatus, string> = {
 };
 
 const MARK_CLASS: Record<CheckStatus, string> = {
-  pass: "text-emerald-400",
-  fail: "text-red-400",
-  inconclusive: "text-amber-400",
+  pass: "text-done",
+  fail: "text-stop",
+  inconclusive: "text-attn",
 };
 
-function headline(result: ProbeResult): { text: string; tone: "good" | "bad" | "warn" } {
+function headline(result: ProbeResult): {
+  text: string;
+  tone: "good" | "bad" | "warn";
+} {
   const { passed, failed, inconclusive, total } = result.counts;
   if (passed === total) return { text: strings.probe.allPassed, tone: "good" };
   if (!result.ok) return { text: strings.probe.unusable, tone: "bad" };
   const parts = [`${passed} of ${total} passed`];
   if (inconclusive) parts.push(`${inconclusive} inconclusive`);
   if (failed) parts.push(`${failed} failed`);
-  return { text: parts.join(" · "), tone: inconclusive && !failed ? "warn" : "warn" };
+  return {
+    text: parts.join(" · "),
+    tone: inconclusive && !failed ? "warn" : "warn",
+  };
 }
 
 export function ProbeReport({ result }: { result: ProbeResult }) {
@@ -41,9 +47,11 @@ export function ProbeReport({ result }: { result: ProbeResult }) {
   const stored = new Set(result.conclusive ?? []);
 
   return (
-    <div className="space-y-3 rounded-md border border-slate-700 bg-slate-900/60 p-3">
+    <div className="space-y-3 rounded-md border border-line bg-solid p-3">
       <div className="flex items-center gap-2">
-        <span className="text-sm font-medium text-slate-100">{strings.probe.title}</span>
+        <span className="text-sm font-medium text-text">
+          {strings.probe.title}
+        </span>
         <Badge tone={head.tone}>{head.text}</Badge>
       </div>
 
@@ -54,26 +62,28 @@ export function ProbeReport({ result }: { result: ProbeResult }) {
               {MARK[check.status]}
             </span>
             <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-1.5 text-slate-200">
+              <div className="flex flex-wrap items-center gap-1.5 text-text">
                 {strings.probe.checkNames[check.id] ?? check.label}
                 {check.status === "inconclusive" ? (
                   <Badge tone="warn">{strings.probe.inconclusive}</Badge>
                 ) : null}
               </div>
-              <div className="break-words text-xs text-slate-400">{check.detail}</div>
+              <div className="break-words text-xs text-muted">
+                {check.detail}
+              </div>
             </div>
           </li>
         ))}
       </ul>
 
       {result.counts.inconclusive > 0 ? (
-        <p className="text-xs text-amber-400/90">{strings.probe.inconclusiveHint}</p>
+        <p className="text-xs text-attn">{strings.probe.inconclusiveHint}</p>
       ) : null}
-      <p className="text-xs text-slate-500">{strings.probe.informational}</p>
+      <p className="text-xs text-faint">{strings.probe.informational}</p>
 
       {result.ok ? (
-        <div className="space-y-1 border-t border-slate-800 pt-2">
-          <div className="text-xs font-medium text-slate-300">
+        <div className="space-y-1 border-t border-line pt-2">
+          <div className="text-xs font-medium text-muted">
             {strings.probe.capabilities}
           </div>
           <div className="flex flex-wrap gap-1.5">
@@ -101,7 +111,9 @@ export function ProbeReport({ result }: { result: ProbeResult }) {
               // Surfaced because it silently changes what a request may contain:
               // a model that rejects sampling ignores the agent's temperature.
               <Badge tone={caps.sampling_params ? "neutral" : "warn"}>
-                {caps.sampling_params ? "accepts temperature" : "ignores temperature"}
+                {caps.sampling_params
+                  ? "accepts temperature"
+                  : "ignores temperature"}
               </Badge>
             ) : null}
             {caps.max_input_tokens ? (

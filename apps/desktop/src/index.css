@@ -3,54 +3,270 @@
 /* Tailwind v4 is configured in CSS; there is no tailwind.config.js by design. */
 
 /**
- * The palette (§18.1).
+ * The palette (§18.1) — two of them.
  *
  * One rule about the glass holds the whole design together: **glass is for the
  * shell, never for content.** Panels, the sidebar and headers may be
  * translucent; the surfaces text sits on are solid `--solid`. Text floating on
  * a blurred backdrop has a contrast ratio that changes with whatever happens to
  * be behind it, which is not something that can be checked or promised.
+ *
+ * **Dark is dusk, not night.** The office at the end of the day: a deep blue
+ * outside the window and warm lamplight inside it. That contrast is the whole
+ * character of it — the ground is cool and every accent is warm, which is what
+ * stops the app reading as either cold or, as the all-brown version did, hot.
+ *
+ * **Light is the same room in the afternoon**: warm paper, ink that is brown
+ * rather than black, and the same orange doing the accenting.
+ *
+ * `@theme` declares the dark set, so it is what a build with no preference
+ * gets. `:root[data-theme="light"]` overrides the same variables, which works
+ * because every Tailwind utility here compiles to `var(--color-…)` rather than
+ * to a literal.
  */
 @theme {
-  --color-bg: #0b1116;
-  --color-glass: rgba(20, 28, 36, 0.72);
-  --color-glass-edge: rgba(255, 255, 255, 0.055);
-  --color-glass-top: rgba(255, 255, 255, 0.1);
-  --color-solid: #151d25;
-  --color-solid-2: #1a242e;
-  --color-line: rgba(255, 255, 255, 0.075);
-  --color-line-strong: #607485;
+  /* ---- "หมอกเช้า" / Morning Mist ----
+     The shell is a cool blue-grey in both themes. All of this theme's colour
+     lives in the isometric room, and the app feels alive because a warm room
+     sits inside a cool frame — not because the frame was tinted. Where it is
+     not obvious whether something should take colour, it does not. */
+  --color-bg: #121820;
+  --color-solid: #1c242e;
+  --color-solid-2: #27313d;
+  --color-glass: rgba(28, 36, 46, 0.74);
+  --color-glass-edge: rgba(190, 215, 240, 0.07);
+  --color-glass-top: rgba(190, 215, 240, 0.11);
+  --color-line: rgba(190, 215, 240, 0.1);
+  --color-line-strong: #46525f;
+  --color-text: #e6eaee;
+  --color-muted: #a3aebb;
+  --color-faint: #8b96a4;
+  --color-accent: #4fc3d9;
+  --color-focus: #8adcec;
 
-  --color-text: #e4ebf1;
-  --color-muted: #9baab8;
-  --color-faint: #7b8b99;
+  /* The only colour that means "it is your turn": a question waiting to be
+     answered, work that is parked, a run stopped on the reader. Never an
+     accent and never decoration — the moment it is used for emphasis it stops
+     being able to say the one thing it is for. */
+  --color-attn: #f5b942;
+  --color-attn-soft: #2c2415;
+  --color-attn-edge: #6e5828;
 
-  --color-accent: #5fc5e8;
-  --color-focus: #7fd6f5;
+  /* ---- marks only, never text ----
+     These two are the vivid versions, for things with a *shape*: the fill of a
+     progress bar, a status dot, an icon, the underline under a chosen tab.
+     On white they measure 2.9:1 and 1.8:1, so as text they fail AA and very
+     nearly fail to be legible at all. `themeTokens.test.ts` fails the build if
+     `text-accent-bright` or `text-attn-bright` appears anywhere. */
+  --color-accent-bright: #6ed6ef;
+  --color-attn-bright: #ffcb60;
 
-  /* Agent and mission states. Each of these is paired with a *shape* wherever
-     it is shown — colour alone is not a status (§18.3). */
-  --color-idle: #93a7b8;
-  --color-search: #5fc5e8;
-  --color-write: #b79bf0;
-  --color-wait: #f0b857;
-  --color-stop: #f2857a;
-  --color-done: #6fd69b;
+  /* Agent and mission states. Each is paired with a *shape* or an icon
+     wherever it is shown — colour alone is not a status (§18.3). */
+  --color-idle: #8c97a4;
+  --color-done: #63c98c;
+  --color-stop: #f0776a;
+
+  /* `search` and `write` were #5fd6e8 and #b394ee: 1.6:1 against each other,
+     which the comment beside them had already admitted was too close. They are
+     the accent now, and `wait` is the one colour that means you are needed.
+     Aliases rather than edits at every call site — the callers can change when
+     there is a reason to, and until then there is one place that decides. */
+  --color-search: var(--color-accent);
+  --color-write: var(--color-accent);
+  --color-wait: var(--color-attn);
+
+  /* ---- one violet, and it means one thing ----
+     "A model wrote this, and you have not checked it yet." Nothing else in the
+     app may use it — the same discipline `--color-attn` is under, where amber
+     means "it is your turn" and nothing else. A colour spent on decoration
+     stops meaning anything, and then the one time it matters nobody reads it.
+
+     The gradient runs from the accent that already exists to the one new hue,
+     so the edge reads as AI without the app growing a rainbow. `ink` is the
+     text-and-icon weight and is the only one of the three ever used on type;
+     `wash` and `glow` are fills.
+
+     Not a state colour, deliberately: `idle`, `done` and `stop` say what an
+     *agent* is doing, and this says where a piece of text came from. */
+  --color-ai-a: #4fc3d9;
+  --color-ai-b: #9b8cff;
+  --color-ai-ink: #b4a8ff;
+  --color-ai-wash: rgba(155, 140, 255, 0.1);
+  --color-ai-glow: rgba(155, 140, 255, 0.22);
+
+  /* The room. Declared here rather than in TypeScript so the scene and the DOM
+     cannot end up with two ideas of what colour the office is (§2.1) —
+     `scene/entities/room.ts` reads these back at draw time. */
+  --color-room-sky: #0b1017;
+  --room-floor-a: #1d2833;
+  --room-floor-b: #18222c;
+  --room-desk-top: #9a6a40;
+  --room-desk-side: #6a4728;
+  --room-lamp: #ffd79a;
+  --room-window: #7fb6ec;
+  --room-paper: #e6eaee;
+  --room-metal: #7e8b99;
+  --room-ink: #141a22;
+
+  /* How strongly each light lands. Per theme, because the same wash over a
+     dark floor and a light one are not the same picture — and here rather than
+     in the renderer so the scene has no colour opinion of its own. */
+  --room-lamp-alpha: 0.6;
+  --room-window-alpha: 0.3;
+
+  /* Cat fur. Per theme, because the same tint does not read the same on a dark
+     floor and a light one — and read back by the scene rather than held in
+     TypeScript, for the same reason the furniture is. */
+  --coat-ginger: #de9455;
+  --coat-grey: #93a3b5;
+  --coat-cream: #edd9ba;
+  --coat-tux: #2f3946;
 
   --radius-panel: 14px;
   --radius-card: 9px;
+}
+
+/**
+ * Light: the same office in the afternoon.
+ *
+ * Not an inversion. The greys are warm because the room is, the accent is the
+ * same orange at a darker value so it still reads on paper, and every state
+ * colour is darkened rather than reused — a mid-tone that sits happily on
+ * #16182a is unreadable on #fdf7f0.
+ */
+:root[data-theme="light"] {
+  color-scheme: light;
+  /* ---- "เปิดหน้าต่าง" / Windows Open ----
+     Bright and open, and the openness is why `--color-bg` and `--color-solid`
+     are only 1.09:1 apart. That is deliberate and it has a consequence: **depth
+     here is not carried by lightness.** Every panel has to draw its own edge,
+     which is why `@utility surface` sets a border rather than offering one. */
+  --color-bg: #f1f6f6;
+  --color-solid: #ffffff;
+  --color-solid-2: #e3edee;
+  --color-glass: rgba(255, 255, 255, 0.8);
+  --color-glass-edge: rgba(18, 58, 68, 0.1);
+  --color-glass-top: rgba(255, 255, 255, 0.75);
+  --color-line: rgba(18, 58, 68, 0.13);
+  --color-line-strong: #a2b6b9;
+  --color-text: #142129;
+  --color-muted: #4e6068;
+  --color-faint: #64777e;
+  --color-accent: #00778f;
+  --color-accent-bright: #14a6c4;
+  --color-focus: #14a6c4;
+  --color-attn: #9e5e00;
+  --color-attn-bright: #ffb020;
+  --color-attn-soft: #fff3dc;
+  --color-attn-edge: #ebce9a;
+  --color-idle: #69797f;
+  --color-ai-a: #00778f;
+  --color-ai-b: #5c3fbf;
+  --color-ai-ink: #5c3fbf;
+  --color-ai-wash: rgba(92, 63, 191, 0.07);
+  --color-ai-glow: rgba(92, 63, 191, 0.16);
+  --color-done: #17724a;
+  --color-stop: #be3a2c;
+  --color-room-sky: #dfeef1;
+  --room-floor-a: #ede6d8;
+  --room-floor-b: #e2d8c6;
+  --room-desk-top: #c68c55;
+  --room-desk-side: #9c6c3f;
+  --room-lamp: #ffecc4;
+  --room-window: #fff0be;
+  --room-paper: #ffffff;
+  --room-metal: #8a9298;
+  --room-ink: #2a3138;
+  --room-lamp-alpha: 0.6;
+  --room-window-alpha: 0.45;
+  --coat-ginger: #cd8140;
+  --coat-grey: #8c979c;
+  --coat-cream: #f3e8d4;
+  --coat-tux: #3a444b;
+}
+
+/* Following the system is the default, and is what "no choice yet" means. The
+   toggle stamps `data-theme` and wins over both. */
+/* Following the system is the default, and is what "no choice yet" means. The
+   toggle stamps `data-theme` and wins over both.
+
+   These are the light values again, character for character. They are written
+   from one source rather than copied by hand, because the failure when they
+   drift is two light themes that do not match and only one of them ever gets
+   looked at. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    /* ---- "เปิดหน้าต่าง" / Windows Open ----
+       Bright and open, and the openness is why `--color-bg` and `--color-solid`
+       are only 1.09:1 apart. That is deliberate and it has a consequence: **depth
+       here is not carried by lightness.** Every panel has to draw its own edge,
+       which is why `@utility surface` sets a border rather than offering one. */
+    --color-bg: #f1f6f6;
+    --color-solid: #ffffff;
+    --color-solid-2: #e3edee;
+    --color-glass: rgba(255, 255, 255, 0.8);
+    --color-glass-edge: rgba(18, 58, 68, 0.1);
+    --color-glass-top: rgba(255, 255, 255, 0.75);
+    --color-line: rgba(18, 58, 68, 0.13);
+    --color-line-strong: #a2b6b9;
+    --color-text: #142129;
+    --color-muted: #4e6068;
+    --color-faint: #64777e;
+    --color-accent: #00778f;
+    --color-accent-bright: #14a6c4;
+    --color-focus: #14a6c4;
+    --color-attn: #9e5e00;
+    --color-attn-bright: #ffb020;
+    --color-attn-soft: #fff3dc;
+    --color-attn-edge: #ebce9a;
+    --color-idle: #69797f;
+    --color-ai-a: #00778f;
+    --color-ai-b: #5c3fbf;
+    --color-ai-ink: #5c3fbf;
+    --color-ai-wash: rgba(92, 63, 191, 0.07);
+    --color-ai-glow: rgba(92, 63, 191, 0.16);
+    --color-done: #17724a;
+    --color-stop: #be3a2c;
+    --color-room-sky: #dfeef1;
+    --room-floor-a: #ede6d8;
+    --room-floor-b: #e2d8c6;
+    --room-desk-top: #c68c55;
+    --room-desk-side: #9c6c3f;
+    --room-lamp: #ffecc4;
+    --room-window: #fff0be;
+    --room-paper: #ffffff;
+    --room-metal: #8a9298;
+    --room-ink: #2a3138;
+    --room-lamp-alpha: 0.6;
+    --room-window-alpha: 0.45;
+    --coat-ginger: #cd8140;
+    --coat-grey: #8c979c;
+    --coat-cream: #f3e8d4;
+    --coat-tux: #3a444b;
+  }
 }
 
 html,
 body,
 #root {
   height: 100%;
+  /* Tells the browser which way round we are, so native things it draws for
+     us — form controls, the caret, the default scrollbar before ours applies —
+     come out on the right side rather than being light chrome on a dark page. */
+  color-scheme: dark;
   /* The document is not a scrolling surface in this app: every scrollable
      region is a panel inside the shell, and the window frame is fixed. Without
      this, anything that briefly overflows leaves the *document* scrolled — and
      what you see then is the app sitting above a tall grey void, because the
      thing that caused it has already gone. Reported as "the page scrolls into
-     nothing", and it was: a scroll position with no content under it. */
+     nothing", and it was: a scroll position with no content under it.
+
+     And without the `height` above, nothing scrolls at all: `body` grows to fit
+     its content, the shell grows with it, and every panel that was supposed to
+     scroll internally simply runs off the bottom of the window. There is no
+     scrollbar anywhere in that state, which is how it was noticed.  */
   overflow: hidden;
 }
 
@@ -59,13 +275,22 @@ body {
   background-color: var(--color-bg);
   color: var(--color-text);
   font-family:
-    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
   /* Something for the blur to refract. Without this the glass panels sit on a
      flat colour and the effect is invisible work. */
-  background-image:
-    radial-gradient(60rem 40rem at 12% -10%, rgba(95, 197, 232, 0.11), transparent 60%),
-    radial-gradient(50rem 36rem at 88% 8%, rgba(183, 155, 240, 0.07), transparent 62%),
-    radial-gradient(46rem 40rem at 60% 108%, rgba(111, 214, 155, 0.05), transparent 60%);
+  /* One layer, angled the way the window in the scene is. Three overlapping
+     washes were three decisions about where light comes from, and the room now
+     answers that question on its own — everything outside it is the frame. */
+  background-image: radial-gradient(
+    62rem 44rem at 86% -12%,
+    color-mix(in srgb, var(--color-accent) 6%, transparent),
+    transparent 62%
+  );
   background-attachment: fixed;
 }
 
@@ -85,9 +310,18 @@ body {
   border-radius: var(--radius-panel);
 }
 
-/** Content sits here, on something opaque. */
+/**
+ * Content sits here, on something opaque — and **always with an edge**.
+ *
+ * The border is not optional and not a style choice. In the light theme the
+ * page is #F1F6F6 and a panel is #FFFFFF: 1.09:1 apart, which is what makes it
+ * feel open and also means *lightness no longer separates the layers*. A panel
+ * with no edge does not look subtle there; it is invisible, and the content
+ * inside it reads as sitting directly on the page.
+ */
 @utility surface {
   background-color: var(--color-solid);
+  border: 1px solid var(--color-line);
   border-radius: var(--radius-card);
 }
 
@@ -149,9 +383,30 @@ body {
  * The track is transparent rather than tinted: these sit on panels of three
  * different backgrounds, and a track with a colour of its own would be a stripe
  * on two of them.
+ *
+ * **The thumb is invisible until the pointer is over the thing it scrolls.**
+ * A bar down the side of a list nobody is touching is a permanent vertical
+ * line competing with the content beside it, and it is only ever useful while
+ * you are actually reaching for it.
+ *
+ * Two things make that safe rather than clever:
+ *
+ * The **gutter is still reserved** — only the colour changes, never the width.
+ * Hiding the scrollbar by removing it reflows the text underneath every time
+ * the mouse crosses the column, which is far worse than the line it removes.
+ *
+ * And it comes back on `:focus-within` as well as `:hover`, so tabbing into a
+ * list shows it. Somebody who never uses a pointer would otherwise have a
+ * scrollbar that does not exist.
  */
 * {
   scrollbar-width: thin;
+  /* Firefox: the thumb is transparent at rest for the same reason. */
+  scrollbar-color: transparent transparent;
+}
+
+*:hover,
+*:focus-within {
   scrollbar-color: var(--color-line-strong) transparent;
 }
 
@@ -165,16 +420,24 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.13);
+  background-color: transparent;
   border-radius: 999px;
   /* Drawn inside a transparent border so the thumb reads as inset rather than
-     hard against the content edge. */
-  border: 3px solid transparent;
+     hard against the content edge. 2px, not 3: on a 10px track three of them
+     leaves a 4px thumb, which is thin enough to be hard to grab and made the
+     bar look further from the edge than it was. */
+  border: 2px solid transparent;
   background-clip: padding-box;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(255, 255, 255, 0.24);
+*:hover::-webkit-scrollbar-thumb,
+*:focus-within::-webkit-scrollbar-thumb {
+  background-color: var(--color-line-strong);
+}
+
+*:hover::-webkit-scrollbar-thumb:hover,
+*:focus-within::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-muted);
 }
 
 ::-webkit-scrollbar-corner {
@@ -196,4 +459,260 @@ input[type="number"]::-webkit-outer-spin-button,
 input[type="number"]::-webkit-inner-spin-button {
   -webkit-appearance: none;
   margin: 0;
+}
+
+/*
+ * The busy fish (timeline). Three frames, and the bites go from the tail end
+ * forward so the head is the last thing left — which is how anyone eats a
+ * fish, and makes the loop read as one fish rather than three shapes.
+ *
+ * `steps(1, end)` on the parent and plain visibility here: pixel art that
+ * cross-fades stops looking like pixel art.
+ */
+@keyframes nibble {
+  0%,
+  100% {
+    opacity: 1;
+  }
+}
+.fish-bite-1,
+.fish-bite-2,
+.fish-bite-3 {
+  animation: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .fish-bite-1 {
+    animation: bite1 1.2s steps(1, end) infinite;
+  }
+  .fish-bite-2 {
+    animation: bite2 1.2s steps(1, end) infinite;
+  }
+}
+@keyframes bite1 {
+  0%,
+  33% {
+    opacity: 1;
+  }
+  34%,
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes bite2 {
+  0%,
+  66% {
+    opacity: 1;
+  }
+  67%,
+  100% {
+    opacity: 0;
+  }
+}
+
+/* The travelling dash on a message line (compact scene). The offset moves, not
+   the path, so the line itself stays exactly where the two cards are. */
+@keyframes talk-dash {
+  to {
+    stroke-dashoffset: -12;
+  }
+}
+
+/**
+ * The panel a model writes inside (§18.3).
+ *
+ * One violet, used in one place, meaning one thing: *a model wrote this and you
+ * have not checked it yet.* It is the visual form of a sentence the app already
+ * says in words — "nothing is saved until you press Save" — which is why it may
+ * only ever sit on something unreviewed, and has to leave when the thing is
+ * saved or edited by hand.
+ *
+ * A gradient **border**, not a glow around a card: the border is 1px of
+ * gradient with an opaque `--color-solid` box laid on top, because that is the
+ * only way to get a gradient edge that follows a border radius. The text inside
+ * therefore still sits on a solid surface, which is the app's rule for anything
+ * with words in it.
+ *
+ * Four states, each of which also changes something with a *shape* — the word
+ * in the header, the button label, a skeleton, a rule down the side of a field
+ * — because colour alone is never a status.
+ *
+ *   idle        a faint, still edge. It says which half of the form is the
+ *               model's and then gets out of the way. It must not pulse: an
+ *               effect running all day is one nobody sees on the day it means
+ *               something.
+ *   working     the edge turns and the box glows. This is the only state that
+ *               moves, and it is the only state that is temporary.
+ *   unreviewed  the turning stops and the colour stays. The work arrived; the
+ *               checking has not happened.
+ *   failed      the edge goes to the stop colour and stops. What was typed
+ *               stays in the form — a failure that empties the box is how a
+ *               feature stops being used.
+ */
+@utility ai-panel {
+  position: relative;
+  border-radius: var(--radius-panel);
+  padding: 1px;
+  /* `clip`, not `hidden`, and this one cost a measurement to find.
+     `overflow: hidden` makes a box a **scroll container** — it clips, and it
+     is still scrollable programmatically. The rotating `::before` below sits
+     at `inset: -45%`, so it hangs 45% above the top and gives that container
+     something to scroll to. Then any focus change inside — the Generate
+     button going disabled is enough — makes the browser scroll the nearest
+     scrollable ancestor to keep the focused thing in view, and the *panel*
+     scrolls: the opaque inner box slid 151px up and the gradient showed
+     through underneath it as a solid block.
+     `overflow: clip` clips without creating a scroll container, which is the
+     one thing that was actually wanted here. Verified rather than assumed:
+     `scrollTop: 151, scrollHeight: 575, clientHeight: 397` on the broken
+     version. */
+  overflow: clip;
+  /* The still edge. Both stops are dimmed, so idle reads as "this is the AI
+     part of the form" rather than as something happening. */
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-ai-a) 34%, transparent),
+    color-mix(in srgb, var(--color-ai-b) 34%, transparent)
+  );
+}
+
+/* The turning edge. Kept off the element itself so the still gradient above is
+   what shows through whenever this is transparent — one layer to fade rather
+   than two backgrounds to keep in step. `inset: -45%` is what makes a square
+   conic gradient cover a wide box as it rotates. */
+.ai-panel::before {
+  content: "";
+  position: absolute;
+  inset: -45%;
+  opacity: 0;
+  transition: opacity 0.35s;
+  background: conic-gradient(
+    from 0deg,
+    var(--color-ai-a),
+    var(--color-ai-b),
+    var(--color-ai-a)
+  );
+}
+
+/* Full strength, whether or not it is allowed to turn. That split is the whole
+   accommodation: someone who has asked for less movement still has to be able
+   to see that something is running, so the *motion* is optional and the
+   *state* is not. */
+.ai-panel[data-state="working"]::before {
+  opacity: 1;
+}
+.ai-panel[data-state="working"] {
+  box-shadow:
+    0 0 0 4px var(--color-ai-glow),
+    0 0 26px -4px var(--color-ai-glow);
+}
+
+/* Arrived, unchecked. Brighter than idle and going nowhere. */
+.ai-panel[data-state="unreviewed"] {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-ai-a) 55%, transparent),
+    color-mix(in srgb, var(--color-ai-b) 55%, transparent)
+  );
+}
+
+/* Failed. The app's own stop colour rather than a fifth hue, because this is
+   the same kind of event as any other failure. */
+.ai-panel[data-state="failed"] {
+  background: color-mix(in srgb, var(--color-stop) 55%, transparent);
+}
+
+/* The opaque box the words actually sit on. 1px inside its parent, so the
+   radius is the parent's less the padding. */
+@utility ai-inner {
+  position: relative;
+  border-radius: calc(var(--radius-panel) - 1px);
+  background: var(--color-solid);
+}
+
+/* Written by the model, not yet touched by a person.
+   Removed the moment the field is edited — from then on it is the person's. */
+@utility ai-written {
+  position: relative;
+}
+.ai-written::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--color-ai-b);
+  opacity: 0.85;
+}
+
+/* Guarded rather than left to the blanket reduced-motion rule at the top of
+   this file, which sets `animation-duration: 0.01ms` — on an infinite rotation
+   that is not "stopped", it is a strobe, which is the opposite of what the
+   person asked for. Same shape as `fish-bite-*` above. */
+@media (prefers-reduced-motion: no-preference) {
+  .ai-panel[data-state="working"]::before {
+    animation: ai-spin 2.4s linear infinite;
+  }
+  .ai-landed {
+    animation: ai-land 0.9s ease-out;
+  }
+}
+
+@keyframes ai-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+/* A field lighting up as it takes its value. The stagger is presentation and
+   claims nothing: the reply arrives whole, and revealing it in order is a way
+   to let the eye follow what changed rather than a claim that the model wrote
+   it in that order. */
+@keyframes ai-land {
+  from {
+    background: color-mix(in srgb, var(--color-ai-b) 15%, var(--color-solid-2));
+  }
+  to {
+    background: var(--color-solid-2);
+  }
+}
+
+/* The indeterminate bar. It claims that something is running and no
+   proportion, because no proportion is known — the endpoint reports none. */
+@media (prefers-reduced-motion: no-preference) {
+  .ai-sweep {
+    animation: ai-slide 1.6s ease-in-out infinite;
+  }
+}
+.ai-sweep {
+  background: linear-gradient(90deg, var(--color-ai-a), var(--color-ai-b));
+}
+@keyframes ai-slide {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(360%);
+  }
+}
+
+/* The throbber ticks in twelve steps, the same number of bars it has, so each
+   one lands exactly where the last was. A smooth rotation would beat against
+   its own geometry and read as a wobble.
+
+   Guarded rather than left to the blanket reduced-motion rule at the top of
+   this file: that sets `animation-duration: 0.01ms`, which on an infinite
+   rotation is a strobe rather than a stop. Frozen it still reads as an
+   indicator, because the opacity ramp round the ring is the state — not the
+   movement. */
+@media (prefers-reduced-motion: no-preference) {
+  .throbber {
+    animation: throb 1s steps(12, end) infinite;
+  }
+}
+@keyframes throb {
+  to {
+    transform: rotate(1turn);
+  }
 }

@@ -142,7 +142,8 @@ export function TimelinePanel() {
     if (replaying) return "";
     for (let i = events.length - 1; i >= 0; i -= 1) {
       const entry = events[i]!;
-      if (ANNOUNCED.has(entry.event.draft.type)) return describe(entry.event, nameOf);
+      if (ANNOUNCED.has(entry.event.draft.type))
+        return describe(entry.event, nameOf);
     }
     return "";
   }, [events, replaying, nameOf, roster]);
@@ -186,12 +187,17 @@ export function TimelinePanel() {
   const waiting = useMemo(() => {
     const mine = pending.find((p) => p.missionId === missionId);
     if (!mine) return null;
-    return { requestId: mine.requestId, name: mine.agentId ? nameOf(mine.agentId) : "" };
+    return {
+      requestId: mine.requestId,
+      name: mine.agentId ? nameOf(mine.agentId) : "",
+    };
   }, [pending, missionId, nameOf, roster]);
 
   const jumpToAsk = () => {
     if (!waiting) return;
-    const card = scroller.current?.querySelector(`[data-ask="${waiting.requestId}"]`);
+    const card = scroller.current?.querySelector(
+      `[data-ask="${waiting.requestId}"]`,
+    );
     card?.scrollIntoView({ block: "center", behavior: "smooth" });
   };
 
@@ -232,7 +238,10 @@ export function TimelinePanel() {
             "bg-wait/10 px-4 py-2 text-left text-xs text-wait hover:bg-wait/15",
           )}
         >
-          <span className="size-1.5 shrink-0 rounded-full bg-wait" aria-hidden />
+          <span
+            className="size-1.5 shrink-0 rounded-full bg-wait"
+            aria-hidden
+          />
           <span className="min-w-0 flex-1 truncate">
             {strings.timeline.waitingOn(waiting.name)}
           </span>
@@ -271,75 +280,76 @@ export function TimelinePanel() {
       {/* Wrapped so the button can sit over the scroller's bottom edge without
           being inside the scroll itself. */}
       <div className="relative flex min-h-0 flex-1 flex-col">
-      <div
-        ref={scroller}
-        role="log"
-        aria-live="off"
-        aria-label={strings.timeline.title}
-        onScroll={(event) => {
-          const el = event.currentTarget;
-          // 40px of slack: "near the bottom" is what a reader means by being at
-          // it, and an exact comparison fails on fractional scroll heights.
-          const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-          pinned.current = atBottom;
-          if (atBottom) {
-            seenCount.current = rows.length;
-            setBehind(0);
-          }
-        }}
-        className="min-h-0 flex-1 space-y-2.5 overflow-y-auto px-4 py-4"
-      >
-        {rows.length === 0 ? (
-          <p className="py-6 text-center text-xs text-faint">
-            {draft ? strings.timeline.emptyDraft : strings.timeline.empty}
-          </p>
-        ) : null}
+        <div
+          ref={scroller}
+          role="log"
+          aria-live="off"
+          aria-label={strings.timeline.title}
+          onScroll={(event) => {
+            const el = event.currentTarget;
+            // 40px of slack: "near the bottom" is what a reader means by being at
+            // it, and an exact comparison fails on fractional scroll heights.
+            const atBottom =
+              el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+            pinned.current = atBottom;
+            if (atBottom) {
+              seenCount.current = rows.length;
+              setBehind(0);
+            }
+          }}
+          className="min-h-0 flex-1 space-y-2.5 overflow-y-auto px-4 py-4"
+        >
+          {rows.length === 0 ? (
+            <p className="py-6 text-center text-xs text-faint">
+              {draft ? strings.timeline.emptyDraft : strings.timeline.empty}
+            </p>
+          ) : null}
 
-        {/* Counted, never merely cut off. The same rule the activity fold and
+          {/* Counted, never merely cut off. The same rule the activity fold and
             the "only what involves me" filter follow: a reader has to be able
             to see that something is above them, or the transcript stops being
             something a run can be checked against. */}
-        {view.hidden > 0 ? (
-          <button
-            type="button"
-            onClick={() => setLimit((was) => was + PAGE)}
-            className={cn(
-              "mx-auto flex min-h-[24px] items-center rounded-card border border-line",
-              "px-3 py-1 text-[11px] text-muted hover:bg-solid hover:text-text",
-            )}
-          >
-            {strings.timeline.showEarlier(view.hidden)}
-          </button>
-        ) : null}
+          {view.hidden > 0 ? (
+            <button
+              type="button"
+              onClick={() => setLimit((was) => was + PAGE)}
+              className={cn(
+                "mx-auto flex min-h-[24px] items-center rounded-card border border-line",
+                "px-3 py-1 text-[11px] text-muted hover:bg-solid hover:text-text",
+              )}
+            >
+              {strings.timeline.showEarlier(view.hidden)}
+            </button>
+          ) : null}
 
-        {view.items.map((item) =>
-          isGroup(item) ? (
-            <ActivityFold key={item.id} group={item} avatarOf={avatarOf} />
-          ) : (
-            <RowView key={item.id} row={item} avatarOf={avatarOf} />
-          ),
-        )}
-      </div>
+          {view.items.map((item) =>
+            isGroup(item) ? (
+              <ActivityFold key={item.id} group={item} avatarOf={avatarOf} />
+            ) : (
+              <RowView key={item.id} row={item} avatarOf={avatarOf} />
+            ),
+          )}
+        </div>
 
-      {/* Not a scroll that yanks itself down. A reader who has gone up is
+        {/* Not a scroll that yanks itself down. A reader who has gone up is
           reading something, and moving the view out from under them is the
           thing the pin exists to prevent — but saying nothing leaves them
           wondering whether the run has stalled. So: what arrived, and a way
           back, taken only when asked. */}
-      {behind > 0 ? (
-        <button
-          type="button"
-          onClick={follow}
-          className={cn(
-            "absolute inset-x-0 bottom-2 mx-auto flex w-fit min-h-[24px] items-center gap-1.5",
-            "rounded-full border border-line bg-solid-2 px-3 py-1.5 text-[11px]",
-            "text-muted shadow-lg hover:bg-solid hover:text-text",
-          )}
-        >
-          {strings.timeline.newBelow(behind)}
-          <span aria-hidden>↓</span>
-        </button>
-      ) : null}
+        {behind > 0 ? (
+          <button
+            type="button"
+            onClick={follow}
+            className={cn(
+              "absolute inset-x-0 bottom-2 mx-auto flex w-fit min-h-[24px] items-center gap-1.5",
+              "rounded-full border border-line bg-solid-2 px-3 py-1.5 text-[11px]",
+              "text-muted shadow-lg hover:bg-solid hover:text-text",
+            )}
+          >
+            {strings.timeline.newBelow(behind)}
+            <span aria-hidden>↓</span>
+          </button>
+        ) : null}
       </div>
     </div>
   );
@@ -386,7 +396,9 @@ function ActivityFold({
         >
           ›
         </span>
-        {group.name ? <span className="shrink-0 text-muted">{group.name}</span> : null}
+        {group.name ? (
+          <span className="shrink-0 text-muted">{group.name}</span>
+        ) : null}
         {/* What it did, not how many rows it took. "16 steps" can only be
             opened; "wrote 4 files · package.json, tsconfig.json +2" can be
             judged — and a fold nobody dares leave shut has bought nothing. */}
@@ -398,7 +410,9 @@ function ActivityFold({
         {/* A failure inside is visible from the outside. Otherwise the safe
             move is to open every group, and the fold is undone. */}
         {group.failed ? (
-          <span className="shrink-0 text-stop">{strings.timeline.foldedFailed}</span>
+          <span className="shrink-0 text-stop">
+            {strings.timeline.foldedFailed}
+          </span>
         ) : null}
         {group.ts ? (
           <time className="ml-auto shrink-0 opacity-0 transition-opacity group-hover/fold:opacity-100">
@@ -446,7 +460,10 @@ function NoteWithDetail({ row }: { row: Extract<Row, { kind: "note" }> }) {
         >
           <span className="truncate">{row.text}</span>
           <span
-            className={cn("shrink-0 opacity-60 transition-transform", open && "rotate-90")}
+            className={cn(
+              "shrink-0 opacity-60 transition-transform",
+              open && "rotate-90",
+            )}
             aria-hidden
           >
             ›
@@ -455,7 +472,7 @@ function NoteWithDetail({ row }: { row: Extract<Row, { kind: "note" }> }) {
         <span className="h-px flex-1 bg-line" />
       </div>
       {open ? (
-        <div className="mx-auto mt-1 max-w-[80%] rounded-[9px] bg-solid-2 px-3 py-2">
+        <div className="mx-auto mt-1 max-w-[80%] rounded-[9px] border border-line bg-solid-2 px-3 py-2">
           <MarkdownBody source={row.detail ?? ""} />
         </div>
       ) : null}
@@ -486,18 +503,24 @@ function DidWithDetail({ row }: { row: Extract<Row, { kind: "did" }> }) {
       >
         <span
           aria-hidden="true"
-          className={cn("mt-1.5 size-1.5 shrink-0 rounded-full", TONE_DOT[row.tone])}
+          className={cn(
+            "mt-1.5 size-1.5 shrink-0 rounded-full",
+            TONE_DOT[row.tone],
+          )}
         />
         <span className="min-w-0 flex-1 truncate">{row.text}</span>
         <span
-          className={cn("shrink-0 opacity-60 transition-transform", open && "rotate-90")}
+          className={cn(
+            "shrink-0 opacity-60 transition-transform",
+            open && "rotate-90",
+          )}
           aria-hidden
         >
           ›
         </span>
       </button>
       {open ? (
-        <pre className="ml-3.5 mt-1 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-[9px] bg-solid-2 p-2.5 text-[11px] text-muted">
+        <pre className="ml-3.5 mt-1 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-[9px] border border-line bg-solid-2 p-2.5 text-[11px] text-muted">
           {row.detail}
         </pre>
       ) : null}
@@ -514,7 +537,10 @@ function RowView({
 }) {
   if (row.kind === "ask") {
     return (
-      <AskRowView row={row} avatar={row.agentId ? avatarOf(row.agentId) : null} />
+      <AskRowView
+        row={row}
+        avatar={row.agentId ? avatarOf(row.agentId) : null}
+      />
     );
   }
 
@@ -567,16 +593,13 @@ function RowView({
     return (
       <div className="flex items-center gap-2.5">
         <div className="w-9 shrink-0">
-          <Portrait
-            avatar={avatarOf(row.agentId)}
-            name={row.name || "?"}
-          />
+          <Portrait avatar={avatarOf(row.agentId)} name={row.name || "?"} />
         </div>
         <span
           // Announced, because for a blind reader this is the only sign that
           // the app is doing anything at all between one message and the next.
           role="status"
-          className="flex items-center gap-2 rounded-[14px] rounded-bl-[4px] bg-solid-2 px-3.5 py-2.5 text-xs text-muted"
+          className="flex items-center gap-2 rounded-[14px] rounded-bl-[4px] border border-line bg-solid-2 px-3.5 py-2.5 text-xs text-muted"
         >
           {row.spinning ? <Dots /> : null}
           <span>{strings.timeline.busy(row.name, row.status)}</span>
@@ -626,20 +649,25 @@ function RowView({
           spoke, and for your messages that is you — an empty 36px placeholder
           plus its gap held the bubble 46px off the edge for nothing. */}
       {!mine ? (
-      <div className="w-9 shrink-0">
-        {row.showHeader ? (
-          <Portrait
-            avatar={row.agentId ? avatarOf(row.agentId) : null}
-            name={row.name || "?"}
-          />
-        ) : null}
-      </div>
+        <div className="w-9 shrink-0">
+          {row.showHeader ? (
+            <Portrait
+              avatar={row.agentId ? avatarOf(row.agentId) : null}
+              name={row.name || "?"}
+            />
+          ) : null}
+        </div>
       ) : null}
 
       {/* One width for every bubble, and one left edge for every row. Three
           widths and three indents in one screen made the transcript read as
           three different lists that happened to be stacked. */}
-      <div className={cn("flex min-w-0 max-w-[42rem] flex-1 flex-col", mine && "items-end")}>
+      <div
+        className={cn(
+          "flex min-w-0 max-w-[42rem] flex-1 flex-col",
+          mine && "items-end",
+        )}
+      >
         {!mine && row.showHeader && row.name ? (
           <span className="mb-1 flex items-baseline gap-1.5 px-1 text-xs">
             <span className="font-medium text-text">{row.name}</span>
@@ -659,9 +687,13 @@ function RowView({
         <div
           className={cn(
             "min-w-0 break-words rounded-panel px-3.5 py-2.5 text-sm leading-relaxed",
+            // Every bubble draws its own edge. In the light theme the page
+            // and a panel are 1.09:1 apart, so a bubble with no border does
+            // not read as subtle — it reads as text sitting loose on the page.
+            "border",
             mine
-              ? "rounded-br-[4px] bg-accent/15 text-text"
-              : "rounded-bl-[4px] bg-solid-2 text-text",
+              ? "rounded-br-[4px] border-accent/25 bg-accent/15 text-text"
+              : "rounded-bl-[4px] border-line bg-solid-2 text-text",
             // A tail on the last bubble of a run only, so a group of turns
             // reads as one block of speech rather than several.
             row.streaming && "opacity-90",
@@ -770,18 +802,48 @@ function Spinner({ className }: { className?: string }) {
 }
 
 /** The three dots a chat app shows while the other side is typing. */
+/**
+ * A fish being eaten, three frames, looping while an agent is busy.
+ *
+ * It replaced three pulsing dots and means exactly what they meant: the latest
+ * `agent.status` for this agent is one that means work. Nothing here is timed
+ * to progress, because there is no progress to time — a reasoning model can
+ * spend a minute on one turn and the app does not know how long is left. The
+ * loop is a sign of life, not a bar.
+ *
+ * `prefers-reduced-motion` gets the whole fish, still. Somebody who has asked
+ * for less movement should still be able to see that something is happening.
+ *
+ * Drawn as inline SVG rather than from the sprite sheet: it sits in the DOM
+ * beside text at 14px, and pulling it out of a Pixi atlas would mean the
+ * timeline waiting on the scene's assets to render a row of prose.
+ */
 function Dots() {
   return (
-    <span aria-hidden="true" className="flex items-center gap-1">
-      {[0, 1, 2].map((i) => (
-        <span
-          key={i}
-          className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent"
-          // Staggered, so it reads as a wave rather than three things blinking
-          // in unison.
-          style={{ animationDelay: `${i * 160}ms`, animationDuration: "1.1s" }}
-        />
-      ))}
+    <span aria-hidden="true" className="inline-flex items-center">
+      <svg
+        width="18"
+        height="12"
+        viewBox="0 0 18 12"
+        className="text-accent motion-safe:animate-[nibble_1.2s_steps(1,end)_infinite]"
+        style={{ imageRendering: "pixelated" }}
+      >
+        {/* Tail, always there. */}
+        <path d="M0 4h2v4H0z M2 5h1v2H2z" fill="currentColor" />
+        {/* Body, in three bites. Each is its own group so the keyframes can
+            hide them one at a time — steps(1) so it snaps like pixel art
+            rather than fading. */}
+        <g className="fish-bite-1">
+          <path d="M3 3h5v6H3z" fill="currentColor" />
+        </g>
+        <g className="fish-bite-2">
+          <path d="M8 3h4v6H8z" fill="currentColor" />
+        </g>
+        <g className="fish-bite-3">
+          <path d="M12 4h3v4h-3z" fill="currentColor" />
+          <rect x="13" y="5" width="1" height="1" fill="var(--color-bg)" />
+        </g>
+      </svg>
     </span>
   );
 }

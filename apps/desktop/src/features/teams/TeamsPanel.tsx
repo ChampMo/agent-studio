@@ -53,7 +53,8 @@ function TeamCard({ team, onEdit }: { team: Team; onEdit: () => void }) {
       // permits and no screen reader announces sensibly. So the div carries the
       // pointer affordance and the name button carries the keyboard one.
       onClick={(event) => {
-        if ((event.target as HTMLElement).closest('button,[role="menu"],a')) return;
+        if ((event.target as HTMLElement).closest('button,[role="menu"],a'))
+          return;
         onEdit();
       }}
       // Same three rows as an agent card, for the same reason: grid stretches
@@ -70,13 +71,26 @@ function TeamCard({ team, onEdit }: { team: Team; onEdit: () => void }) {
     >
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <button type="button" onClick={onEdit} className="block w-full text-left">
-            <span className="block truncate font-medium text-text">{team.name}</span>
-            {/* The layout id was metadata joined by a middot, next to a member
-                count the list of members below already gives you. Only the
-                layout is left, because it is the one fact not shown elsewhere. */}
-            <span className="block truncate text-xs text-faint">
-              {team.sceneLayoutId}
+          <button
+            type="button"
+            onClick={onEdit}
+            className="block w-full text-left"
+          >
+            {/* The name, and nothing under it.
+
+                There was a second line here holding `sceneLayoutId`, and it
+                was wrong twice over. It printed the **id** — `open_desks` —
+                which is an internal string, not something anyone chose by that
+                name. And there are two layouts, both defaulting to the same
+                one, so on this machine every card in the grid carried the
+                identical word: a column of repeated text teaching the reader
+                that the second line is never worth looking at.
+
+                A field only earns a place on a card when its value differs
+                between cards. This one is on the builder, where it is picked,
+                and in the room, where you can see it. */}
+            <span className="block truncate font-medium text-text">
+              {team.name}
             </span>
           </button>
         </div>
@@ -100,11 +114,17 @@ function TeamCard({ team, onEdit }: { team: Team; onEdit: () => void }) {
           )}
           items={[
             { label: strings.teams.edit, onSelect: onEdit },
-            { label: strings.teams.duplicate, onSelect: () => void duplicate(team.id) },
+            {
+              label: strings.teams.duplicate,
+              onSelect: () => void duplicate(team.id),
+            },
             // Exportable even when it cannot run (§5.3).
             { label: strings.teams.export, onSelect: download },
             archived
-              ? { label: strings.teams.restore, onSelect: () => void restore(team.id) }
+              ? {
+                  label: strings.teams.restore,
+                  onSelect: () => void restore(team.id),
+                }
               : {
                   label: strings.teams.archive,
                   hint: strings.teams.archiveHint,
@@ -125,7 +145,9 @@ function TeamCard({ team, onEdit }: { team: Team; onEdit: () => void }) {
           {spareMembers > 0 ? (
             <span
               className="shrink-0 text-[11px] text-faint"
-              title={team.members.map((m) => m.agentName ?? m.agentId).join(", ")}
+              title={team.members
+                .map((m) => m.agentName ?? m.agentId)
+                .join(", ")}
             >
               +{spareMembers}
             </span>
@@ -185,10 +207,8 @@ export function TeamsPanel() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
-        <h2 className="text-sm font-medium text-text">
-          {strings.teams.title}
-        </h2>
+      <div className="flex items-center justify-between border-b border-line px-4 py-3">
+        <h2 className="text-sm font-medium text-text">{strings.teams.title}</h2>
         <div className="flex items-center gap-3">
           <Checkbox
             checked={showArchived}
@@ -207,16 +227,21 @@ export function TeamsPanel() {
               e.target.value = "";
             }}
           />
-          <Button variant="secondary" onClick={() => fileInput.current?.click()}>
+          <Button
+            variant="secondary"
+            onClick={() => fileInput.current?.click()}
+          >
             {strings.teams.import}
           </Button>
-          <Button onClick={() => setEditing("new")}>{strings.teams.create}</Button>
+          <Button onClick={() => setEditing("new")}>
+            {strings.teams.create}
+          </Button>
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4">
         {error ? (
-          <p className="mb-3 rounded-md bg-red-950/60 px-3 py-2 text-sm text-red-300">
+          <p className="mb-3 rounded-md bg-stop/10 px-3 py-2 text-sm text-stop">
             {error}
           </p>
         ) : null}
@@ -224,18 +249,22 @@ export function TeamsPanel() {
         {lastImportDuplicateOf ? (
           // New ids are always created, so the honest thing is to say a copy
           // was made rather than let the user wonder why there are two (§5.3).
-          <p className="mb-3 rounded-md bg-amber-950/30 px-3 py-2 text-xs text-amber-300">
+          <p className="mb-3 rounded-md bg-attn-soft px-3 py-2 text-xs text-attn">
             {strings.teams.importedBefore}
           </p>
         ) : null}
 
         {!loading && teams.length === 0 ? (
-          <p className="text-sm text-slate-500">{strings.teams.empty}</p>
+          <p className="text-sm text-faint">{strings.teams.empty}</p>
         ) : null}
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {teams.map((team) => (
-            <TeamCard key={team.id} team={team} onEdit={() => setEditing(team)} />
+            <TeamCard
+              key={team.id}
+              team={team}
+              onEdit={() => setEditing(team)}
+            />
           ))}
         </div>
       </div>

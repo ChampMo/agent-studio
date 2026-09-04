@@ -19,6 +19,18 @@ export const PAGE_STEP = 80;
  *  should be rendered into it (§17.1 — the ticker stops). */
 export const COLLAPSED_BELOW = 24;
 
+/**
+ * Below this the isometric room stops being worth drawing.
+ *
+ * A 3:2 room in 200px is a sliver of floor with the tops of three heads in it —
+ * it costs a WebGL context and a ticker to show less than a list would. So the
+ * pane changes what it draws rather than drawing the same thing badly: above
+ * the line a room, below it the same people as a row of cards.
+ *
+ * The number is where the desks stop fitting, not a round figure.
+ */
+export const COMPACT_BELOW = 220;
+
 /** How near a snap point counts as "at" it when a drag ends. */
 export const SNAP_WITHIN = 28;
 
@@ -66,7 +78,6 @@ export function readStoredHeight(raw: string | null, fallback: number): number {
   const saved = Number(raw);
   return Number.isFinite(saved) && saved >= 0 ? saved : fallback;
 }
-
 
 export interface KeyContext extends Bounds {
   height: number;

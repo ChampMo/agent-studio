@@ -235,7 +235,7 @@ export function TeamBuilder({ team, onDone }: Props) {
 
   return (
     <form onSubmit={save} className="flex h-full flex-col">
-      <div className="flex items-center justify-between gap-3 border-b border-slate-800 px-4 py-3">
+      <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
         <h2 className="text-sm font-medium text-text">
           {team ? strings.teams.editTitle : strings.teams.newTitle}
         </h2>
@@ -249,14 +249,14 @@ export function TeamBuilder({ team, onDone }: Props) {
         </div>
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[240px_minmax(0,1fr)] divide-x divide-slate-800">
+      <div className="grid min-h-0 flex-1 grid-cols-[240px_minmax(0,1fr)] divide-x divide-line">
         {/* Roster */}
         <div className="min-h-0 overflow-y-auto p-3">
           <div className="mb-2 text-xs font-medium text-muted">
             {strings.teams.roster}
           </div>
           {agents.length === 0 ? (
-            <p className="text-xs text-slate-500">{strings.teams.noAgents}</p>
+            <p className="text-xs text-faint">{strings.teams.noAgents}</p>
           ) : null}
           <div className="space-y-1.5">
             {agents.map((agent) => {
@@ -290,8 +290,8 @@ export function TeamBuilder({ team, onDone }: Props) {
                   className={cn(
                     "cursor-pointer rounded-md border px-2 py-1.5 text-xs",
                     used
-                      ? "border-sky-800 bg-sky-950/40 text-sky-200"
-                      : "border-slate-800 bg-slate-900/60 text-slate-200 hover:border-slate-700",
+                      ? "border-accent bg-accent/10 text-text"
+                      : "border-line bg-solid text-text hover:border-line-strong",
                   )}
                 >
                   <div className="flex min-w-0 items-center gap-2.5">
@@ -346,7 +346,7 @@ export function TeamBuilder({ team, onDone }: Props) {
           </Field>
 
           {displaced > 0 ? (
-            <p className="rounded-md bg-amber-950/40 px-3 py-2 text-xs text-amber-300">
+            <p className="rounded-md bg-attn-soft px-3 py-2 text-xs text-attn">
               {strings.teams.displaced(displaced)}
             </p>
           ) : null}
@@ -417,14 +417,12 @@ export function TeamBuilder({ team, onDone }: Props) {
                     }}
                     className={cn(
                       "min-h-[76px] rounded-md border p-2 text-xs transition-colors",
-                      !seat && "border-dashed border-slate-800 text-slate-600",
-                      seat &&
-                        worst === "error" &&
-                        "border-red-800 bg-red-950/30",
+                      !seat && "border-dashed border-line text-faint",
+                      seat && worst === "error" && "border-stop/40 bg-stop/10",
                       seat &&
                         worst === "warn" &&
-                        "border-amber-800 bg-amber-950/20",
-                      seat && !worst && "border-slate-700 bg-slate-900/60",
+                        "border-attn-edge bg-attn-soft",
+                      seat && !worst && "border-line bg-solid",
                     )}
                   >
                     <div className="mb-1 flex items-center justify-between text-[10px] text-faint">
@@ -525,8 +523,8 @@ export function TeamBuilder({ team, onDone }: Props) {
                             className={cn(
                               "mt-1 text-[11px]",
                               p.severity === "error"
-                                ? "text-red-300"
-                                : "text-amber-300",
+                                ? "text-stop"
+                                : "text-attn",
                             )}
                           >
                             {p.message}
@@ -550,8 +548,8 @@ export function TeamBuilder({ team, onDone }: Props) {
                   className={cn(
                     "rounded-md px-3 py-2 text-xs",
                     f.severity === "error"
-                      ? "bg-red-950/40 text-red-300"
-                      : "bg-amber-950/30 text-amber-300",
+                      ? "bg-stop/10 text-stop"
+                      : "bg-attn-soft text-attn",
                   )}
                 >
                   {f.message}
@@ -561,7 +559,7 @@ export function TeamBuilder({ team, onDone }: Props) {
           ) : null}
 
           {error ? (
-            <p className="rounded-md bg-red-950/60 px-3 py-2 text-sm text-red-300">
+            <p className="rounded-md bg-stop/10 px-3 py-2 text-sm text-stop">
               {error}
             </p>
           ) : null}

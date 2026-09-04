@@ -20,7 +20,8 @@ export const strings = {
   app: {
     name: "Agent Studio",
     waitingForBackend: "Waiting for the backend to start…",
-    waitingHint: "The dev launcher starts it. If this persists, check the terminal.",
+    waitingHint:
+      "The dev launcher starts it. If this persists, check the terminal.",
   },
   sidebar: {
     newRun: "New run",
@@ -38,6 +39,7 @@ export const strings = {
     // Counted, not a percentage: a plan of twelve tasks is twelve things.
     tasks: (done: number, total: number) => `${done}/${total}`,
     unread: "Finished since you last opened it",
+    working: "Still working",
     asking: "Waiting for your answer",
     soloChat: "Solo chat",
     spentThisMonth: "Spent this month",
@@ -87,7 +89,8 @@ export const strings = {
     noStatus: "Nothing yet",
     empty: "Open a run to see who is on it.",
     resize: "Panel width",
-    resizeHint: "Drag, or focus it and use the arrows. Home and End go to the limits.",
+    resizeHint:
+      "Drag, or focus it and use the arrows. Home and End go to the limits.",
     showRun: "This run",
     beforeStart: "Available once the run has started",
     showTerminal: "Terminal",
@@ -104,10 +107,11 @@ export const strings = {
   },
 
   scene: {
+    nobody: "No one is seated on this run.",
+    leader: "Team leader",
     empty: "Send a team out and they will appear here.",
     soundOn: "Sound on — click to mute",
     soundOff: "Muted — click for sound",
-    ended: (reason: string) => `round finished — ${reason}`,
   },
 
   mission: {
@@ -117,13 +121,16 @@ export const strings = {
       "Name it, pick a team, and choose the folder they may touch. Nothing runs until you send the first message.",
     // Said as what it is. A list of what happened, next to a field where a
     // limit is typed — not a prediction of what this run will do.
-    pastRuns: "What this team's last runs spent — tasks, tokens, how they ended",
+    pastRuns:
+      "What this team's last runs spent — tasks, tokens, how they ended",
     titleLabel: "Title",
     titleHint: "What to call this run in the list. It is not the instruction.",
     titlePlaceholder: "Landing page for the gaming brand",
     create: "Create run",
     breadcrumb: "Where you are",
     currentRun: "This run",
+    rename: "Rename this run",
+    renameLabel: "Run name",
     untitled: "Untitled run",
     notStarted: "Not started",
     soloChat: "Solo chat",
@@ -144,7 +151,8 @@ export const strings = {
     teamLabel: "Team",
     noRunnableTeam: "No team is ready to run — check the Teams tab.",
     goalLabel: "Goal",
-    goalHint: "One instruction for the whole team. The leader breaks it into tasks.",
+    goalHint:
+      "One instruction for the whole team. The leader breaks it into tasks.",
     goalPlaceholder: "Research X and summarise the tradeoffs",
     launch: "Send the team",
     launching: "Starting…",
@@ -168,11 +176,13 @@ export const strings = {
     //: After a round has finished. It continues the same conversation — same
     //: team, same workspace, same timeline — rather than starting over.
     hint: "Enter sends · Shift+Enter adds a line · continues this run",
-    firstHint: "Enter sends · Shift+Enter adds a line · this message starts the run",
+    firstHint:
+      "Enter sends · Shift+Enter adds a line · this message starts the run",
     //: While the team works. Precise on purpose: nothing can reach a model
     //: mid-reply, so this says *when* it lands rather than implying it
     //: interrupts. "Sent" would be the UI overstating what happened.
-    running: "Enter queues it · the team reads this when the current step ends · Esc stops the run",
+    running:
+      "Enter queues it · the team reads this when the current step ends · Esc stops the run",
     queued: "Waiting for the next step",
     queueFailed: "The run ended before that could be delivered.",
     runningPlaceholder: "Add a note for the team…",
@@ -189,7 +199,22 @@ export const strings = {
     tooBig: (name: string, limit: number) =>
       `${name} is too large. The limit is ${Math.round(limit / 1024)} KB.`,
     stopRun: "Stop the run",
-    addFiles: "Add file or photos",
+    //: The `+` menu. Three rows, because there are three things you can put in
+    //: this box that are not simply words: a file, a command to the app, and a
+    //: note addressed to one teammate. The two typed forms are discoverable
+    //: only by knowing to press `/` or `@`, which is a thing nobody is told.
+    addMenu: "Add to this message",
+    addFiles: "Add a photo or a file",
+    addCommand: "Run a command",
+    addName: "Message one teammate",
+    //: Why those two rows go dead, said on the row rather than left to be
+    //: guessed. `/plan …` and `@Wren …` only parse from the **start** of the
+    //: line, so neither can be dropped into a sentence already being written —
+    //: and taking the box over to insert one would throw that sentence away.
+    needsEmptyBox: "Only from an empty box — this is the whole line",
+    //: A note is collected from the mailbox when a teammate's next task
+    //: starts, so there has to be a next task.
+    needsRunning: "Only while the team is working",
     dropHere: "Drop to attach",
     dropHint: "or drop files here",
   },
@@ -229,7 +254,11 @@ export const strings = {
       dangerous: "asks first",
     } as Record<string, string>,
     autonomy: "Ask before acting:",
-    autonomyNextRun: "Takes effect on the next run",
+    // It used to say "on the next run", which was true and was also the
+    // complaint: you turn the questions off because the one on screen is
+    // interrupting you, and being told to start a new run to get that is not
+    // an answer. It is read per tool call now.
+    autonomyNextRun: "Takes effect on the next tool call",
     trustedShort: "No approval gate, and no sandbox behind it.",
     confirmTrusted: "Turn off every approval?",
     confirmTrustedYes: "Turn it off",
@@ -265,8 +294,10 @@ export const strings = {
     sending: "Sending…",
     later: "Later",
     more: (n: number) => `${n} more waiting`,
-    footnote: "The mission is paused until this is answered — closing the app is safe.",
-    waiting: (n: number) => (n === 1 ? "1 question waiting" : `${n} questions waiting`),
+    footnote:
+      "The mission is paused until this is answered — closing the app is safe.",
+    waiting: (n: number) =>
+      n === 1 ? "1 question waiting" : `${n} questions waiting`,
     reopen: "Answer",
     //: On a question that has already been dealt with. The row keeps its place
     //: — the transcript is a record, and a question that was asked stays asked.
@@ -306,7 +337,8 @@ export const strings = {
     skipped: (n: number) =>
       n === 1 ? "1 unchanged line" : `${n} unchanged lines`,
     showDiff: "What changed",
-    noVersions: "No copy of this file was kept — it was written before the app started keeping them.",
+    noVersions:
+      "No copy of this file was kept — it was written before the app started keeping them.",
     none: "This mission produced no files.",
     close: "Close",
     // Two different things, and the difference matters: one is still in the
@@ -319,6 +351,17 @@ export const strings = {
    * what a model suggested is an opinion, and what `validate()` found is a
    * rule. The words do the work the layout cannot.
    */
+  theme: {
+    // Says what each one *is*, not what it looks like — "dusk" is the design
+    // and "dark" is only the setting. There is no settings page for this: the
+    // button in the corner of the window is the whole control.
+    system: "Follow the system",
+    light: "Afternoon",
+    dark: "Dusk",
+    current: (name: string) => `Theme: ${name}`,
+    switchTo: (name: string) => `Switch to ${name}`,
+  },
+
   advisor: {
     title: "Ask AI to staff this team",
     briefPlaceholder:
@@ -376,8 +419,13 @@ export const strings = {
     rewindLimit:
       "Only files written with write_file or edit_file can be put back — anything bash created or moved has no stored copy.",
     rewindDone: (n: number) =>
-      n === 0 ? "Nothing needed changing." : n === 1 ? "Put 1 file back." : `Put ${n} files back.`,
-    rewindKept: "What was there before this is kept, so you can undo it the same way.",
+      n === 0
+        ? "Nothing needed changing."
+        : n === 1
+          ? "Put 1 file back."
+          : `Put ${n} files back.`,
+    rewindKept:
+      "What was there before this is kept, so you can undo it the same way.",
     rewindOnlyStopped: "Stop the run first — the team is using these files.",
     action: {
       restore: "will be put back",
@@ -480,12 +528,32 @@ export const strings = {
     preamble:
       "Your own shell, opened on this run's folder. It is not gated by “Ask before acting” — that governs agents, not you — and nothing typed here goes on the timeline. Files you change are the files the team reads next.",
     noRun: "Open a run to get a terminal on its folder.",
-    noWorkspace: "This run has no folder, so there is nowhere to open a terminal.",
+    noWorkspace:
+      "This run has no folder, so there is nowhere to open a terminal.",
     running: "running…",
     timedOut: "stopped — it was still running",
     truncated: "output was cut",
     exit: (code: number | null, ms: number) =>
       `exit ${code ?? "?"} · ${ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`}`,
+  },
+
+  //: The panel a model writes inside. Shared by the agent creator and the
+  //: team builder, because both are the same act — a model fills in a form and
+  //: a person checks it — and two wordings would be two claims.
+  ai: {
+    working: "The model is writing",
+    //: The one measure of this wait that is real. Nothing streams and the
+    //: backend reports no progress, so a step-by-step caption would be the
+    //: screen narrating work it cannot see (§1.1).
+    elapsed: (seconds: number) => `${seconds}s`,
+    cancel: "Cancel",
+    //: What the treatment on the fields means, said once in words.
+    written: "The violet marks are what the model wrote. Editing a field clears its mark.",
+    //: Not "it failed". The endpoint's own words go underneath this.
+    failed: "The model could not produce a usable answer.",
+    //: Said where the person can act on it: a cancelled run costs nothing and
+    //: leaves what was typed exactly where it was.
+    cancelled: "Cancelled. Nothing was saved and nothing was changed.",
   },
 
   creator: {
@@ -503,7 +571,12 @@ export const strings = {
     briefLabel: "Notes (optional)",
     briefPlaceholder: "Anything else that should shape the character.",
     generate: "Generate profile",
+    regenerate: "Draft it again",
     generating: "Generating…",
+    aiTitle: "Let the model draft a character",
+    //: Present tense about a state, not a congratulation. It is on screen
+    //: for as long as the draft is unchecked and leaves when it is saved.
+    aiReview: "Drafted by the model — yours to check before it is saved",
     corrected: (attempts: number) =>
       `The model needed ${attempts} attempts. What was corrected:`,
     reviewTitle: "Review",
@@ -590,10 +663,14 @@ export const strings = {
     // trust to have kept the rest.
     hiddenCount: (n: number) => (n === 1 ? "1 row hidden" : `${n} rows hidden`),
     waitingOn: (who: string) =>
-      who ? `${who} is waiting for an answer` : "The run is waiting for an answer",
+      who
+        ? `${who} is waiting for an answer`
+        : "The run is waiting for an answer",
     goToQuestion: "Go to it",
     showEarlier: (n: number) =>
-      n === 1 ? "Show 1 earlier row" : `Show ${n.toLocaleString("en")} earlier rows`,
+      n === 1
+        ? "Show 1 earlier row"
+        : `Show ${n.toLocaleString("en")} earlier rows`,
     newBelow: (n: number) => (n === 1 ? "1 new" : `${n} new`),
     addressedTo: (who: string) => `→ ${who}`,
     // Named, then counted. Two names is what fits; the rest is a number,
@@ -609,7 +686,8 @@ export const strings = {
     folded: (n: number) => (n === 1 ? "1 step" : `${n} steps`),
     title: "Event stream",
     empty: "No events yet.",
-    emptyDraft: "Nothing has happened yet. Send the first message to start the run.",
+    emptyDraft:
+      "Nothing has happened yet. Send the first message to start the run.",
     //: The status word comes from the event, not from a table here: a status
     //: this build has never seen is shown as published rather than guessed at.
     busy: (name: string, status: string) => `${name} is ${status}`,
@@ -687,7 +765,8 @@ export const strings = {
     // key" need different fixes, and one flattened message would hide which.
     modelsFailed: "Could not ask this endpoint:",
     keyLabel: "API key",
-    keyHint: "Goes straight to your OS keychain. Nothing here keeps a copy, and no endpoint can read it back.",
+    keyHint:
+      "Goes straight to your OS keychain. Nothing here keeps a copy, and no endpoint can read it back.",
     saveModel: "Save and test",
     savingModel: "Testing…",
     add: "Add provider",
@@ -755,7 +834,8 @@ export const strings = {
       "Runs, the files agents produced, and anything you attached. All of it is on this machine and none of it is sent anywhere.",
     loading: "Measuring…",
     open: (path: string) => `Open ${path} in the file manager`,
-    files: (n: number) => `${n.toLocaleString("en-GB")} file${n === 1 ? "" : "s"}`,
+    files: (n: number) =>
+      `${n.toLocaleString("en-GB")} file${n === 1 ? "" : "s"}`,
     notYet: "nothing yet",
     total: (size: string) => `${size} in total.`,
   },

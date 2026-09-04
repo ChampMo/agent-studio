@@ -26,49 +26,80 @@ export function toScreen(gx: number, gy: number): Point {
   return { x: (gx - gy) * TILE_W, y: (gx + gy) * TILE_H };
 }
 
-/** Where each seat sits on the grid, per layout. */
+/**
+ * Where each seat sits on the grid, per layout.
+ *
+ * **Seat 0 is the head of the table**, and every arrangement is built around
+ * that. The rest run down the two sides in pairs facing each other, then a
+ * seat at the foot if the layout has one left over.
+ *
+ * That is not decoration. `team_members.role_in_team` makes seat 0 the leader,
+ * and the leader is the one member the orchestrator never assigns a task to —
+ * so "who is in charge here" is a real fact about how the run will behave, and
+ * a row of identical desks was the one arrangement that could not show it.
+ *
+ * Positions live here rather than on the backend, while the seat *count* stays
+ * there. Each side owns the number it needs: the validator has to reject a
+ * member sitting in a seat that does not exist, and arranging desks is a
+ * rendering decision that would otherwise be frozen into a migration.
+ *
+ * Read the numbers as screen space via `toScreen`: a pair sharing `gx + gy` sits
+ * level with each other, and `gx - gy` is how far left or right of the table
+ * they are.
+ */
 const ARRANGEMENTS: Record<string, Point[]> = {
-  // Two rows of three facing each other across a gangway.
+  // Head, two pairs facing across the table, and a foot.
   open_desks: [
     { x: 0, y: 0 },
-    { x: 1, y: 0 },
     { x: 2, y: 0 },
     { x: 0, y: 2 },
-    { x: 1, y: 2 },
-    { x: 2, y: 2 },
+    { x: 3, y: 1 },
+    { x: 1, y: 3 },
+    { x: 3, y: 3 },
   ],
-  // Four around one table.
+  // Head, one either side, one at the foot.
   war_room: [
     { x: 0, y: 0 },
     { x: 2, y: 0 },
     { x: 0, y: 2 },
     { x: 2, y: 2 },
   ],
-  // Two rows of four.
+  // The long table: head, three pairs, foot.
   workshop: [
     { x: 0, y: 0 },
-    { x: 1, y: 0 },
     { x: 2, y: 0 },
-    { x: 3, y: 0 },
     { x: 0, y: 2 },
-    { x: 1, y: 2 },
-    { x: 2, y: 2 },
-    { x: 3, y: 2 },
+    { x: 3, y: 1 },
+    { x: 1, y: 3 },
+    { x: 4, y: 2 },
+    { x: 2, y: 4 },
+    { x: 4, y: 4 },
   ],
-  // Two desks facing each other.
+  // Head and foot, facing each other down a short table.
   duo: [
     { x: 0, y: 0 },
-    { x: 0, y: 2 },
+    { x: 2, y: 2 },
   ],
 };
 
-/** A square-ish grid, for a layout this build does not know or one that grew. */
+/**
+ * A table of any length, for a layout this build does not know or one that
+ * grew past its arrangement.
+ *
+ * Same shape as the ones above rather than a grid: an unknown layout should
+ * still put the leader at the head, because that is a fact about the run and
+ * not a property of the layout someone happened to pick (§8).
+ */
 function generated(seats: number): Point[] {
-  const columns = Math.max(1, Math.ceil(Math.sqrt(seats)));
-  return Array.from({ length: seats }, (_, i) => ({
-    x: i % columns,
-    y: Math.floor(i / columns) * 2,
-  }));
+  const out: Point[] = [{ x: 0, y: 0 }];
+  for (let i = 1; i < seats; i += 1) {
+    const step = Math.floor((i - 1) / 2) + 1;
+    // Alternating sides: odd to the right of the table, even to the left.
+    out.push(
+      i % 2 === 1 ? { x: step + 1, y: step - 1 } : { x: step - 1, y: step + 1 },
+    );
+  }
+  return out;
 }
 
 export function seatPositions(layoutId: string | null, seats: number): Point[] {
@@ -90,7 +121,10 @@ export function seatPositions(layoutId: string | null, seats: number): Point[] {
  */
 export function floorSpot(positions: Point[]): Point {
   if (positions.length === 0) return { x: 0.6, y: 0.6 };
-  const sum = positions.reduce((a, p) => ({ x: a.x + p.x, y: a.y + p.y }), { x: 0, y: 0 });
+  const sum = positions.reduce((a, p) => ({ x: a.x + p.x, y: a.y + p.y }), {
+    x: 0,
+    y: 0,
+  });
   return {
     x: sum.x / positions.length + 0.6,
     y: sum.y / positions.length + 0.6,

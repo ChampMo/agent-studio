@@ -48,7 +48,7 @@ async def make_agent(db: Database, agent_id: str) -> None:
                 sampling=None,
                 tools=[],
                 autonomy="ask_dangerous",
-                avatar_config={"body": "slim"},
+                avatar_config={"build": "lithe"},
                 total_missions=0,
                 created_at=datetime.now(UTC),
                 updated_at=datetime.now(UTC),

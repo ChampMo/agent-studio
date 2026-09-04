@@ -28,6 +28,7 @@ import { cn } from "../../lib/cn";
 import { useEventStore } from "../../stores/eventStore";
 import { useHistoryStore } from "../../stores/historyStore";
 import { useMissionStore } from "../../stores/missionStore";
+import { RunTitle } from "./RunTitle";
 import { useEndLimit, useEndReason } from "../../stores/runState";
 import { useTeamStore } from "../../stores/teamStore";
 import { StatusMark } from "../../components/ui/StatusMark";
@@ -46,7 +47,6 @@ type Record = "timeline" | "artifacts";
 
 export function MissionView() {
   const missionId = useMissionStore((s) => s.missionId);
-  const title = useMissionStore((s) => s.title);
   const draft = useMissionStore((s) => s.draft);
   const kind = useMissionStore((s) => s.kind);
   const teamId = useMissionStore((s) => s.teamId);
@@ -75,7 +75,11 @@ export function MissionView() {
   //: know this run exists — so it is named here rather than pulled from a
   //: status that has never been written.
   const look = draft
-    ? { shape: "ring" as const, tone: "idle" as const, label: strings.mission.notStarted }
+    ? {
+        shape: "ring" as const,
+        tone: "idle" as const,
+        label: strings.mission.notStarted,
+      }
     : missionLook(running ? "running" : "ended", endReason, endLimit);
 
   // One row per task, latest state wins. Counted, never a percentage: no
@@ -102,7 +106,8 @@ export function MissionView() {
   // list once, which is right for a finished run and leaves a live one saying
   // "Files 0" seconds after the timeline announced a file was written.
   const written = useMemo(
-    () => events.filter((e) => e.event.draft.type === "artifact.created").length,
+    () =>
+      events.filter((e) => e.event.draft.type === "artifact.created").length,
     [events],
   );
 
@@ -111,12 +116,15 @@ export function MissionView() {
   // rows worth reading and no artifacts at all — counting artifacts would say
   // "Files 0" over both.
   const touched = useMemo(
-    () => fileTrails(events, nameOf).length + artifacts.filter((a) => a.source !== "workspace").length,
+    () =>
+      fileTrails(events, nameOf).length +
+      artifacts.filter((a) => a.source !== "workspace").length,
     [events, nameOf, roster, artifacts],
   );
 
   useEffect(() => {
-    if (missionId && written > artifacts.length) void refreshArtifacts(missionId);
+    if (missionId && written > artifacts.length)
+      void refreshArtifacts(missionId);
   }, [missionId, written, artifacts.length, refreshArtifacts]);
 
   const where =
@@ -127,7 +135,10 @@ export function MissionView() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="shrink-0 space-y-2.5 px-4 pb-3 pt-3.5">
-        <nav aria-label={strings.mission.breadcrumb} className="text-xs text-faint">
+        <nav
+          aria-label={strings.mission.breadcrumb}
+          className="text-xs text-faint"
+        >
           {where ? (
             <>
               <span>{where}</span>
@@ -139,12 +150,10 @@ export function MissionView() {
           <span className="text-muted">{strings.mission.currentRun}</span>
         </nav>
 
-        {/* 17px, and the run's *title* — a name, not the paragraph the team
-            was given. The instruction is the first message, in the
-            transcript, where it was said. */}
-        <h1 className="text-[17px] font-semibold leading-snug text-text">
-          {title || strings.mission.untitled}
-        </h1>
+        {/* The run's *title* — a name, not the paragraph the team was given.
+            The instruction is the first message, in the transcript, where it
+            was said, and it is not editable from anywhere. */}
+        <RunTitle />
 
         <div className="flex flex-wrap items-center gap-2">
           <Chip>
@@ -157,7 +166,9 @@ export function MissionView() {
           {workspaceRoot ? <WorkspaceChip path={workspaceRoot} /> : null}
 
           {progress.total > 0 ? (
-            <Chip>{strings.mission.progress(progress.done, progress.total)}</Chip>
+            <Chip>
+              {strings.mission.progress(progress.done, progress.total)}
+            </Chip>
           ) : null}
 
           {/* A chip, not a banner over the scene: whether you are watching a
@@ -224,7 +235,9 @@ export function MissionView() {
                     >
                       {label}
                       {count === null ? null : (
-                        <span className="ml-1.5 text-xs text-faint">{count}</span>
+                        <span className="ml-1.5 text-xs text-faint">
+                          {count}
+                        </span>
                       )}
                     </button>
                   ))}
@@ -319,7 +332,13 @@ function WorkspaceChip({ path }: { path: string }) {
   );
 }
 
-function Chip({ children, title }: { children: React.ReactNode; title?: string }) {
+function Chip({
+  children,
+  title,
+}: {
+  children: React.ReactNode;
+  title?: string;
+}) {
   return (
     <span
       title={title}
@@ -363,7 +382,9 @@ function PanelButton({
       title={started ? label : strings.rail.beforeStart}
       className={cn(
         "flex h-8 w-8 items-center justify-center rounded-card transition-colors",
-        open ? "bg-solid-2 text-text" : "text-muted hover:bg-solid hover:text-text",
+        open
+          ? "bg-solid-2 text-text"
+          : "text-muted hover:bg-solid hover:text-text",
         "disabled:pointer-events-none disabled:opacity-40",
       )}
     >

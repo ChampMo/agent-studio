@@ -20,8 +20,9 @@
  * Answered questions keep their place and lose their controls. The transcript
  * is a record; a question that was asked stays asked.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { strings } from "../../lib/constants/strings.en";
+import { parseAsk } from "./choices";
 import { cn } from "../../lib/cn";
 import { Portrait } from "../../components/ui/Portrait";
 import { useApprovalStore } from "../../stores/approvalStore";
@@ -84,9 +85,24 @@ export function AskRowView({
 
   const options = row.options?.length ? row.options : ["approve", "reject"];
   const isApproval = row.ask === "approval";
+  //: Parsed from the question the agent wrote. Memoised on the text, because
+  //: the text is the only thing it depends on.
+  const parsed = useMemo(
+    () =>
+      isApproval
+        ? { text: row.question ?? "", choices: [] }
+        : parseAsk(row.question ?? ""),
+    [isApproval, row.question],
+  );
+  const picks = parsed.choices;
+
   /** Finished cards start shut. */
   const [open, setOpen] = useState(false);
-  const asked = shellCommand(row.question) ?? row.question;
+  // The question as shown: an approval keeps its exact command, and an
+  // `ask_user` has its option list lifted out into the buttons below. Nothing
+  // is hidden — every word taken out is on a button, and the untouched text is
+  // on the log either way.
+  const asked = shellCommand(row.question) ?? parsed.text;
 
   return (
     // Marked so the bar above the scroll can find it: a question held at the
@@ -118,7 +134,9 @@ export function AskRowView({
           <span className="text-xs font-medium text-text">
             {row.name ?? strings.approval.questionTitle}
           </span>
-          <span className={cn("text-[11px]", waiting ? "text-wait" : "text-faint")}>
+          <span
+            className={cn("text-[11px]", waiting ? "text-wait" : "text-faint")}
+          >
             {waiting
               ? isApproval
                 ? strings.approval.approvalTitle
@@ -176,6 +194,42 @@ export function AskRowView({
               </div>
             ) : (
               <div className="space-y-2">
+                {/* Options the agent itself offered, as buttons.
+                    `choicesIn` reads them out of the question and refuses
+                    anything it is not sure of, so this is either the agent's
+                    own list or nothing at all — never a guess (see
+                    `choices.ts`). The reply box is always here underneath:
+                    a list of options is not the same as a closed set, and the
+                    agent asked in prose for a reason. */}
+                {picks.length > 0 ? (
+                  <ul className="space-y-1">
+                    {picks.map((choice) => (
+                      <li key={choice.marker}>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          // What is sent is the label, not the letter: "a" on
+                          // the log is unreadable a week later, and this is
+                          // the record (§9.3).
+                          onClick={() =>
+                            void answer(row.requestId, choice.text)
+                          }
+                          className={cn(
+                            "flex w-full min-h-[36px] items-start gap-2 rounded-card px-3 py-2 text-left",
+                            "border border-attn-edge bg-attn-soft text-xs leading-snug text-text",
+                            "hover:border-attn disabled:opacity-40",
+                          )}
+                        >
+                          <span className="shrink-0 font-mono text-[11px] text-attn">
+                            {choice.marker})
+                          </span>
+                          <span className="min-w-0 flex-1">{choice.text}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+
                 <label htmlFor={`ask-${row.requestId}`} className="sr-only">
                   {strings.approval.replyPlaceholder}
                 </label>
@@ -214,7 +268,9 @@ export function AskRowView({
               </div>
             )}
 
-            {error ? <p className="mt-2 text-[11px] text-stop">{error}</p> : null}
+            {error ? (
+              <p className="mt-2 text-[11px] text-stop">{error}</p>
+            ) : null}
             <p className="mt-2 text-[10px] leading-snug text-faint">
               {strings.approval.footnote}
             </p>

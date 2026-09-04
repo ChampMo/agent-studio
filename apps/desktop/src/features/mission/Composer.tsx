@@ -38,9 +38,11 @@ import {
   CloseIcon,
   EnterIcon,
   FileIcon,
+  ImageIcon,
   PlusIcon,
   StopIcon,
 } from "../../components/ui/icons";
+import { Menu } from "../../components/ui/Menu";
 import { RoundMeter } from "../shell/RoundMeter";
 import { IMAGE_TYPES, mimeFor, vet, type Staged } from "./attachments";
 import { AutonomyControl } from "./AutonomyControl";
@@ -64,6 +66,29 @@ type Attached = Staged & { preview?: string };
  */
 function hasFiles(event: React.DragEvent): boolean {
   return Array.from(event.dataTransfer?.types ?? []).includes("Files");
+}
+
+/**
+ * The character itself, in the menu's icon column.
+ *
+ * Not an icon of a slash — the slash. The row exists because `/` and `@` are
+ * unfindable without being told, so the thing worth showing is the key you
+ * would press next time. Monospace and boxed so it reads as a key rather than
+ * as punctuation that wandered into a list, and `aria-hidden` like every other
+ * icon here: the label beside it is what is announced.
+ */
+function Key({ children }: { children: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "flex size-4 items-center justify-center rounded-[3px]",
+        "bg-solid font-mono text-[11px] leading-none text-muted",
+      )}
+    >
+      {children}
+    </span>
+  );
 }
 
 export function Composer() {
@@ -613,28 +638,68 @@ export function Composer() {
       <div className="mt-1 flex flex-wrap items-center gap-2 px-1">
         <AutonomyControl running={running} />
 
-        {/* A button, not a menu. "Change folder" was the only other item and it
-            never worked: the workspace is frozen into the mission at launch
-            (§5.1), so it was disabled for the whole life of every run — and on
-            a draft, where it was enabled, it cleared a store value that nothing
-            on this screen reads, so pressing it did nothing at all.
+        {/* A menu again, and this time with something to hold.
 
-            Disabled-with-a-reason was the wrong shape for it. The way to point
-            a team at another folder is to start a run, which "New" already
-            does, and a permanently greyed row is not a route to that. So the
-            menu is gone and its one live item is the control. */}
-        <button
-          type="button"
-          onClick={() => filePicker.current?.click()}
-          aria-label={strings.composer.addFiles}
-          title={strings.composer.addFiles}
-          className={cn(
+            It was reduced to a plain button when its only other item ("Change
+            folder") turned out never to have worked — the workspace is frozen
+            into the mission at launch (§5.1). That reasoning was about *that*
+            item, not about the shape, and these three are the real set: the
+            three things you can put in this box that are not simply words.
+
+            The two typed ones are the reason it is worth a menu. `/` and `@`
+            are only findable by knowing to press them, which nothing on screen
+            says — a discoverability gap, not a missing feature. So the row
+            shows the character it stands for rather than a picture of one:
+            press it once from the menu, see what opens, and next time type it. */}
+        <Menu
+          label={strings.composer.addMenu}
+          align="start"
+          triggerClassName={cn(
             "flex size-[24px] items-center justify-center rounded-card",
-            "text-muted hover:bg-solid hover:text-text",
+            "text-muted transition-colors hover:bg-solid hover:text-text",
           )}
-        >
-          <PlusIcon />
-        </button>
+          trigger={<PlusIcon />}
+          items={[
+            {
+              label: strings.composer.addFiles,
+              icon: <ImageIcon size={15} />,
+              onSelect: () => filePicker.current?.click(),
+            },
+            {
+              label: strings.composer.addCommand,
+              icon: <Key>/</Key>,
+              // Both of these hand the box a single character, which is only
+              // safe while there is nothing in it to lose. `menuFilter` and
+              // `nameFilter` read the *whole* line, so there is nowhere else
+              // to put one either.
+              disabled: text.length > 0,
+              hint: text.length > 0 ? strings.composer.needsEmptyBox : undefined,
+              onSelect: () => {
+                setText("/");
+                box.current?.focus();
+              },
+            },
+            {
+              label: strings.composer.addName,
+              icon: <Key>@</Key>,
+              // Nobody to address before a run has a roster, and nothing to
+              // collect a mailbox once it has stopped — the same condition
+              // `whoFilter` uses, so the row and the menu it opens cannot
+              // disagree about whether there is anyone there (§2.1).
+              disabled: !running || teammates.length === 0 || text.length > 0,
+              hint:
+                !running || teammates.length === 0
+                  ? strings.composer.needsRunning
+                  : text.length > 0
+                    ? strings.composer.needsEmptyBox
+                    : undefined,
+              onSelect: () => {
+                setText("@");
+                box.current?.focus();
+              },
+            },
+          ]}
+        />
 
         {rewinding ? (
           <RewindDialog onClose={() => setRewinding(false)} />

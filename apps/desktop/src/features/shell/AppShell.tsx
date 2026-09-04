@@ -57,12 +57,24 @@ export function AppShell({
     // space it had. That produced a horizontal scrollbar, which stole 10px of
     // height, which made `100vh` taller than the visible area as well. One
     // wrong unit, both axes.
-    <div className="flex h-full w-full overflow-hidden">
+    // Two grounds, not one.
+    //
+    // Until now every column was transparent and the whole window was
+    // `--color-bg`, so the only thing separating the work from the chrome was
+    // a hairline. The middle column keeps the page colour and everything
+    // around it moves up onto `--color-solid`: the transcript reads as the
+    // thing you are looking *at*, and the sidebar and rail read as the frame
+    // it sits in.
+    //
+    // Which way round it goes is one swap — put `bg-solid` on `main` and drop
+    // it from the shell — and the tokens are already themed, so both themes
+    // follow without a second decision.
+    <div className="flex h-full w-full overflow-hidden bg-solid">
       <aside className="flex min-h-0 w-[262px] shrink-0 flex-col overflow-hidden border-r border-line">
         {sidebar}
       </aside>
 
-      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-bg">
         {main}
       </main>
 

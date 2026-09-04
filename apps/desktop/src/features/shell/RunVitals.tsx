@@ -124,7 +124,7 @@ export function RunVitals({
             mission-wide ceiling: each round gets a fresh budget, and drawing a
             total against a round's limit is the exact mistake that put
             45,856 / 200,000 over a run killed at 200,811. */}
-        <dl className="space-y-1.5 rounded-[9px] bg-solid-2 px-3 py-2.5 text-xs">
+        <dl className="space-y-1.5 rounded-[9px] border border-line bg-solid-2 px-3 py-2.5 text-xs">
           <Row
             label={strings.rail.tokensUsed}
             value={vitals.missionTokens.toLocaleString("en")}

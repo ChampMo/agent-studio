@@ -78,10 +78,28 @@ describe("an unknown avatar asset", () => {
   it("resolves to a real look rather than undefined", () => {
     // An asset added by a newer build. The catalogue is closed and validated
     // server-side, but the scene must survive reading a mission written later.
-    const look = lookFor({ body: "gigantic", hair: "silver_mane", palette: "octarine" });
-    expect(look.palette.skin).toBeTypeOf("number");
-    expect(look.body.h).toBeGreaterThan(0);
-    expect(look.hair.top).toBeGreaterThanOrEqual(0);
+    const look = lookFor({ build: "gigantic", coat: "silver_mane", palette: "octarine" });
+    expect(look.palette.fur).toBeTypeOf("number");
+    expect(look.build.h).toBeGreaterThan(0);
+    expect(look.coat.patch).toBeGreaterThanOrEqual(0);
+  });
+
+  it("still draws a cat for a run frozen on the human catalogue", () => {
+    // `missions.roster_snapshot` was deliberately left alone by migration
+    // 0019, so replaying an old run hands these slots straight in.
+    //
+    // What survives is the part the two catalogues happen to share. `outfit`
+    // does, because a blazer is a blazer on a cat; `body` and `hair` do not,
+    // because those slots were renamed, so they fall back — which is this
+    // build honestly saying it has no art for what was recorded (§8), not a
+    // migration quietly rewriting it (§5.1).
+    const old = lookFor({ body: "slim", hair: "short", outfit: "blazer", palette: "slate" });
+    expect(old.keys).toEqual({
+      build: "lithe",
+      coat: "tabby",
+      outfit: "blazer",
+      palette: "ginger",
+    });
   });
 });
 

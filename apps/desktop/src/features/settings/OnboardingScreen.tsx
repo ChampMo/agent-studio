@@ -54,10 +54,10 @@ export function OnboardingScreen() {
 
   return (
     <div className="mx-auto flex min-h-screen max-w-xl flex-col justify-center px-6 py-12">
-      <h1 className="text-xl font-semibold text-slate-100">
+      <h1 className="text-xl font-semibold text-text">
         {strings.onboarding.title}
       </h1>
-      <p className="mt-2 text-sm text-slate-400">{strings.onboarding.intro}</p>
+      <p className="mt-2 text-sm text-muted">{strings.onboarding.intro}</p>
 
       <form onSubmit={submit} className="mt-6 space-y-4">
         <Field label={strings.onboarding.kindLabel}>
@@ -71,10 +71,14 @@ export function OnboardingScreen() {
                 setModel("claude-haiku-4-5");
               }
             }}
-            className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
+            className="w-full rounded-md border border-line bg-solid px-3 py-2 text-sm text-text"
           >
-            <option value="openai_compatible">{strings.onboarding.kindOpenAI}</option>
-            <option value="anthropic">{strings.onboarding.kindAnthropic}</option>
+            <option value="openai_compatible">
+              {strings.onboarding.kindOpenAI}
+            </option>
+            <option value="anthropic">
+              {strings.onboarding.kindAnthropic}
+            </option>
           </select>
         </Field>
 
@@ -101,7 +105,10 @@ export function OnboardingScreen() {
           </Field>
         ) : null}
 
-        <Field label={strings.onboarding.modelLabel} hint={strings.onboarding.modelHint}>
+        <Field
+          label={strings.onboarding.modelLabel}
+          hint={strings.onboarding.modelHint}
+        >
           <Input
             value={model}
             onChange={(e) => setModel(e.target.value)}
@@ -110,7 +117,10 @@ export function OnboardingScreen() {
           />
         </Field>
 
-        <Field label={strings.onboarding.keyLabel} hint={strings.onboarding.keyHint}>
+        <Field
+          label={strings.onboarding.keyLabel}
+          hint={strings.onboarding.keyHint}
+        >
           <Input
             type="password"
             value={key}
@@ -122,7 +132,7 @@ export function OnboardingScreen() {
         </Field>
 
         {error ? (
-          <p className="rounded-md bg-red-950/60 px-3 py-2 text-sm text-red-300">
+          <p className="rounded-md bg-stop/10 px-3 py-2 text-sm text-stop">
             {error}
           </p>
         ) : null}

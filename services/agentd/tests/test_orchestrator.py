@@ -82,7 +82,7 @@ def member(seat, agent_id, name, *, leader=False, model="m1", avatar=None):
         model=model,
         sampling=None,
         tools=[],
-        avatar_config=avatar or {"body": "slim"},
+        avatar_config=avatar or {"build": "lithe"},
     )
 
 
@@ -172,7 +172,7 @@ def test_overrides_are_resolved_into_the_snapshot_not_left_to_read_later():
         provider_id, model, sampling = "prov-1", "base-model", None
         tools = ["search", "read"]
         autonomy = "ask_dangerous"
-        avatar_config = {"body": "slim"}
+        avatar_config = {"build": "lithe"}
 
     class FakeMember:
         agent_id, seat_index, role_in_team = "a1", 0, "leader"
@@ -208,10 +208,10 @@ async def test_editing_an_agent_after_a_run_does_not_rewrite_the_record(db, bus)
                     "model": "m1",
                     "provider_id": None,
                     "avatar_config": {
-                        "body": "slim",
-                        "hair": "bun",
+                        "build": "lithe",
+                        "coat": "patched",
                         "outfit": "blazer",
-                        "palette": "teal",
+                        "palette": "smoke",
                     },
                 }
             )
@@ -259,10 +259,10 @@ async def test_editing_an_agent_after_a_run_does_not_rewrite_the_record(db, bus)
             "name": "Renamed Entirely",
             "model": "some-other-model",
             "avatar_config": {
-                "body": "sturdy",
-                "hair": "buzz",
-                "outfit": "armor",
-                "palette": "ink",
+                "build": "stocky",
+                "coat": "spotted",
+                "outfit": "vest",
+                "palette": "charcoal",
             },
         },
     )

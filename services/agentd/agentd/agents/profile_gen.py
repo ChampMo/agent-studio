@@ -48,11 +48,20 @@ MAX_ATTEMPTS = 3
 
 SYSTEM_PROMPT = """You design characters for a multi-agent workstation.
 
+Every character in this app is drawn as a **cat** at a desk in a shared office.
+That is not a theme to write about — it is what the picture beside the name
+will be — so the name has to sit on a cat without explanation, while the title
+and role stay entirely serious.
+
 Return ONE JSON object and nothing else. No prose, no markdown fence.
 
 The object must have exactly these keys:
 
-  "name":               a short personal name
+  "name":               a short single-word name that suits a cat and a
+                        colleague equally: Pepper, Juniper, Wren, Moss, Otto,
+                        Clove. No surname, no honorific, no species word — do
+                        not call anyone Whiskers, Cat, Kitty or Miss Paws, and
+                        do not use any name listed as taken below.
   "title":              their job title, a few words
   "role":               one line on what they actually do
   "backstory":          two or three sentences
@@ -72,6 +81,16 @@ describe real work.
 
 `avatar_config` must pick one value per slot from exactly these options:
 {catalogue}
+{taken}"""
+
+#: Appended only when there is something in it. An empty "already taken:"
+#: heading is a line of prompt spent saying nothing, and it is re-sent on every
+#: correction round.
+TAKEN_PROMPT = """
+These names are already in use by other agents on this machine. Pick a
+different one — teammates are addressed by name, so two agents with the same
+name cannot both be reached:
+{names}
 """
 
 
@@ -94,6 +113,29 @@ class GenerationResult:
     #: profile that took three tries says something about the model the user
     #: has chosen, and §1 says the UI must not pretend otherwise.
     recovered_from: list[str] = field(default_factory=list)
+
+
+def _norm(name: str) -> str:
+    """One answer to "are these the same name".
+
+    The same normalisation `validator.py` uses for `duplicate_name`, and
+    deliberately the same function's worth of it: if the generator considered
+    "Wren" and "wren " different while the run gate considered them the same,
+    the generator would happily produce a team the launcher then refuses (§2.1).
+    """
+    return name.strip().casefold()
+
+
+def _taken_text(taken: list[str]) -> str:
+    """The names to avoid, or nothing at all.
+
+    Sorted so two runs with the same roster send byte-identical prompts and the
+    provider's prompt cache still hits — the same reason `system_addendum`
+    composes its rules in a fixed order.
+    """
+    if not taken:
+        return ""
+    return TAKEN_PROMPT.format(names="\n".join(f"  {name}" for name in sorted(taken)))
 
 
 def _catalogue_text() -> str:
@@ -140,11 +182,28 @@ async def generate_profile(
     brief: str = "",
     max_attempts: int = MAX_ATTEMPTS,
     available_tools: list[str] | None = None,
+    taken: list[str] | None = None,
 ) -> GenerationResult:
-    """Ask for a profile, validate it, and correct the model until it fits."""
+    """Ask for a profile, validate it, and correct the model until it fits.
+
+    `taken` is the names that already exist. It is both told to the model and
+    **checked afterwards**, which is the rule every other closed set here
+    follows: the avatar catalogue is in the prompt and enforced by
+    `GeneratedProfile`, the tool ids are in the prompt and enforced on the way
+    back. A prompt is a request, and this project has already paid for treating
+    one as a guarantee — the generator named two different agents "Mara"
+    because nothing checked, and `send_message` then delivered one of them the
+    other's mail.
+    """
+    taken = taken or []
     system = SYSTEM_PROMPT.format(
-        catalogue=_catalogue_text(), tools=_tools_text(available_tools)
+        catalogue=_catalogue_text(),
+        tools=_tools_text(available_tools),
+        taken=_taken_text(taken),
     )
+    # Checked against the normalised form, so the comparison does not depend on
+    # how the caller happened to spell what it passed in.
+    unavailable = {_norm(n) for n in taken}
     ask = f"Role: {role}"
     if brief.strip():
         ask += f"\nNotes: {brief.strip()}"
@@ -182,12 +241,23 @@ async def generate_profile(
                 except ValidationError as exc:
                     problem = _describe(exc)
                 else:
-                    return GenerationResult(
-                        profile=profile,
-                        usage=total,
-                        attempts=attempt,
-                        recovered_from=failures,
-                    )
+                    if _norm(profile.name) in unavailable:
+                        # Falls into the same correction path as a bad avatar
+                        # slot rather than raising: the model got everything
+                        # else right and has one field to move. Naming the
+                        # clash is what makes the next attempt cheap.
+                        problem = (
+                            f"the name {profile.name!r} already belongs to "
+                            "another agent on this machine; keep the rest of "
+                            "the profile and choose a different name"
+                        )
+                    else:
+                        return GenerationResult(
+                            profile=profile,
+                            usage=total,
+                            attempts=attempt,
+                            recovered_from=failures,
+                        )
 
         failures.append(problem)
         log.info("profile generation attempt %d failed: %s", attempt, problem)

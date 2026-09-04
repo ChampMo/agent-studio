@@ -16,6 +16,8 @@ import { deriveSceneState } from "./bindings/sceneState";
 import { Scene } from "./engine/stage";
 import { isSoundOn, playChime, setSoundOn, shouldChime } from "./audio";
 import { shouldAnimate } from "./engine/activity";
+import { COMPACT_BELOW } from "../components/ui/splitter";
+import { CompactRoster } from "./CompactRoster";
 
 export function SceneView({ heightPx = Infinity }: { heightPx?: number } = {}) {
   const host = useRef<HTMLDivElement>(null);
@@ -49,7 +51,8 @@ export function SceneView({ heightPx = Infinity }: { heightPx?: number } = {}) {
   // the time now (§17.1), so "nobody is looking" is a state it has to know.
   const [awake, setAwake] = useState(() => ({
     windowFocused: typeof document === "undefined" || document.hasFocus(),
-    documentVisible: typeof document === "undefined" || document.visibilityState === "visible",
+    documentVisible:
+      typeof document === "undefined" || document.visibilityState === "visible",
   }));
 
   useEffect(() => {
@@ -71,6 +74,9 @@ export function SceneView({ heightPx = Infinity }: { heightPx?: number } = {}) {
   // Not a CSS `display: none`: that stops the painting and leaves the loop
   // running. The ticker itself is stopped (§12 M9 criterion 2).
   const animating = shouldAnimate({ heightPx, ...awake });
+  // Too short to be a room. The pane changes what it draws rather than drawing
+  // the same thing badly — see `CompactRoster`.
+  const compact = heightPx < COMPACT_BELOW;
   useEffect(() => {
     scene.current?.setAnimating(animating);
   }, [animating]);
@@ -100,6 +106,11 @@ export function SceneView({ heightPx = Infinity }: { heightPx?: number } = {}) {
   latest.current = { state, layoutId, heightPx };
 
   useEffect(() => {
+    // Nothing is mounted in compact mode: a WebGL context and a ticker for a
+    // canvas that is not on screen is exactly the work `shouldAnimate` was
+    // written to avoid. Switching back rebuilds it, which is a drag of the
+    // splitter apart and costs nothing anybody will notice.
+    if (compact) return;
     let cancelled = false;
     const instance = new Scene();
     const element = host.current;
@@ -115,7 +126,9 @@ export function SceneView({ heightPx = Infinity }: { heightPx?: number } = {}) {
       // is paused, finished or simply quiet produces none, and the room stayed
       // empty until something happened to change the state.
       instance.render(latest.current.state, latest.current.layoutId);
-      instance.setAnimating(shouldAnimate({ heightPx: latest.current.heightPx, ...awake }));
+      instance.setAnimating(
+        shouldAnimate({ heightPx: latest.current.heightPx, ...awake }),
+      );
     });
 
     return () => {
@@ -123,7 +136,7 @@ export function SceneView({ heightPx = Infinity }: { heightPx?: number } = {}) {
       scene.current = null;
       instance.destroy();
     };
-  }, []);
+  }, [compact]);
 
   useEffect(() => {
     scene.current?.render(state, layoutId);
@@ -131,16 +144,20 @@ export function SceneView({ heightPx = Infinity }: { heightPx?: number } = {}) {
 
   return (
     <div
-      className="relative h-full w-full overflow-hidden bg-[#0b1120]"
+      className="relative h-full w-full overflow-hidden bg-room-sky"
       // Put in the DOM so the claim is checkable from outside rather than
       // taken on trust: "the ticker stops when nobody is looking" is a
       // performance promise, and a promise nobody can inspect is a hope.
       data-animating={String(animating)}
     >
-      <div ref={host} className="h-full w-full" />
+      {compact ? (
+        <CompactRoster state={state} />
+      ) : (
+        <div ref={host} className="h-full w-full" />
+      )}
       {!missionId ? (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <p className="text-xs text-slate-600">{strings.scene.empty}</p>
+          <p className="text-xs text-faint">{strings.scene.empty}</p>
         </div>
       ) : null}
       <button
@@ -156,17 +173,22 @@ export function SceneView({ heightPx = Infinity }: { heightPx?: number } = {}) {
         // An emoji is not an accessible name, and a tooltip is not one either.
         aria-label={sound ? strings.scene.soundOn : strings.scene.soundOff}
         aria-pressed={sound}
-        className="absolute right-2 top-2 rounded bg-slate-900/70 px-2 py-1 text-[11px] text-slate-400 hover:text-slate-200"
+        className="absolute right-2 top-2 rounded bg-solid px-2 py-1 text-[11px] text-muted hover:text-text"
       >
         {sound ? "🔊" : "🔇"}
       </button>
-      {state.endReason ? (
-        <div className="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2">
-          <span className="rounded bg-slate-900/80 px-2 py-1 text-[11px] text-slate-400">
-            {strings.scene.ended(state.endReason)}
-          </span>
-        </div>
-      ) : null}
+      {/* No ending caption here.
+
+          The same sentence was already in two places that own it better: the
+          mission header, which says `Round finished: crashed` beside the run's
+          own title, and the transcript, which marks the ending in its proper
+          position on the log. A third copy floating over the room was the one
+          with no context — and it is the copy that got the M10 bug, captioning
+          a round that had ended hours earlier over a team three tasks into the
+          next one.
+
+          `state.endReason` is still derived and still used: it is what sits
+          everyone down. What is gone is a second surface repeating it. */}
     </div>
   );
 }

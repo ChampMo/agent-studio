@@ -84,6 +84,42 @@ async def list_missions(request: Request, limit: int = 50) -> dict[str, Any]:
     }
 
 
+class RenameIn(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+
+
+@router.patch("/missions/{mission_id}")
+async def rename_mission(
+    request: Request, mission_id: str, body: RenameIn
+) -> dict[str, Any]:
+    """Change what a run is called. Only that.
+
+    `missions.title` and `missions.goal` were split apart in migration 0010
+    precisely because they are different things: the goal is *what the team was
+    asked to do*, which is a record and must never be edited, and the title is
+    *what you call it in the list*, which is a label and was always yours.
+
+    So this endpoint takes a title and nothing else. There is no field here for
+    the goal, and there should not be one — a run whose instruction could be
+    rewritten afterwards would make every replay unverifiable against the thing
+    it was actually asked (§5.1).
+
+    Runs recorded before 0010 have no title and are listed by their goal. Naming
+    one of those writes a title for the first time; the goal underneath is
+    untouched, so what it was asked is still exactly what the log says.
+    """
+    db = get_db(request)
+    async with db.session() as session:
+        mission = (
+            await session.execute(select(Mission).where(Mission.id == mission_id))
+        ).scalar_one_or_none()
+        if mission is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "no such mission")
+        mission.title = body.title.strip()
+        await session.commit()
+        return {"id": mission.id, "title": mission.title}
+
+
 @router.delete("/missions/{mission_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_mission(request: Request, mission_id: str) -> None:
     """Delete a whole mission: its row, its events, its files.

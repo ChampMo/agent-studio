@@ -14,7 +14,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { pickActive } from "./settingsStore";
+import { chatProviders, pickActive, useSettingsStore } from "./settingsStore";
 import type { ProviderProfile } from "../transport/rest";
 
 function profile(
@@ -86,5 +86,59 @@ describe("the default model endpoint", () => {
 
   it("is null when there is no model endpoint at all", () => {
     expect(pickActive([profile("tavily", "search")], null)).toBeNull();
+  });
+});
+
+/**
+ * The same question, asked in one place.
+ *
+ * "Which endpoints can something be generated against" had grown four answers:
+ * the default endpoint, the onboarding gate, the team advisor's dropdown and
+ * the agent creator's. The creator's was `providers.filter((p) => p.hasKey)`
+ * and it was wrong in both directions at once — it offered the two search keys,
+ * which fail with `no provider registered for 'search'`, and it hid a local
+ * server, which authenticates nothing and therefore has no key to have.
+ *
+ * Found by opening the dropdown and reading it: Tavily and Brave Search sat at
+ * the top of a list headed "Generate with".
+ */
+describe("the endpoints something can be generated against", () => {
+  it("refuses a search key, which cannot complete anything", () => {
+    const list = chatProviders([
+      profile("tavily", "search"),
+      profile("brave", "search"),
+      profile("deepseek", "openai_compatible"),
+    ]);
+
+    expect(list.map((p) => p.id)).toEqual(["deepseek"]);
+  });
+
+  it("keeps a local endpoint that answered without a key", () => {
+    // Ollama and LM Studio authenticate nothing, so `hasKey` alone left anyone
+    // running one with an empty dropdown and a working endpoint configured.
+    const list = chatProviders([
+      profile("ollama", "openai_compatible", { hasKey: false, verifiedAt: "2026-09-03T00:00:00Z" }),
+    ]);
+
+    expect(list.map((p) => p.id)).toEqual(["ollama"]);
+  });
+
+  it("drops a model endpoint that has neither a key nor an answer", () => {
+    // Nothing has been established about it in either direction, so offering
+    // it would be a guess about which endpoints need a key (§3.1).
+    const list = chatProviders([
+      profile("half-added", "openai_compatible", { hasKey: false, verifiedAt: null }),
+    ]);
+
+    expect(list).toEqual([]);
+  });
+
+  it("is the same rule the onboarding gate uses", () => {
+    // If these two disagreed, the app would either hold someone on onboarding
+    // with a usable endpoint, or let them past with nothing that can run.
+    const only = [profile("tavily", "search")];
+
+    expect(chatProviders(only)).toEqual([]);
+    expect(useSettingsStore.getState().needsOnboarding()).toBe(true);
   });
 });

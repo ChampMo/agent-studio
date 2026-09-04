@@ -27,6 +27,9 @@ export interface SnapshotMember {
   role_in_team: string;
   model: string | null;
   avatar_config: Record<string, string>;
+  /** What this member carried on this run. Frozen at launch like everything
+   *  else in the snapshot, so the desk a replay draws is the desk that ran. */
+  tools?: string[];
   title?: string;
   role?: string;
 }
@@ -83,6 +86,8 @@ interface MissionState {
     opts?: { requireApproval?: boolean },
   ) => Promise<void>;
   /** Keep a finished run going, in the same conversation. */
+  /** Rename the open run. The title only — `goal` is the record. */
+  setTitle: (title: string) => void;
   continueRun: (
     message: string,
     opts?: { requireApproval?: boolean },
@@ -148,11 +153,14 @@ export const useMissionStore = create<MissionState>((set, get) => ({
       // `/plan` asks for the gate on this send; the draft's checkbox asks for
       // it on every send. Either is a yes — neither can turn the other off,
       // because nobody types a command to get *less* of a safety check.
-      requireApproval: opts.requireApproval || (draft?.requireApproval ?? false),
+      requireApproval:
+        opts.requireApproval || (draft?.requireApproval ?? false),
       workspaceRoot: draft?.workspaceRoot ?? get().workspaceRoot,
       budget: draft?.budget,
     });
   },
+
+  setTitle: (title) => set({ title }),
 
   continueRun: async (message, opts = {}) => {
     const missionId = get().missionId;
@@ -166,7 +174,9 @@ export const useMissionStore = create<MissionState>((set, get) => ({
       set({ endReason: null, live: true });
       await get().loadMission(missionId);
     } catch (err) {
-      set({ rejected: [(err as { message?: string })?.message ?? String(err)] });
+      set({
+        rejected: [(err as { message?: string })?.message ?? String(err)],
+      });
     } finally {
       set({ launching: false });
     }
@@ -185,7 +195,9 @@ export const useMissionStore = create<MissionState>((set, get) => ({
       set({ missionId, endReason: null, live: true });
       await get().loadMission(missionId);
     } catch (err) {
-      set({ rejected: [(err as { message?: string })?.message ?? String(err)] });
+      set({
+        rejected: [(err as { message?: string })?.message ?? String(err)],
+      });
     } finally {
       set({ launching: false });
     }
@@ -209,7 +221,14 @@ export const useMissionStore = create<MissionState>((set, get) => ({
       // Subscribe from 0: mission.started and user.message were published
       // before this response landed, and the replay covers them.
       useEventStore.getState().attach(missionId);
-      set({ missionId, goal, teamId: team.id, endReason: null, live: true, draft: null });
+      set({
+        missionId,
+        goal,
+        teamId: team.id,
+        endReason: null,
+        live: true,
+        draft: null,
+      });
       await get().loadMission(missionId);
     } catch (err) {
       const detail = (err as { message?: string })?.message;
@@ -227,7 +246,10 @@ export const useMissionStore = create<MissionState>((set, get) => ({
   },
 
   loadMission: async (missionId) => {
-    const mission = (await api.getMission(missionId)) as Record<string, unknown>;
+    const mission = (await api.getMission(missionId)) as Record<
+      string,
+      unknown
+    >;
     const goal = String(mission.goal ?? "");
     set({
       missionId,

@@ -46,7 +46,7 @@ export function WorkView({ composer }: { composer?: React.ReactNode }) {
             <div
               role="tablist"
               aria-label={strings.workview.recordTabs}
-              className="flex shrink-0 gap-1 border-b border-slate-800 px-3 py-1.5"
+              className="flex shrink-0 gap-1 border-b border-line px-3 py-1.5"
             >
               {(["timeline", "artifacts"] as const).map((key) => (
                 <button
@@ -58,8 +58,8 @@ export function WorkView({ composer }: { composer?: React.ReactNode }) {
                   className={cn(
                     "rounded px-2.5 py-1 text-xs font-medium transition-colors",
                     pane === key
-                      ? "bg-slate-800 text-slate-100"
-                      : "text-slate-400 hover:bg-slate-900 hover:text-slate-200",
+                      ? "bg-solid-2 text-text"
+                      : "text-muted hover:bg-solid hover:text-text",
                   )}
                 >
                   {strings.workview[key]}
@@ -81,7 +81,7 @@ export function WorkView({ composer }: { composer?: React.ReactNode }) {
       />
 
       {composer ? (
-        <div className="shrink-0 border-t border-slate-800 p-3">{composer}</div>
+        <div className="shrink-0 border-t border-line p-3">{composer}</div>
       ) : null}
     </div>
   );

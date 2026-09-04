@@ -2,11 +2,21 @@
 
 Three decisions live here, and each is made in exactly one place.
 
-**Whether to ask.** `risk` (registry) against `autonomy` (the agent, frozen into
-the snapshot). Not a prompt, not a heuristic — a table. The approval itself
-reuses M6's `agent.request` with `kind: "approval"`, because a second mechanism
-would be a second thing that has to survive a restart, and the newer one would
-be the one without tests (§15 row 30).
+**Whether to ask.** `risk` (registry) against `autonomy` — a table, not a prompt
+and not a heuristic. The approval itself reuses M6's `agent.request` with
+`kind: "approval"`, because a second mechanism would be a second thing that has
+to survive a restart, and the newer one would be the one without tests (§15
+row 30).
+
+The autonomy value is read **at the moment of the decision**, not taken from the
+frozen snapshot. That is a deliberate exception to §5.1 and worth being exact
+about: the snapshot exists so that a finished run's *record* cannot be rewritten
+— who was on it, what they carried, what they were asked. A permission is not a
+record, it is a live instruction from the person sitting there, and the moment
+they say "stop asking" the honest thing is to stop asking rather than to keep
+interrupting them until the run ends. What the log records is unchanged: every
+question that was actually asked is still on it, and every one that was not
+never happened.
 
 **What to record.** `agent.tool.start.input` lands in an append-only table
 forever (§9.3), so `redact_fields` replaces the fields a tool declares too big
@@ -20,6 +30,7 @@ raise `TypeError` deep inside a tool, which reads like a bug in the tool.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -196,15 +207,21 @@ class ApprovalGate(Protocol):
 class ToolBox:
     """Everything a turn needs in order to offer and run tools.
 
-    Built by the runner and handed to the runtime. The runtime never looks
-    anything up: which tools exist, where they may write, and how much this
-    agent is trusted are all decided before the turn starts, from the frozen
-    snapshot (§5.1).
+    Built by the runner and handed to the runtime. The runtime still looks
+    nothing up itself: which tools exist and where they may write are decided
+    before the turn starts, from the frozen snapshot (§5.1). Permission is the
+    one thing that is asked for fresh — see the module docstring.
     """
 
     specs: list[ToolSpec]
     context: ToolContext
+    #: What the run started under. Kept because it is what the roster snapshot
+    #: recorded, and used when nothing live is available — a test, or a caller
+    #: with no database.
     autonomy: str = "ask_dangerous"
+    #: Asked once per gated tool call, so moving the switch mid-run takes effect
+    #: on the very next one rather than on the next run.
+    live_autonomy: Callable[[], Awaitable[str]] | None = None
     gate: ApprovalGate | None = None
     #: Set for tools that need to reach the mission — send_message, ask_user.
     extras: dict[str, Any] = field(default_factory=dict)
@@ -215,8 +232,17 @@ class ToolBox:
     def get(self, tool_id: str) -> ToolSpec | None:
         return next((spec for spec in self.specs if spec.id == tool_id), None)
 
-    def needs_approval(self, spec: ToolSpec) -> bool:
-        return needs_approval(risk=spec.risk, autonomy=self.autonomy)
+    async def needs_approval(self, spec: ToolSpec) -> bool:
+        autonomy = self.autonomy
+        if self.live_autonomy is not None:
+            try:
+                autonomy = await self.live_autonomy()
+            except Exception:  # noqa: BLE001 - see below
+                # A setting that cannot be read is not permission to skip the
+                # gate. Falling back to the frozen value keeps the run at least
+                # as cautious as it was when it started (§8).
+                autonomy = self.autonomy
+        return needs_approval(risk=spec.risk, autonomy=autonomy)
 
     def system_addendum(self) -> str | None:
         return system_addendum(self.specs)

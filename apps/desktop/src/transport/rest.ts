@@ -46,6 +46,12 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   try {
     res = await send();
   } catch (first) {
+    // A cancelled request is not a failure and must not be dressed as one.
+    // `fetch` rejects on abort exactly as it does when the host is gone, so
+    // without this check pressing Cancel reported "the backend is not
+    // reachable" — a claim about the machine, made about a button the person
+    // had just pressed on purpose.
+    if (init.signal?.aborted) throw first;
     // Only a read is retried. A write that failed at the network level may
     // still have been delivered and acted on — the response is what went
     // missing, not necessarily the request — and launching two missions
@@ -256,8 +262,7 @@ export const api = {
     }>("/prefs/budget", { method: "PUT", body: JSON.stringify(value) }),
 
   /** Where the runs, the produced files and the attachments actually live. */
-  storage: () =>
-    request<{ root: string; parts: StoragePart[] }>("/storage"),
+  storage: () => request<{ root: string; parts: StoragePart[] }>("/storage"),
 
   /** The model ids an endpoint actually offers, asked before anything is saved.
    *  A POST because the key travels in the body: a key must never go in a URL
@@ -329,11 +334,15 @@ export const api = {
     }),
 
   cancelMission: (id: string) =>
-    request<{ missionId: string; cancelled: boolean }>(`/missions/${id}/cancel`, {
-      method: "POST",
-    }),
+    request<{ missionId: string; cancelled: boolean }>(
+      `/missions/${id}/cancel`,
+      {
+        method: "POST",
+      },
+    ),
 
-  getMission: (id: string) => request<Record<string, unknown>>(`/missions/${id}`),
+  getMission: (id: string) =>
+    request<Record<string, unknown>>(`/missions/${id}`),
 
   listTools: () => request<{ tools: Tool[] }>("/tools"),
 
@@ -368,10 +377,14 @@ export const api = {
 
   /** Staff a team for a brief, from the agents that already exist. Saves
    *  nothing — the proposal is shown to be edited (§11). */
-  suggestTeam: (body: { provider_id: string; brief: string }) =>
+  suggestTeam: (
+    body: { provider_id: string; brief: string },
+    signal?: AbortSignal,
+  ) =>
     request<SuggestResult>("/teams/suggest", {
       method: "POST",
       body: JSON.stringify(body),
+      signal,
     }),
 
   /** Read a team against a piece of work. Advisory: it returns remarks and
@@ -381,12 +394,18 @@ export const api = {
     body: {
       provider_id: string;
       brief: string;
-      members?: { agent_id: string; seat_index: number; role_in_team: string }[];
+      members?: {
+        agent_id: string;
+        seat_index: number;
+        role_in_team: string;
+      }[];
     },
+    signal?: AbortSignal,
   ) =>
     request<TeamReview>(`/teams/${teamId}/review`, {
       method: "POST",
       body: JSON.stringify(body),
+      signal,
     }),
 
   /** What this team's last few runs cost and how they ended. Not a forecast —
@@ -408,7 +427,6 @@ export const api = {
 
   listMissions: (limit = 50) =>
     request<{ missions: MissionSummary[] }>(`/missions?limit=${limit}`),
-
 
   /** Keep a finished run going in the same conversation (§7.1). The roster,
    *  the workspace and the whole timeline carry over. */
@@ -466,10 +484,15 @@ export const api = {
     missionId: string,
     body: { name: string; mime: string; data_b64: string },
   ) =>
-    request<{ attachmentId: string; name: string; bytes: number; mime: string }>(
-      `/missions/${missionId}/attachments`,
-      { method: "POST", body: JSON.stringify(body) },
-    ),
+    request<{
+      attachmentId: string;
+      name: string;
+      bytes: number;
+      mime: string;
+    }>(`/missions/${missionId}/attachments`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 
   /**
    * Fetch an attached image back as an object URL.
@@ -538,6 +561,14 @@ export const api = {
       { method: "POST", body: JSON.stringify({ content, to }) },
     ),
 
+  /** Rename a run. The *title* only —  is what the team was asked and
+   *  is never editable, which is the whole reason migration 0010 split them. */
+  renameMission: (missionId: string, title: string) =>
+    request<{ id: string; title: string }>(`/missions/${missionId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title }),
+    }),
+
   /** The replay source: the append-only log, exactly as it was written. */
   missionEvents: (missionId: string) =>
     request<{ events: unknown[] }>(`/missions/${missionId}/events`),
@@ -555,7 +586,8 @@ export const api = {
 
   // ---- roster ----------------------------------------------------------
 
-  avatarAssets: () => request<{ slots: Record<string, string[]> }>("/avatar-assets"),
+  avatarAssets: () =>
+    request<{ slots: Record<string, string[]> }>("/avatar-assets"),
 
   listAgents: (includeArchived = false) =>
     request<{ agents: Agent[] }>(`/agents?include_archived=${includeArchived}`),
@@ -564,13 +596,17 @@ export const api = {
     request<Agent>("/agents", { method: "POST", body: JSON.stringify(body) }),
 
   updateAgent: (id: string, body: Partial<AgentInput>) =>
-    request<Agent>(`/agents/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+    request<Agent>(`/agents/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
 
   duplicateAgent: (id: string) =>
     request<Agent>(`/agents/${id}/duplicate`, { method: "POST" }),
 
   /** Archive, not delete: teams and finished missions still point at the row. */
-  archiveAgent: (id: string) => request<Agent>(`/agents/${id}`, { method: "DELETE" }),
+  archiveAgent: (id: string) =>
+    request<Agent>(`/agents/${id}`, { method: "DELETE" }),
 
   /** Really delete. Safe for replays — a mission keeps its own copy of who ran
    *  it (§5.1) — but the agent's team seats go with it. */
@@ -581,10 +617,20 @@ export const api = {
     request<Agent>(`/agents/${id}/restore`, { method: "POST" }),
 
   /** Drafts a profile and returns it. Saves nothing: the user edits first. */
-  generateAgent: (body: { provider_id: string; role: string; brief?: string }) =>
+  // `signal` on the three calls that can take tens of seconds, so Cancel
+  // closes the connection rather than only hiding the spinner.
+  generateAgent: (
+    body: {
+      provider_id: string;
+      role: string;
+      brief?: string;
+    },
+    signal?: AbortSignal,
+  ) =>
     request<GenerateResult>("/agents/generate", {
       method: "POST",
       body: JSON.stringify(body),
+      signal,
     }),
 
   // ---- teams -----------------------------------------------------------
@@ -601,12 +647,16 @@ export const api = {
     request<Team>("/teams", { method: "POST", body: JSON.stringify(body) }),
 
   updateTeam: (id: string, body: Partial<TeamInput>) =>
-    request<Team>(`/teams/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+    request<Team>(`/teams/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
 
   duplicateTeam: (id: string) =>
     request<Team>(`/teams/${id}/duplicate`, { method: "POST" }),
 
-  archiveTeam: (id: string) => request<Team>(`/teams/${id}`, { method: "DELETE" }),
+  archiveTeam: (id: string) =>
+    request<Team>(`/teams/${id}`, { method: "DELETE" }),
 
   deleteTeam: (id: string) =>
     request<void>(`/teams/${id}/permanent`, { method: "DELETE" }),
@@ -617,10 +667,12 @@ export const api = {
   exportTeam: (id: string) => request<TeamExport>(`/teams/${id}/export`),
 
   importTeam: (document: TeamExport) =>
-    request<{ team_id: string; agent_ids: string[]; alreadyImported: string[]; team: Team }>(
-      "/teams/import",
-      { method: "POST", body: JSON.stringify(document) },
-    ),
+    request<{
+      team_id: string;
+      agent_ids: string[];
+      alreadyImported: string[];
+      team: Team;
+    }>("/teams/import", { method: "POST", body: JSON.stringify(document) }),
 };
 
 // ---- tools and workspace types ------------------------------------------
@@ -938,4 +990,3 @@ export interface TeamInput {
 
 /** Opaque on purpose: the shape belongs to the backend's exporter. */
 export type TeamExport = Record<string, unknown>;
-

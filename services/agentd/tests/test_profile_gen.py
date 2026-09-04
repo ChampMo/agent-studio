@@ -37,10 +37,10 @@ GOOD = {
     "personality_traits": ["methodical", "sceptical", "concise"],
     "system_prompt": "You are Mira Vale. Verify before you assert.",
     "avatar_config": {
-        "body": "slim",
-        "hair": "bun",
+        "build": "lithe",
+        "coat": "patched",
         "outfit": "blazer",
-        "palette": "teal",
+        "palette": "smoke",
     },
 }
 
@@ -118,7 +118,7 @@ async def test_a_reply_that_is_not_json_is_corrected():
 async def test_an_invented_avatar_asset_is_rejected_and_corrected():
     """The case the closed catalogue exists for: without this the scene loads a
     sprite that does not exist, three milestones from now."""
-    invented = {**GOOD, "avatar_config": {**GOOD["avatar_config"], "hair": "silver_mane"}}
+    invented = {**GOOD, "avatar_config": {**GOOD["avatar_config"], "coat": "silver_mane"}}
     model = ScriptedModel([json.dumps(invented), json.dumps(GOOD)])
     result = await run(model)
 
@@ -279,9 +279,39 @@ def test_the_schema_sent_to_the_provider_enumerates_the_tools():
 def test_avatar_validation_reports_every_problem_at_once():
     """One problem per round trip would cost four calls to fix one avatar."""
     with pytest.raises(InvalidAvatar) as exc:
-        validate_avatar({"body": "gigantic", "hair": "silver_mane"})
+        validate_avatar({"build": "gigantic", "coat": "silver_mane"})
     joined = " ".join(exc.value.problems)
     assert "gigantic" in joined
     assert "silver_mane" in joined
     assert "outfit" in joined  # missing slots are reported too
     assert "palette" in joined
+
+
+def test_the_human_catalogue_is_refused_rather_than_guessed_at():
+    """An avatar written before the office had cats.
+
+    Both halves are reported: `body` and `hair` are not slots any more, and the
+    two that survived are missing. Nothing is quietly mapped here — `validate`
+    is the door into the table and has to refuse what it cannot check.
+    `migrate_avatar` is the one place that translates, and it runs once, in a
+    migration, over rows nobody is editing.
+    """
+    with pytest.raises(InvalidAvatar) as exc:
+        validate_avatar({"body": "slim", "hair": "bun", "outfit": "blazer", "palette": "teal"})
+    joined = " ".join(exc.value.problems)
+    assert "'body' is not an avatar slot" in joined
+    assert "'hair' is not an avatar slot" in joined
+    assert "build is missing" in joined
+    assert "coat is missing" in joined
+
+
+def test_the_migration_keeps_agents_that_were_created_as_people():
+    """One-to-one, so two agents that looked different still do (§5.1)."""
+    from agentd.agents.avatar import migrate_avatar
+
+    a = migrate_avatar({"body": "slim", "hair": "bun", "outfit": "blazer", "palette": "teal"})
+    b = migrate_avatar({"body": "sturdy", "hair": "buzz", "outfit": "armor", "palette": "ink"})
+    assert a != b
+    # And what comes out is something the validator will now accept.
+    assert validate_avatar(a) == a
+    assert validate_avatar(b) == b

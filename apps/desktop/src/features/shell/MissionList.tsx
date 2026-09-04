@@ -94,6 +94,19 @@ export function MissionList({
     if (openId) void load();
   }, [openId, endReason, load]);
 
+  // A run that finishes while you are watching it is not unread.
+  //
+  // `markSeen` on click records the ending the row had *at that moment*, which
+  // for a run still going is none — so the mark never happened, and the run
+  // turned orange the instant it finished, in front of the person who had been
+  // watching it finish. This closes that: whenever the open run has an ending,
+  // it is read.
+  const items = missions;
+  useEffect(() => {
+    const open = items.find((m) => m.id === openId);
+    if (open?.endedAt) markSeen(open.id, open.endedAt);
+  }, [openId, items, markSeen]);
+
   const awaiting = useMemo(
     () => new Set(pendingRequests.map((r) => r.missionId)),
     [pendingRequests],
@@ -117,7 +130,7 @@ export function MissionList({
       </h2>
       <div
         aria-current="true"
-        className="flex min-h-[24px] items-start gap-2 rounded-md bg-solid-2 px-2 py-1.5 text-left text-text"
+        className="flex min-h-[24px] items-start gap-2 rounded-md border border-line bg-solid-2 px-2 py-1.5 text-left text-text"
       >
         <span className="mt-[5px]">
           <StatusMark look={DRAFT_LOOK} />
@@ -168,7 +181,15 @@ export function MissionList({
               // which is the one thing in this list that needs an answer
               // rather than a read, so it wins.
               const asking = awaiting.has(mission.id);
-              const unread = !asking && isUnread(seen, mission);
+              // Still going. `running` is the backend's own answer — *this
+              // process is driving it* — rather than the row's `endReason`,
+              // which is a snapshot from whenever the list was last fetched.
+              // For the run on screen the log wins, the same order
+              // `runState.ts` established.
+              const working =
+                !asking &&
+                (mission.id === openId ? endReason === null : mission.running);
+              const unread = !asking && !working && isUnread(seen, mission);
               return (
                 <li key={mission.id} className="group/row relative">
                   <button
@@ -189,9 +210,13 @@ export function MissionList({
                       // The selected row is a block, not a tinted row with a
                       // dot: it is where you are, and it should read that way
                       // at a glance down a list of seventeen.
+                      // The sidebar column is `--color-solid`, so a row that
+                      // hovered to `--color-solid` painted the colour it was
+                      // already on and nothing happened. Everything in this
+                      // column raises to `--color-solid-2`.
                       selected
                         ? "bg-solid-2 text-text shadow-[inset_2px_0_0_0_var(--color-accent)]"
-                        : "text-muted hover:bg-solid hover:text-text",
+                        : "text-muted hover:bg-solid-2 hover:text-text",
                     )}
                   >
                     {/* The title, and nothing else on the line.
@@ -228,11 +253,28 @@ export function MissionList({
                         )}
                       </span>
                     ) : null}
-                    {asking || unread ? (
+                    {asking || working || unread ? (
                       <span
                         className={cn(
                           "mt-[7px] size-1.5 shrink-0 rounded-full",
-                          asking ? "bg-wait" : "bg-accent",
+                          // Three states, and each has a *shape* as well as a
+                          // colour — a dot that only differed by hue would be
+                          // three things nobody can tell apart (§18.3).
+                          //
+                          //   working  a pulsing accent dot: something is
+                          //            happening and nothing is wanted of you
+                          //   asking   a hollow attn ring: stopped, on a
+                          //            question, and the ring is the hole the
+                          //            answer goes in
+                          //   unread   a solid attn dot: it finished and you
+                          //            have not looked
+                          //
+                          // `motion-safe` because a blink is movement, and
+                          // somebody who asked for less of it still needs to
+                          // be able to see that the run is going.
+                          working && "bg-accent motion-safe:animate-pulse",
+                          asking && "border-[1.5px] border-attn",
+                          unread && "bg-attn",
                         )}
                         // Not colour alone: the dot has a name, so it is a
                         // thing rather than a decoration to anyone reading
@@ -241,7 +283,9 @@ export function MissionList({
                         aria-label={
                           asking
                             ? strings.sidebar.asking
-                            : strings.sidebar.unread
+                            : working
+                              ? strings.sidebar.working
+                              : strings.sidebar.unread
                         }
                       />
                     ) : null}
