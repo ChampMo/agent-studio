@@ -519,6 +519,8 @@ web tool and a way to change things, and suggests splitting the roles; and
 because the backend on loopback holds the user's keys.
 
 
+**Released: v0.2.0** (2026-09-22), the first build that can update itself.
+
 **M10 — the new shell: in progress.** Three columns, past runs down the left,
 the run in front of you in the middle, what needs you on the right. 112 vitest +
 354 pytest green.
@@ -3171,6 +3173,30 @@ somebody who did not ask, and Settings carries the endpoint's own words for
 anyone who did. A permanent "Up to date" row is how people learn to stop
 reading the bottom of that column, which is the argument that took `open_desks`
 off the team cards.
+
+### v0.2.0, and the chain checked from the outside
+
+Published from `3a17b80`, and then verified the way an installed copy would do
+it rather than the way the build does: fetch
+`releases/latest/download/latest.json` over the real URL, download the file it
+names, and check the signature it carries against the public key in
+`tauri.conf.json`.
+
+    manifest   byte-identical to what the build wrote
+    installer  35,988,742 bytes, sha256 0e47f080...aec1d, matches the notes
+    key id     88bb20420e628b18 on both halves
+    result     verifies
+
+That is the one link the build cannot test, because it does not exist until
+the assets are uploaded — the url in the manifest is a *prediction* of what the
+release will be called. Predicting it wrongly gives a 404 that looks exactly
+like a signing problem from inside the app, which is why `release-manifest.mjs`
+stages the files under the same names it writes into the manifest.
+
+**`latest.json` carries the whole release notes**, 5.5KB of them, because the
+panel shows what the release says rather than a summary of it. If that ever
+reads badly in a 192px box the answer is a shorter release note, not a second
+version of it in the manifest (§2.1).
 
 ### A build that fails to sign exits 0
 
