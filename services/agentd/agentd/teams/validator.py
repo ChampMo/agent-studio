@@ -60,12 +60,17 @@ def validate(
     if not leaders:
         # The database enforces "at most one" with a partial unique index. It
         # cannot express "at least one", so that half lives here (§5.2).
+        #
+        # Since the seat decides the role, there is exactly one way to reach
+        # this now — seat 0 is empty — so the message says that rather than
+        # "no leader", which was true and gave nobody anything to do about it.
         findings.append(
             Finding(
                 "no_leader",
                 "error",
-                "No leader. The orchestrator runs the leader as the supervisor, "
-                "so a team without one cannot start.",
+                "Seat 0 is empty. Whoever sits there leads the team, and the "
+                "orchestrator runs the leader as the supervisor, so a team "
+                "without one cannot start.",
             )
         )
     elif len(leaders) > 1:

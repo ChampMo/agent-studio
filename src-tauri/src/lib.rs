@@ -23,7 +23,7 @@ use std::sync::Mutex;
 
 use rand::RngCore;
 use serde::Deserialize;
-use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_shell::process::CommandChild;
 use tauri_plugin_shell::ShellExt;
 
@@ -36,6 +36,12 @@ struct DevHandshake {
 /// The running backend, so it can be shut down with the window that needs it.
 #[derive(Default)]
 struct Backend(Mutex<Option<CommandChild>>);
+
+/// The handshake script the main window was built with, kept so a window
+/// opened later gets the identical one. A second window that reached the
+/// backend any other way would be a second code path for the token.
+#[derive(Default)]
+struct Injection(Mutex<Option<String>>);
 
 /// A session token: 32 hex characters from the OS entropy source.
 ///
@@ -257,6 +263,73 @@ fn reveal_folder(path: String) -> Result<(), String> {
         .map_err(|err| format!("could not open the file manager: {err}"))
 }
 
+/// The label of the window that shows one mission's room.
+///
+/// A mission id is an opaque id and goes straight into the label, which is
+/// what `capabilities/default.json` allows (`scene-*`); anything that is not
+/// one is refused before it becomes a window label.
+fn scene_label(mission_id: &str) -> Result<String, String> {
+    if mission_id.is_empty()
+        || !mission_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err("not a mission id".into());
+    }
+    Ok(format!("scene-{mission_id}"))
+}
+
+/// The room for one mission in a window of its own (`lib/popout.ts`).
+///
+/// Built the same way as the main window — the handshake injected before any
+/// page script — plus one more global naming the mission, which `App` reads
+/// to render the room alone.
+///
+/// `async`, and the build itself on the main thread. A synchronous command
+/// runs *inside* the calling webview's message handler, and on Windows a
+/// WebView2 cannot be created from inside another's callback: the new window
+/// came up black and would not close. Off that thread and back onto the main
+/// one properly, it is an ordinary window.
+#[tauri::command]
+async fn open_scene_window(app: AppHandle, mission_id: String) -> Result<(), String> {
+    let label = scene_label(&mission_id)?;
+    if let Some(existing) = app.get_webview_window(&label) {
+        let _ = existing.set_focus();
+        return Ok(());
+    }
+    let script = app.state::<Injection>().0.lock().unwrap().clone();
+    let (done, wait) = std::sync::mpsc::channel::<Result<(), String>>();
+    let handle = app.clone();
+    app.run_on_main_thread(move || {
+        let mut window = WebviewWindowBuilder::new(&handle, &label, WebviewUrl::default())
+            .title("Agent Studio — room")
+            .inner_size(960.0, 640.0)
+            .min_inner_size(480.0, 320.0);
+        if let Some(script) = script {
+            window = window.initialization_script(script);
+        }
+        window = window.initialization_script(format!(
+            "window.__AGENT_STUDIO_SCENE__ = {};",
+            serde_json::json!(mission_id)
+        ));
+        let _ = done.send(window.build().map(|_| ()).map_err(|err| err.to_string()));
+    })
+    .map_err(|err| err.to_string())?;
+    wait.recv().map_err(|err| err.to_string())?
+}
+
+/// Bring the room back: close its window. The main window's pane returns
+/// on the `scene-window-closed` event this fires, the same one a click on
+/// the window's own close button fires.
+#[tauri::command]
+async fn close_scene_window(app: AppHandle, mission_id: String) -> Result<(), String> {
+    let label = scene_label(&mission_id)?;
+    if let Some(window) = app.get_webview_window(&label) {
+        window.close().map_err(|err| err.to_string())?;
+    }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -265,8 +338,24 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         // The webview may open a folder picker; see capabilities/default.json.
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![reveal_folder])
+        .invoke_handler(tauri::generate_handler![
+            reveal_folder,
+            open_scene_window,
+            close_scene_window
+        ])
+        // A room window going away is the main window's cue to draw the
+        // room itself again. Said by label, so the page knows which run.
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                if let Some(mission_id) = window.label().strip_prefix("scene-") {
+                    let _ = window
+                        .app_handle()
+                        .emit("scene-window-closed", mission_id.to_string());
+                }
+            }
+        })
         .manage(Backend::default())
+        .manage(Injection::default())
         .setup(|app| {
             // The window is built here rather than declared in tauri.conf.json
             // because the handshake has to be injected as an initialisation
@@ -298,7 +387,9 @@ pub fn run() {
 
             match handshake {
                 Some(handshake) => {
-                    window = window.initialization_script(injection_script(&handshake));
+                    let script = injection_script(&handshake);
+                    app.state::<Injection>().0.lock().unwrap().replace(script.clone());
+                    window = window.initialization_script(script);
                 }
                 None => {
                     eprintln!("agent-studio: no backend to talk to. In development, start one with `npm run dev`; the window shows its waiting state until then.");

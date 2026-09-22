@@ -996,7 +996,11 @@ class MissionRunner:
             )
 
     #: Tools whose success means a file now exists in the workspace.
-    FILE_TOOLS = ("write_file", "edit_file")
+    #:
+    #: The list lives in the registry, which is where facts about tools go.
+    #: Kept as a class attribute so existing callers and tests still reach it
+    #: by this name.
+    FILE_TOOLS = tool_registry.FILE_TOOLS
 
     async def _note_written(
         self,

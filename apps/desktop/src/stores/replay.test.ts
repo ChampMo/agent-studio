@@ -207,3 +207,29 @@ describe("a burst of frames", () => {
     expect(useEventStore.getState().events).toHaveLength(0);
   });
 });
+
+describe("a round stopped mid-reply", () => {
+  it("drops the previews of replies that never landed", () => {
+    // `apply` rather than `ingest`: ingest batches onto the next frame,
+    // and this is about the store, not the batching.
+    // Deltas preview a message that a cancelled round never writes. Left in
+    // the store they sat on screen as bubbles still typing under
+    // "Round finished — you stopped it".
+    seq = 0;
+    const store = useEventStore.getState();
+    store.apply(
+      decodeFrame({
+        channel: "ephemeral",
+        type: "agent.message.delta",
+        missionId: "m-old",
+        agentId: "a-1",
+        messageId: "msg-cut",
+        index: 0,
+        text: "half a tho",
+      }),
+    );
+    expect(Object.keys(useEventStore.getState().streaming)).toEqual(["msg-cut"]);
+    store.apply(decodeFrame(row("mission.ended", { reason: "cancelled" })));
+    expect(useEventStore.getState().streaming).toEqual({});
+  });
+});

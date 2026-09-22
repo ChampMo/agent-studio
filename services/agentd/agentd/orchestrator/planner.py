@@ -13,12 +13,14 @@ being replaced with something invented.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
 
 from ..agents.profile_gen import extract_json
+from ..tools.registry import FILE_TOOLS
 from ..providers.base import (
     Capabilities,
     ChatRequest,
@@ -221,6 +223,81 @@ def _check_seats(plan: Plan, snapshot: RosterSnapshot) -> str | None:
         f"assignable seats are {sorted(seats)}.{hint}"
     )
 
+#: A verb that means "put something on disk", then a file name, close together
+#: and on one line.
+#:
+#: Narrow on purpose, because this project has paid twice for loose matching:
+#: `is_secret_key` matched substrings and redacted `inputTokens`, destroying
+#: real numbers in an append-only table, and a shell splitter that looked for
+#: `\bgit\b` anywhere flagged `find . -not -path '*/.git/*'`. So both halves
+#: have to be present: a writing verb *and* something shaped like a file name
+#: within a few words of it. "Read BA_user_journey.md and report what it says"
+#: has the file and no verb, and is left alone.
+_WRITES_A_FILE = re.compile(
+    r"\b(?:write|create|produce|save|output|generate|implement|build"
+    r"|add|update|edit|modify)\b"
+    r"[^\n]{0,40}?"
+    r"\b[\w.-]+\.(?:md|markdown|html?|css|jsx?|tsx?|json|ya?ml|toml|py|txt|csv|sh)\b",
+    re.IGNORECASE,
+)
+
+
+def _check_tools(plan: Plan, snapshot: RosterSnapshot) -> str | None:
+    """A task that writes a file has to go to somebody who can write files.
+
+    The prompt already asks for this, and `_roster_text` shows the leader every
+    member's tools so it can. Both landed after a run where "create INDEX.md"
+    went to a designer holding only read tools, who spent five turns trying to
+    hand it on and never wrote the file.
+
+    **It happened again, to the same designer.** Task 2 of a five-agent run was
+    "write UX_design_spec.md"; the UX/UI Designer carries `ask_user, glob,
+    grep, list_dir, read_file, send_message`. Having no way to save the file,
+    it wrote the whole spec into a `send_message` call to the developer -- and
+    that call was cut off at max_tokens and never ran. Nothing was written,
+    nothing was delivered, and the two agents after it spent four minutes of a
+    fifteen-minute budget searching the disk for a file that had never existed.
+
+    So this is a check rather than a sentence in a prompt. The distinction is
+    one this project keeps arriving at: a prompt is a request, and the thing
+    that makes a rule true is code. It is the same reasoning that put the
+    duplicate-name gate in `validator.py` instead of trusting the generator to
+    read its instructions.
+
+    **Silent when there is nobody better.** A team whose only members are
+    read-only cannot satisfy this correction, and a check that cannot be
+    obeyed would burn every attempt and fail the mission outright -- worse than
+    the problem. So it fires only when some other assignable seat can actually
+    write, which is exactly when reassigning is the fix.
+    """
+    writers = {
+        m.seat_index
+        for m in snapshot.members
+        if m.seat_index in _assignable(snapshot)
+        and set(m.tools or ()) & set(FILE_TOOLS)
+    }
+    if not writers:
+        return None
+
+    by_seat = {m.seat_index: m for m in snapshot.members}
+    for task in plan.tasks:
+        if task.assignee_seat in writers:
+            continue
+        found = _WRITES_A_FILE.search(task.instruction or "")
+        if not found:
+            continue
+        member = by_seat.get(task.assignee_seat)
+        who = member.name if member else f"seat {task.assignee_seat}"
+        has = ", ".join(member.tools) if member and member.tools else "no tools"
+        return (
+            f"task {task.id} writes a file ({found.group(0).strip()!r}) but "
+            f"seat {task.assignee_seat} ({who}) cannot: it has {has}. "
+            f"Give it to one of seats {sorted(writers)}, who hold "
+            f"{' or '.join(FILE_TOOLS)}. Teammates cannot borrow each "
+            f"other's tools."
+        )
+    return None
+
 
 async def make_plan(
     *,
@@ -316,7 +393,11 @@ async def make_plan(
                         for e in exc.errors()
                     )
                 else:
-                    problem = _check_seats(plan, snapshot) or _check_deps(plan)
+                    problem = (
+                        _check_seats(plan, snapshot)
+                        or _check_deps(plan)
+                        or _check_tools(plan, snapshot)
+                    )
                     if problem is None:
                         return PlanResult(plan, total, attempt, failures)
 

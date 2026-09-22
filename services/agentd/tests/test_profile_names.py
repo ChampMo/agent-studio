@@ -23,7 +23,13 @@ from agentd.agents.profile_gen import (
 )
 from agentd.providers.base import Capabilities, DoneChunk, TextChunk, Usage
 
-GOOD_AVATAR = {"build": "average", "coat": "sleek", "outfit": "hoodie", "palette": "grey"}
+GOOD_AVATAR = {
+    "breed": "bombay",
+    "size": "normal",
+    "headwear": "cap_brown",
+    "glasses": "none",
+    "collar": "none",
+}
 
 
 def profile(name: str) -> str:

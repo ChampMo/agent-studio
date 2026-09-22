@@ -36,6 +36,7 @@ from ..providers.base import (
 )
 from ..teams.snapshot import RosterSnapshot, SnapshotMember
 from ..tools.execution import ToolBox
+from ..tools.registry import FILE_TOOLS
 from .hitl import APPROVE, Ask, PlanRejected, ask_to_approve, new_request_id, pause
 from .planner import PlanningFailed, make_plan
 
@@ -539,7 +540,16 @@ def _build_graph(
             )
 
             answer = ""
-            truncated = False
+            #: The reply hit max_tokens and stops mid-sentence.
+            cut_off = False
+            #: A tool call hit max_tokens mid-arguments and was **not run**.
+            lost_a_call = False
+            #: A file tool succeeded, so something is on disk whatever else
+            #: happened to the turn. Correlated start-to-end by `callId`, the
+            #: same way the runner watches for artifacts -- `agent.tool.end`
+            #: carries the outcome and only the start carries the tool name.
+            wrote = False
+            writing: set[str] = set()
             async for item in run_agent_turn(
                 provider=provider,
                 caps=caps,
@@ -553,17 +563,50 @@ def _build_graph(
                 await emit(item)
                 if is_ephemeral(item):
                     continue
-                if item["type"] == "agent.message":
-                    answer = item["payload"]["content"]
-                elif item["type"] == "error":
-                    truncated = truncated or item["payload"]["code"] == "output_truncated"
+                kind, payload = item["type"], item["payload"]
+                if kind == "agent.message":
+                    answer = payload["content"]
+                elif kind == "agent.tool.start":
+                    if payload.get("tool") in FILE_TOOLS:
+                        writing.add(str(payload.get("callId") or ""))
+                elif kind == "agent.tool.end":
+                    if str(payload.get("callId") or "") in writing and payload.get("ok"):
+                        wrote = True
+                elif kind == "error":
+                    code = payload["code"]
+                    cut_off = cut_off or code == "output_truncated"
+                    lost_a_call = lost_a_call or code == "tool_call_truncated"
 
             # A task that produced nothing is not done, whatever the loop
             # counter says. A live run reported `done 1/2` for a turn that was
             # cut off before it emitted a word, and the next teammate correctly
             # replied that there was nothing to check -- the progress line was
             # the only part of the record that was untrue (section 1).
-            produced = bool(answer.strip())
+            #
+            # **And a turn that was cut off did not finish either.** That is the
+            # same rule, one step further, and it took a second live run to see
+            # it. The designer had no `write_file`, so its plan was to hand the
+            # spec to the developer through `send_message` -- and that call was
+            # truncated mid-arguments and never ran, its own reply was
+            # truncated too, and both facts were on the log as `error` events
+            # one and three events before this task was recorded **done**.
+            #
+            # It passed because `answer.strip()` was not empty: the model had
+            # written 800 characters of "here is what I am about to hand over"
+            # before the cap hit. Non-empty text means the model said
+            # something, never that the work is finished.
+            #
+            # What that cost is the reason this is worth the care. The next two
+            # agents were told the spec existed, spent four minutes of a
+            # fifteen-minute budget running `find /` for it -- two of those
+            # calls hit the shell timeout -- and the run parked on a question
+            # to the user asking where the files were.
+            #
+            # A written file still counts. An agent that saved its work and
+            # then ran out of room mid-summary has done the task; the
+            # deliverable is on disk and `artifact.created` says so. Only a
+            # turn that was cut off with nothing written is unfinished.
+            produced = bool(answer.strip()) and (wrote or not (cut_off or lost_a_call))
             landed[index] = {
                 "task": task,
                 "agent_id": member.agent_id,
@@ -590,10 +633,22 @@ def _build_graph(
                         {
                             "agentId": member.agent_id,
                             "code": "task_produced_nothing",
+                            # Which of the three it was, because they need
+                            # different answers: an empty reply is a model that
+                            # spent its room reasoning, a cut-off reply is a
+                            # task too big for one turn, and a lost tool call
+                            # is an action that never happened at all.
                             "message": (
                                 f"{member.name} returned no usable answer for "
                                 f"{task['title']!r}"
-                                + (" (cut off at max_tokens)" if truncated else "")
+                                + (
+                                    " (a tool call was cut off at max_tokens "
+                                    "and never ran)"
+                                    if lost_a_call
+                                    else " (cut off at max_tokens)"
+                                    if cut_off
+                                    else ""
+                                )
                             ),
                             "recoverable": True,
                         },

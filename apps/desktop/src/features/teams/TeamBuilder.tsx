@@ -17,8 +17,10 @@ import { useAgentStore } from "../../stores/agentStore";
 import { useTeamStore } from "../../stores/teamStore";
 import { Button, Field, Input } from "../../components/ui/primitives";
 import { Portrait } from "../../components/ui/Portrait";
-import { CloseIcon, StarIcon } from "../../components/ui/icons";
-import { api, type TeamProposal } from "../../transport/rest";
+import { MoreIcon, StarIcon } from "../../components/ui/icons";
+import { Menu } from "../../components/ui/Menu";
+import { MemberCard, useHoverCard } from "../shell/MemberCard";
+import { api, type Agent, type TeamProposal } from "../../transport/rest";
 import { TeamAdvisor } from "./TeamAdvisor";
 import type {
   BudgetLimits,
@@ -49,7 +51,13 @@ export function TeamBuilder({ team, onDone }: Props) {
     team?.sceneLayoutId ?? layouts[0]?.id ?? "",
   );
   const [seats, setSeats] = useState<(TeamMemberInput | null)[]>([]);
-  const [dragging, setDragging] = useState<string | null>(null);
+  //: What is being dragged, and from where. Two sources drop onto the same
+  //: target and mean different things: a name from the roster *seats*
+  //: somebody, a seat card *swaps* two desks. One string could not tell them
+  //: apart, and a swap that lost a person is the worst outcome here.
+  const [dragging, setDragging] = useState<
+    { from: "roster"; agentId: string } | { from: "seat"; index: number } | null
+  >(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [findings, setFindings] = useState<Finding[]>(team?.findings ?? []);
@@ -112,6 +120,49 @@ export function TeamBuilder({ team, onDone }: Props) {
     ? team.members.filter((m) => m.seatIndex >= seatCount).length
     : 0;
 
+  /**
+   * Seat 0 leads, and every seat carries its own index.
+   *
+   * The role used to be a separate thing you set with a star, and the room
+   * then had to work out where the leader was in order to give them the head
+   * of the table. One fact in two places: the seat you are in, and whether you
+   * are in charge. They are the same fact now.
+   *
+   * `seat_index` is rewritten from the position too, because a swap moves a
+   * member without their old index being right any more — and that index is
+   * what the whole scene indexes desks by.
+   */
+  //: The same card the run's rail shows, over the two places a person is
+  //: named here. The source is different and the difference is real: the rail
+  //: reads a mission's frozen snapshot, this reads the agents table, because
+  //: a team being built runs in the future and will use whoever they are then.
+  const card = useHoverCard();
+  const cardFor = (agent: Agent, seatIndex: number) => ({
+    agent_id: agent.id,
+    name: agent.name,
+    // -1 for the roster list: they are not seated, and any real number there
+    // would be a claim about a seat they are not in.
+    seat_index: seatIndex,
+    role_in_team: seatIndex === 0 ? "leader" : "member",
+    model: agent.model,
+    avatar_config: agent.avatarConfig,
+    tools: agent.tools,
+    title: agent.title,
+    role: agent.role,
+  });
+
+  function reseat(next: (TeamMemberInput | null)[]): (TeamMemberInput | null)[] {
+    return next.map((s, i) =>
+      s
+        ? {
+            ...s,
+            seat_index: i,
+            role_in_team: i === 0 ? "leader" : "member",
+          }
+        : null,
+    );
+  }
+
   function assign(index: number, agentId: string) {
     setSeats((prev) => {
       const next = [...prev];
@@ -119,17 +170,13 @@ export function TeamBuilder({ team, onDone }: Props) {
       for (let i = 0; i < next.length; i += 1) {
         if (next[i]?.agent_id === agentId) next[i] = null;
       }
-      const hasLeader = next.some((s) => s?.role_in_team === "leader");
       next[index] = {
         agent_id: agentId,
         seat_index: index,
-        // The first person seated becomes the leader. Exactly one is required
-        // to run (§5.2), and defaulting saves the user a step they would
-        // otherwise only discover from an error.
-        role_in_team: hasLeader ? "member" : "leader",
+        role_in_team: "member",
         overrides: null,
       };
-      return next;
+      return reseat(next);
     });
   }
 
@@ -153,7 +200,9 @@ export function TeamBuilder({ team, onDone }: Props) {
       next[member.seat] = {
         agent_id: member.agentId,
         seat_index: member.seat,
-        role_in_team: member.role === "leader" ? "leader" : "member",
+        // Whatever the model said about roles, the seat decides. It is asked
+        // to put its leader in seat 0 and `reseat` makes that true either way.
+        role_in_team: "member",
         overrides:
           member.addTools.length > 0 && agent
             ? {
@@ -164,31 +213,33 @@ export function TeamBuilder({ team, onDone }: Props) {
             : null,
       };
     }
-    setSeats(next);
+    setSeats(reseat(next));
   }
 
   function clear(index: number) {
     setSeats((prev) => {
       const next = [...prev];
-      const removed = next[index];
       next[index] = null;
-      // Removing the leader promotes whoever is left, rather than leaving the
-      // team in a state that cannot run without explaining why.
-      if (removed?.role_in_team === "leader") {
-        const first = next.findIndex(Boolean);
-        if (first !== -1)
-          next[first] = { ...next[first]!, role_in_team: "leader" };
-      }
-      return next;
+      return reseat(next);
     });
   }
 
-  function makeLeader(index: number) {
-    setSeats((prev) =>
-      prev.map((s, i) =>
-        s ? { ...s, role_in_team: i === index ? "leader" : "member" } : s,
-      ),
-    );
+  /**
+   * Move whoever is in `from` to `to`, and whoever was in `to` back.
+   *
+   * A swap, not an insert-and-shift: dropping onto an occupied desk means
+   * "you two trade places", which is what the picture shows and the only
+   * reading in which nobody can be pushed out of the last seat and lost.
+   */
+  function swap(from: number, to: number) {
+    if (from === to) return;
+    setSeats((prev) => {
+      const next = [...prev];
+      const a = next[from] ?? null;
+      next[from] = next[to] ?? null;
+      next[to] = a;
+      return reseat(next);
+    });
   }
 
   async function save(e: React.FormEvent) {
@@ -265,7 +316,13 @@ export function TeamBuilder({ team, onDone }: Props) {
                 <div
                   key={agent.id}
                   draggable
-                  onDragStart={() => setDragging(agent.id)}
+                  onMouseEnter={(e) => card.show(agent.id, e.currentTarget)}
+                  onMouseLeave={card.hide}
+                  onFocus={(e) => card.show(agent.id, e.currentTarget, true)}
+                  onBlur={card.hide}
+                  onDragStart={() =>
+                    setDragging({ from: "roster", agentId: agent.id })
+                  }
                   onDragEnd={() => setDragging(null)}
                   onClick={() => {
                     // A second click takes them back out. The list already
@@ -409,25 +466,79 @@ export function TeamBuilder({ team, onDone }: Props) {
                 return (
                   <div
                     key={index}
+                    // Only an occupied seat can be picked up; an empty one has
+                    // nothing to move.
+                    draggable={Boolean(seat)}
+                    onDragStart={() => {
+                      // A card following the pointer during a drag is noise
+                      // over the thing being dropped on.
+                      card.hide();
+                      if (seat) setDragging({ from: "seat", index });
+                    }}
+                    onDragEnd={() => setDragging(null)}
+                    onMouseEnter={(e) =>
+                      seat && !dragging && card.show(seat.agent_id, e.currentTarget)
+                    }
+                    onMouseLeave={card.hide}
+                    // The pointer is still over the row when the `⋯` opens, so
+                    // without this the card and the menu sit on screen at once
+                    // arguing for the same space.
+                    onMouseDown={card.hide}
                     onDragOver={(e) => e.preventDefault()}
                     onDrop={(e) => {
                       e.preventDefault();
-                      if (dragging) assign(index, dragging);
+                      if (dragging?.from === "roster")
+                        assign(index, dragging.agentId);
+                      else if (dragging?.from === "seat")
+                        swap(dragging.index, index);
                       setDragging(null);
                     }}
                     className={cn(
-                      "min-h-[76px] rounded-md border p-2 text-xs transition-colors",
+                      "relative min-h-[76px] rounded-md border p-2 text-xs transition-colors",
+                      seat && "cursor-grab active:cursor-grabbing",
                       !seat && "border-dashed border-line text-faint",
                       seat && worst === "error" && "border-stop/40 bg-stop/10",
                       seat &&
                         worst === "warn" &&
                         "border-attn-edge bg-attn-soft",
                       seat && !worst && "border-line bg-solid",
+                      // Being dragged, and the seat under the pointer.
+                      dragging?.from === "seat" &&
+                        dragging.index === index &&
+                        "opacity-50",
                     )}
                   >
+                    {/* Pinned to the seat, not to the person.
+
+                        Seat 0 is the leader now — that is a property of the
+                        desk, so the star sits on the desk and cannot be handed
+                        around. It marks an empty seat 0 too, because the point
+                        is to say what will happen when somebody is dropped
+                        there, before they are.
+
+                        Tilted, because a badge that is square to the card
+                        reads as another control. This one is a sticker. */}
+                    {index === 0 ? (
+                      <span
+                        aria-hidden="true"
+                        title={strings.teams.seatZeroLeads}
+                        className={cn(
+                          "pointer-events-none absolute -right-1.5 -top-2 rotate-[18deg]",
+                          "text-wait drop-shadow",
+                        )}
+                      >
+                        <StarIcon size={20} filled />
+                      </span>
+                    ) : null}
+
                     <div className="mb-1 flex items-center justify-between text-[10px] text-faint">
                       <span>
                         {strings.teams.seat} {index}
+                        {index === 0 ? (
+                          // Said in words as well as with the sticker: colour
+                          // and a shape alone are not a label (§18.3).
+                          <span className="text-wait"> · {strings.teams.leads}</span>
+                        ) : null}
                       </span>
                     </div>
 
@@ -454,68 +565,44 @@ export function TeamBuilder({ team, onDone }: Props) {
                             ) : null}
                           </div>
 
-                          {/* The two controls are one group: `gap-2` between
-                              the name and them, `gap-1` between themselves.
-                              Sharing one gap put the star as far from the
-                              cross as it was from the name, so it read as
-                              belonging to neither. */}
-                          <div className="flex shrink-0 items-center gap-1">
-                            {/* Trailing the name rather than on a line of their
-                              own: two 28px controls fit beside it, and the row
-                              underneath was a third of the seat's height spent
-                              on two icons.
-
-                              The star is both the indicator and the control. A
-                              solid amber one means "this is the leader" and is
-                              not a button — there is nothing to do to the
-                              leader from here. A hollow one hands the star
-                              over. That is what replaced the separate "Leader"
-                              badge, which said what the star already could. */}
-                            {seat.role_in_team === "leader" ? (
-                              <span
-                                className="flex h-7 w-7 shrink-0 items-center justify-center text-wait"
-                                title={strings.teams.isLeader(
-                                  agent?.name ?? seat.agent_id,
-                                )}
-                                aria-label={strings.teams.isLeader(
-                                  agent?.name ?? seat.agent_id,
-                                )}
-                                role="img"
-                              >
-                                <StarIcon size={14} filled />
-                              </span>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => makeLeader(index)}
-                                aria-label={strings.teams.makeLeaderFor(
-                                  agent?.name ?? seat.agent_id,
-                                )}
-                                title={strings.teams.makeLeader}
-                                className={cn(
-                                  "flex h-7 w-7 shrink-0 items-center justify-center rounded-card",
-                                  "text-faint transition-colors hover:bg-solid hover:text-wait",
-                                )}
-                              >
-                                <StarIcon size={14} />
-                              </button>
+                          {/* A menu, not a row of icons, and the reason is
+                              the one the search-key chain already settled:
+                              dragging is a mouse gesture, so a reorder that
+                              exists only as a drag is a reorder some people
+                              cannot perform at all (WCAG 2.1.1). Two menu
+                              items are keyboard-reachable for free. */}
+                          <Menu
+                            label={strings.teams.moreForSeat(
+                              agent?.name ?? seat.agent_id,
                             )}
-
-                            <button
-                              type="button"
-                              onClick={() => clear(index)}
-                              aria-label={strings.teams.clearSeatFor(
-                                agent?.name ?? seat.agent_id,
-                              )}
-                              title={strings.teams.clearSeat}
-                              className={cn(
-                                "flex h-7 w-7 shrink-0 items-center justify-center rounded-card",
-                                "text-faint transition-colors hover:bg-solid hover:text-stop",
-                              )}
-                            >
-                              <CloseIcon size={14} />
-                            </button>
-                          </div>
+                            trigger={<MoreIcon size={14} />}
+                            className="shrink-0"
+                            items={[
+                              {
+                                label: strings.teams.moveEarlier,
+                                disabled: index === 0,
+                                hint:
+                                  index === 0
+                                    ? strings.teams.alreadyFirstSeat
+                                    : undefined,
+                                onSelect: () => swap(index, index - 1),
+                              },
+                              {
+                                label: strings.teams.moveLater,
+                                disabled: index >= seats.length - 1,
+                                hint:
+                                  index >= seats.length - 1
+                                    ? strings.teams.alreadyLastSeat
+                                    : undefined,
+                                onSelect: () => swap(index, index + 1),
+                              },
+                              {
+                                label: strings.teams.clearSeat,
+                                tone: "danger" as const,
+                                onSelect: () => clear(index),
+                              },
+                            ]}
+                          />
                         </div>
                         {problems.map((p, i) => (
                           <div
@@ -539,6 +626,23 @@ export function TeamBuilder({ team, onDone }: Props) {
               })}
             </div>
           </div>
+
+          {/* One card, wherever the pointer or the keyboard is. Seated or not
+              is read from the seats, so a member who is on the grid shows
+              which desk and a roster entry does not. */}
+          {card.open
+            ? (() => {
+                const agent = agents.find((a) => a.id === card.open!.id);
+                if (!agent) return null;
+                const at = seats.findIndex((x) => x?.agent_id === agent.id);
+                return (
+                  <MemberCard
+                    member={cardFor(agent, at)}
+                    anchor={card.open!.el}
+                  />
+                );
+              })()
+            : null}
 
           {general.length > 0 ? (
             <ul className="space-y-1">

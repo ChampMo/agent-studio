@@ -15,13 +15,25 @@ Two separate causes, and neither was the model being careless:
 
 * the roster the leader plans against never said who could do what;
 * a teammate's name had to be typed exactly, parenthetical and all.
+
+**Then it happened again, to the same designer**, which is why there is a third
+section below. Task 2 of a five-agent run was "write UX_design_spec.md" and
+went to UX/UI, who still had only read tools. With no way to save the file it
+tried to hand the whole spec to the developer through `send_message`, and that
+call was cut off at max_tokens and never ran. The two agents after it were told
+the spec existed and spent four minutes of a fifteen-minute budget running
+`find /` for a file that had never been written.
+
+Showing the leader everybody's tools and asking it to match them was the fix
+last time. It asked, and the model got it wrong anyway. A prompt is a request;
+`_check_tools` is the rule.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from agentd.orchestrator.planner import _roster_text
+from agentd.orchestrator.planner import Plan, _check_tools, _roster_text
 from agentd.teams.snapshot import RosterSnapshot, SnapshotMember
 from agentd.tools.team import Ambiguous, Mailbox
 
@@ -123,3 +135,130 @@ def test_two_teammates_that_both_fit_still_raise():
     mailbox = Mailbox({"a-1": "Mara Vale", "a-2": "Mara Quinn"})
     with pytest.raises(Ambiguous):
         mailbox.resolve("Mara")
+
+
+# ---- and a task that writes a file goes to somebody who can ---------------
+
+
+#: The team from the run this section was written for.
+WEBDEV = RosterSnapshot(
+    [
+        member(0, "Project Manager (PM)", ["ask_user", "send_message"], leader=True),
+        member(1, "UX/UI Designer", ["glob", "grep", "list_dir", "read_file"]),
+        member(2, "Developer (Dev)", ["bash", "read_file", "write_file", "edit_file"]),
+        member(3, "Business Analyst (BA)", ["read_file", "write_file", "edit_file"]),
+    ]
+)
+
+
+def plan(seat: int, instruction: str, task_id: str = "t2") -> Plan:
+    return Plan.model_validate(
+        {
+            "tasks": [
+                {
+                    "id": task_id,
+                    "title": "a task",
+                    "assignee_seat": seat,
+                    "instruction": instruction,
+                }
+            ]
+        }
+    )
+
+
+def test_the_run_that_motivated_the_check_is_rejected():
+    """Task 2 of WEBDEV, word for word."""
+    problem = _check_tools(
+        plan(
+            1,
+            "Read BA_user_journey.md. Then write UX_design_spec.md in the "
+            "current workspace. It must define exact CSS values.",
+        ),
+        WEBDEV,
+    )
+    assert problem is not None
+    # Names the task, who cannot do it, and where it should go instead — a
+    # correction the model can act on without guessing.
+    assert "t2" in problem
+    assert "UX/UI Designer" in problem
+    assert "[2, 3]" in problem
+    assert "write_file" in problem
+
+
+def test_a_writer_may_write():
+    assert (
+        _check_tools(
+            plan(2, "Implement the landing page as index.html and styles.css."),
+            WEBDEV,
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    "instruction",
+    [
+        "Read BA_user_journey.md and report what it says.",
+        "Inspect index.html, styles.css and main.js, then list what is wrong.",
+        "Summarise UX_design_spec.md for the team.",
+    ],
+)
+def test_reading_a_file_needs_no_write_tool(instruction: str):
+    """The other half of the rule, and the reason the verb has to be there.
+
+    A check that fired on any instruction naming a file would move every review
+    task onto the members that can write — the opposite of what a team is for,
+    and it would put the QA pass on the developer who wrote the thing.
+    """
+    assert _check_tools(plan(1, instruction), WEBDEV) is None
+
+
+def test_a_task_with_no_file_in_it_is_left_alone():
+    assert _check_tools(plan(1, "Write up your findings and send them."), WEBDEV) is None
+
+
+def test_it_is_silent_when_nobody_can_write():
+    """A correction nobody can satisfy would burn every attempt and fail the
+    mission outright — worse than the problem it prevents.
+
+    So it fires only where reassigning is actually available, which is exactly
+    where it is the fix.
+    """
+    read_only = RosterSnapshot(
+        [
+            member(0, "Lead", ["send_message"], leader=True),
+            member(1, "Reader", ["read_file", "grep"]),
+            member(2, "Other reader", ["read_file"]),
+        ]
+    )
+    assert _check_tools(plan(1, "Write REPORT.md with your findings."), read_only) is None
+
+
+def test_edit_file_alone_counts_as_being_able_to_write():
+    """`edit_file` puts bytes on disk. A team carrying it and not `write_file`
+    is not a team that cannot write."""
+    editors = RosterSnapshot(
+        [
+            member(0, "Lead", ["send_message"], leader=True),
+            member(1, "Reader", ["read_file"]),
+            member(2, "Editor", ["read_file", "edit_file"]),
+        ]
+    )
+    problem = _check_tools(plan(1, "Update NOTES.md with the new numbers."), editors)
+    assert problem is not None
+    assert "[2]" in problem
+
+
+@pytest.mark.parametrize(
+    "instruction",
+    [
+        "Write UX_design_spec.md in the workspace.",
+        "Create INDEX.md listing every file.",
+        "Save the results as results.json.",
+        "Produce a report.md summarising the run.",
+        "Build the page as index.html.",
+        "Update styles.css with the new tokens.",
+    ],
+)
+def test_the_ordinary_ways_of_asking_for_a_file(instruction: str):
+    assert _check_tools(plan(1, instruction), WEBDEV) is not None

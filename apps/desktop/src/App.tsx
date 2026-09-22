@@ -23,6 +23,8 @@ import { RightPanel } from "./features/shell/RightPanel";
 import { useHistoryStore } from "./stores/historyStore";
 import { useMissionStore } from "./stores/missionStore";
 import { useApprovalStore } from "./stores/approvalStore";
+import { sceneWindowMission } from "./lib/popout";
+import { ScenePage } from "./scene/ScenePage";
 
 export function App() {
   const ready = useSettingsStore((s) => s.ready);
@@ -67,6 +69,11 @@ export function App() {
       </div>
     );
   }
+
+  // A window opened to show one room shows that room and nothing else. Read
+  // once per window: the fact is set before any script runs and never changes.
+  const sceneOnly = sceneWindowMission();
+  if (sceneOnly) return <ScenePage missionId={sceneOnly} />;
 
   // No key anywhere means nothing else in the app can work, so onboarding is a
   // gate rather than a suggestion (§3.2).

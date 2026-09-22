@@ -31,14 +31,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { createServer as createSocket, createConnection } from "node:net";
-import {
-  mkdirSync,
-  readdirSync,
-  rmSync,
-  statSync,
-  watch,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, watch, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { createServer as createViteServer } from "vite";
@@ -60,7 +53,18 @@ function* pythonSources(dir) {
 }
 // Overridable, so a second copy of the app can be brought up beside the one
 // already running instead of fighting it for the port.
-const WEB_PORT = Number(process.env.AGENT_STUDIO_WEB_PORT) || 5173;
+//
+// `PORT` is read too, because a harness that launches this script picks the
+// port itself and has no way to know our own variable's name. Ours wins when
+// both are set: one is a decision somebody made about this app, the other is
+// whatever was free. Neither is a guess — 5173 is the last resort.
+//
+// It has to be honoured all the way down, not just here. Whatever this
+// resolves to reaches Vite through `server.port` and reaches the backend as
+// `AGENT_STUDIO_DEV_ORIGIN`, or the page loads on the new port and then fails
+// every request against a CORS allowlist that never heard of it.
+const WEB_PORT =
+  Number(process.env.AGENT_STUDIO_WEB_PORT) || Number(process.env.PORT) || 5173;
 const IS_WIN = process.platform === "win32";
 
 const freePort = () =>
@@ -191,9 +195,21 @@ function start() {
         // is explicit, so a page on another port would load and then fail
         // every request — reported as a CORS violation, which points at the
         // one thing that is not wrong.
+        //
+        // **Both spellings.** `127.0.0.1` and `localhost` are the same machine
+        // and two different origins to a browser, which is why the shipped
+        // entry for 5173 is a pair. This sent only the first, so a page opened
+        // at `http://localhost:<other port>` — which is what a harness hands
+        // you — was blocked on every request. We do not get to know which one
+        // the browser will use, so we allow the two that mean this machine.
         ...(WEB_PORT === 5173
           ? {}
-          : { AGENT_STUDIO_DEV_ORIGIN: `http://127.0.0.1:${WEB_PORT}` }),
+          : {
+              AGENT_STUDIO_DEV_ORIGIN: [
+                `http://127.0.0.1:${WEB_PORT}`,
+                `http://localhost:${WEB_PORT}`,
+              ].join(","),
+            }),
       },
     },
   );
@@ -231,7 +247,18 @@ function cleanup(code = 0) {
   try {
     // The handshake file is per-launch. Leaving it behind would hand the next
     // run's page a token that no longer authenticates anything.
-    rmSync(HANDSHAKE, { force: true });
+    // Only if it is still ours. Two launchers can overlap for a moment - the
+    // harness starting a fresh one before the old one has finished dying -
+    // and the old one's exit used to delete the handshake the new one had
+    // just written. The page then sat on "Waiting for the backend" beside a
+    // backend that was up and listening, with nothing to say why.
+    try {
+      if (JSON.parse(readFileSync(HANDSHAKE, "utf8")).token === token) {
+        rmSync(HANDSHAKE, { force: true });
+      }
+    } catch {
+      // Already gone, or not readable: nothing of ours to remove.
+    }
   } catch {}
   killTree(child);
   // Vite lives in this process, so exiting takes it with us either way.

@@ -93,11 +93,24 @@ def allowed_origins() -> tuple[str, ...]:
 
     Read from the environment rather than widened to "any loopback port",
     because the launcher knows the port and a shipped build does not set this.
+
+    **A comma-separated list, not one origin.** `127.0.0.1` and `localhost` are
+    the same machine and two different origins to a browser, which is why the
+    shipped entry for 5173 is a *pair*. The override was a single value and
+    carried only the `127.0.0.1` half, so a page opened at
+    `http://localhost:<other port>` loaded and then failed every request —
+    exactly the scar above, reproduced by the fix for it. Whoever moves the
+    port cannot know which spelling the browser will use, so they send both.
     """
-    extra = os.environ.get("AGENT_STUDIO_DEV_ORIGIN", "").strip()
-    if not extra.startswith(("http://127.0.0.1:", "http://localhost:")):
-        return ALLOWED_ORIGINS
-    return (*ALLOWED_ORIGINS, extra)
+    raw = os.environ.get("AGENT_STUDIO_DEV_ORIGIN", "")
+    extra = tuple(
+        origin
+        for origin in (part.strip() for part in raw.split(","))
+        # Each entry is checked on its own: one malformed spelling must not
+        # take the other down with it, and nothing but loopback gets in.
+        if origin.startswith(("http://127.0.0.1:", "http://localhost:"))
+    )
+    return (*ALLOWED_ORIGINS, *extra)
 
 
 @dataclass(frozen=True)

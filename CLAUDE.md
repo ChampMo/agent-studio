@@ -2899,6 +2899,139 @@ already right, so the only thing left to judge is the drawing.
 with the default filter is the kind of wrong that looks like a bad drawing
 rather than a bad setting.
 
+### The furniture floated, and the fix was to stop assuming where its feet are
+
+The bookcase hung a hand's width above the skirting. Not a placement bug: the
+piece was *drawn* in the room's own 2:1 projection, base sloping up to the
+right like the wall it stands against, and a sprite's default anchor is the
+**canvas's** bottom-centre — six to eleven pixels below the drawing's real
+base. `roomArt` now reads each picture's pixels once and finds its **foot**,
+the lowest ink row, and that point is what gets set on the floor. A redrawn
+piece brings its own foot with it. Flat-bottomed pieces (a pot, a stand) are
+set half their width into the room, because a flat base centred on a sloping
+line has half of itself over the wall.
+
+### The camera frames the floor now, and the room is a grid
+
+Two requests from the artist, one cause. The default view was a fit of the
+whole drawing, walls included, in a pane that is always wider than tall — so
+the desks were small and half the pane was wall and page. And an eight-seat
+room drawn as two long rows put every desk in a narrow band down the middle
+of a diamond floor with the front half empty.
+
+`aim()` fits `floorBounds` — walls run off the top, and zooming out brings
+them back — and is allowed above 1:1, since the art is sampled nearest and
+magnifies clean. The arrangements are grids three tiles apart, sized to the
+seats so `floorExtent` draws a floor that is as big as the desks and no
+bigger; the eight-seat room is a ring round an open middle. The leader is
+still the one desk at the far corner. `WALL_H` went to 4.5 tiles, and the
+decor is measured in tiles rather than as a share of the wall so that raising
+one did not grow the other.
+
+Found on the way: **a resize never re-fitted.** `aim()` only ran inside
+`render()`, so closing the right rail left a room sized for a 270px column in
+the middle of a 625px one until the next event. The `ResizeObserver` renders
+the last state now. And the dev handle `__PIXI_APP__` was being set by
+whichever mount finished last — under React's double-mount, the cancelled one
+— and then deleted by its own `destroy()`. It is set by `expose()`, called by
+the owner on the instance it kept.
+
+### The desk shows use, not possession
+
+The three props per desk from the frozen roster are gone, at the artist's
+request: the desk shows **the tool being used right now**, playing its
+drawn frames, and is bare otherwise. That is derived like everything else —
+an `agent.tool.start` whose `callId` has no `agent.tool.end`, newest open
+call wins, cleared by `mission.ended` and by the next round's first event, so
+a cancelled run's dangling start cannot keep a dish turning on a replay.
+`Actor.activeTool` carries the raw tool id; `propFor` maps it to a drawing
+and an unknown id draws nothing (§8). The check the old props made visible —
+web tools on a leader who is never assigned a task — lives in the members
+panel and in `leader_only_tool`, which says it in words.
+
+The toolbox is the one drawing that is more than a loop: the open box with
+the wrench floating over it, on a timer, because it claims nothing the frames
+do not already claim (§1.1). The disc and ring round a drawn cat are gone
+too — a frame round a drawing that ends at its own outline — and `waiting`'s
+amber moved from the ring to the caption word it was always paired with.
+
+### Things thrown across the room
+
+The artist's `throw/` set is wired to five moments on the log, derived in
+`sceneState` like everything else: a task announced as `pending` is thrown
+from the leader to its owner, comes back as `done` or `failed`, a
+`send_message` flies to the teammate the name resolves to, a note addressed
+to one cat comes in from the front of the room, and a question goes out to
+it. The derivation lists every throw with its seq and timestamp; `SceneView`
+throws only the ones that **just happened**, through the same gate the chime
+uses (`justHappened`) — a reconnect or a History replay must not be a room
+full of cats hurling a week's work at each other. Which drawing is thrown is
+picked by seq, so a replay that does throw throws the same thing.
+
+The message recipient is resolved client-side for the picture only — exact,
+prefix, contains, unique or nothing — the same order `Mailbox.resolve` uses.
+A name it cannot place throws nothing rather than guessing.
+
+Same session: the timeline's busy fish is the four drawn frames stepped in
+CSS, and the busy row never folds into the activity group above it — it had
+been landing inside a collapsed "1 step" while the agent was thinking, so
+nothing on screen moved.
+
+### One accessory slot became two, because the drawings do not overlap
+
+Twenty-three accessories arrived — nine head bows, two caps, five pairs of ear
+bows, seven pairs of glasses — into a single `prop` slot that had been held
+open for them. One slot would have shown one of them at a time, so
+twenty-two of the twenty-three drawings could never appear together with
+anything.
+
+**The art decided the shape, and it was measured rather than eyeballed.**
+Pixel masks, not bounding boxes:
+
+    glasses x cap          0 shared pixels
+    glasses x ear bows     0
+    glasses x head bow    34   (the ribbon meets the top of the rim)
+    head bow x ear bows  220
+    head bow x cap       216
+    cap x ear bows       104
+
+So `headwear` and `glasses`, named for the **place on the cat** rather than
+for the thing, because the place is what decides what can be worn at once.
+Everything on top of the head collides with everything else up there and
+shares a slot; the eyes get their own. Glasses paint last, so the 34 pixels
+they share with a bow are the rim covering the ribbon, which is where a bow
+is on a real face.
+
+Splitting does not multiply the art — each slot is one overlay layer on the
+same 100x100 canvas, so the two cost 17 + 8 files rather than 17 x 8
+characters. The same arithmetic that kept four breeds from costing 2,560
+cats, applied a second time.
+
+**Only two of the eight old values had anywhere honest to go.** `glasses` and
+`cap` were drawn; `scarf`, `headphones`, `bandana` and `eyepatch` never were,
+so migration 0024 folds them to nothing rather than to a hat nobody chose
+(§5.1). `bow_tie` is the one guess and is labelled as one: the bow that
+exists is worn on the head, which is the same object in the wrong place, and
+it keeps those agents distinct from the undressed default.
+
+`PROP_SPLIT` lives only in `avatar.py`. `lookFor` deliberately does **not**
+read a stale `prop` — it would need its own copy of that table to know
+whether `cap` meant a hat or glasses, and two copies of one table is how they
+come to disagree (§2.1). A config the migration has not been over draws a
+bare cat, which is this build saying it has no art for what was recorded.
+
+`pathsFor` and `artFor` take the keys as an object now. Five slots is five
+strings in a row, and a pair swapped at a call site would have been silently
+wrong art rather than a type error.
+
+**And the migration ran against a half-updated working tree.** The dev
+watcher restarts the backend the moment a file appears, and 0024 was written
+a moment before `avatar.py` was — so it ran with the old `migrate_avatar`,
+rewrote nothing, and stamped itself done. The rows still said `prop` while
+`alembic_version` said `0024`. A packaged build ships one consistent version
+and cannot hit this; in dev, **write the code a migration calls before the
+migration file**, or expect to re-run the fold by hand.
+
 ---
 
 ## Decisions made while building

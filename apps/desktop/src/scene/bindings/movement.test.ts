@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 
 import type { EventEnvelope } from "../../transport/events.generated";
 import { BUBBLE_LIMIT, deriveSceneState } from "./sceneState";
-import { cameraTarget, floorSpot, roomCentre, seatPositions, toScreen } from "../engine/iso";
+import { cameraTarget, floorSpot, roomCentre, roomSeats, seatPositions, toScreen } from "../engine/iso";
 import { FRESH_MS, shouldChime } from "../audio";
 
 const ROSTER = [
@@ -65,12 +65,15 @@ describe("who leaves their seat", () => {
     expect(state.focusAgentId).toBeNull();
   });
 
-  it("the agent being waited on takes the floor, and sits back down when answered", () => {
+  it("the agent being waited on has the camera but keeps its seat", () => {
+    // A question is answered from the desk — the phone is on it — so the
+    // asker does not walk. The camera still turns to them.
     seq = 0;
     const asked = [
       ev("agent.request", { agentId: "a-lead", requestId: "r1", question: "ok?" }),
     ];
-    expect(placeOf(scene(asked), "a-lead")).toBe("floor");
+    expect(scene(asked).focusAgentId).toBe("a-lead");
+    expect(placeOf(scene(asked), "a-lead")).toBe("seat");
     expect(placeOf(scene(asked), "a-1")).toBe("seat");
 
     const answered = [
@@ -81,7 +84,7 @@ describe("who leaves their seat", () => {
     expect(scene(answered).focusAgentId).toBeNull();
   });
 
-  it("the agent whose task is running takes the floor", () => {
+  it("the agent whose task is running has the camera and keeps its seat", () => {
     seq = 0;
     const events = [
       // The plan is where the seat assignment lives — the progress events carry
@@ -89,7 +92,8 @@ describe("who leaves their seat", () => {
       ev("agent.message", { agentId: "a-lead", content: "Plan:\n1. Gather → seat 1" }),
       ev("mission.progress", { taskId: "t1", label: "Gather", state: "running", done: 0, total: 1 }),
     ];
-    expect(placeOf(scene(events), "a-1")).toBe("floor");
+    expect(scene(events).focusAgentId).toBe("a-1");
+    expect(placeOf(scene(events), "a-1")).toBe("seat");
 
     const done = [
       ...events,
@@ -133,6 +137,9 @@ describe("who leaves their seat", () => {
       ev("agent.request", { agentId: "a-lead", requestId: "r1", question: "ok?" }),
     ];
     expect(scene(events).focusAgentId).toBe("a-lead");
+    // And the worker sits back down while the question is open: the room
+    // is about the person being waited on, not the task.
+    expect(placeOf(scene(events), "a-1")).toBe("seat");
   });
 
   it("sits everyone down when the mission ends, even mid-question", () => {
@@ -281,5 +288,35 @@ describe("sound", () => {
     expect(
       shouldChime(at("something.invented.later", "2026-08-31T12:00:00Z"), now, false),
     ).toBeNull();
+  });
+});
+
+describe("a room for the members who are here", () => {
+  it("gives one member a desk in the middle of a small room", () => {
+    const { bySeat, used } = roomSeats("open_desks", 6, [3]);
+    expect(used).toEqual([{ x: 2, y: 2 }]);
+    expect(bySeat[3]).toEqual({ x: 2, y: 2 });
+  });
+
+  it("seats two side by side, the leader on the left, whatever their seats", () => {
+    const { bySeat, used } = roomSeats("workshop", 8, [5, 2], 5);
+    expect(used).toHaveLength(2);
+    expect(bySeat[5]).toEqual({ x: 1, y: 3 });
+    expect(bySeat[2]).toEqual({ x: 3, y: 1 });
+    // Same row on screen: level with each other, the leader to the left.
+    expect(toScreen(1, 3).y).toBe(toScreen(3, 1).y);
+    expect(toScreen(1, 3).x).toBeLessThan(toScreen(3, 1).x);
+  });
+
+  it("uses the layout's own places from three up, sized to the desks in use", () => {
+    const full = seatPositions("workshop", 8, 0);
+    const { bySeat, used } = roomSeats("workshop", 8, [0, 1, 2], 0);
+    expect(bySeat).toEqual(full);
+    expect(used).toEqual([full[0], full[1], full[2]]);
+  });
+
+  it("draws the whole layout when nobody is seated yet", () => {
+    const { used } = roomSeats("war_room", 4, []);
+    expect(used).toEqual(seatPositions("war_room", 4));
   });
 });

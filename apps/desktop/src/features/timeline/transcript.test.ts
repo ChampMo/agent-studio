@@ -123,8 +123,9 @@ suite("the transcript", () => {
     ];
     const rows = buildTranscript(events, {}, nameOf);
 
-    expect(rows.filter((r) => r.kind !== "busy")).toHaveLength(events.length);
-    expect(rows.filter((r) => r.kind === "busy")).toHaveLength(1);
+    expect(rows).toHaveLength(events.length);
+    // The status row is the one that is under way; nothing extra is appended.
+    expect(rows[0]).toMatchObject({ kind: "did", pending: true });
   });
 });
 
@@ -208,10 +209,9 @@ suite("showing that something is happening", () => {
     );
 
     expect(rows.at(-1)).toMatchObject({
-      kind: "busy",
+      kind: "did",
       name: "Source Scout",
-      status: "thinking",
-      spinning: true,
+      pending: true,
     });
   });
 
@@ -237,11 +237,8 @@ suite("showing that something is happening", () => {
       nameOf,
     );
 
-    expect(rows.at(-1)).toMatchObject({
-      kind: "busy",
-      status: "compiling",
-      spinning: true,
-    });
+    expect(rows.at(-1)).toMatchObject({ kind: "did", pending: true });
+    expect(rows.at(-1) && "text" in rows.at(-1)! ? (rows.at(-1) as { text: string }).text : "").toContain("compiling");
   });
 
   it("takes the latest status, not the first", () => {
@@ -493,5 +490,43 @@ suite("a tool result that is a page, not a sentence", () => {
         [],
       ),
     ).toHaveLength(1);
+  });
+});
+
+suite("a status that is still in force", () => {
+  it("is marked as under way while it is the agent's latest, and not after", () => {
+    const thinking = [entry("agent.status", { agentId: "a1", status: "thinking" })];
+    const rows = buildTranscript(thinking, {}, nameOf);
+    const status = rows.find((r) => r.kind === "did");
+    expect(status && status.kind === "did" && status.pending).toBe(true);
+
+    // Superseded by a rest, and cleared by the ending like a dangling call.
+    const rested = [...thinking, entry("agent.status", { agentId: "a1", status: "idle" })];
+    const first = buildTranscript(rested, {}, nameOf)[0];
+    expect(first && first.kind === "did" && Boolean(first.pending)).toBe(false);
+
+    const over = [...thinking, entry("mission.ended", { reason: "cancelled" })];
+    const cut = buildTranscript(over, {}, nameOf)[0];
+    expect(cut && cut.kind === "did" && Boolean(cut.pending)).toBe(false);
+  });
+});
+
+suite("a continued round", () => {
+  it("shows who is working again after an earlier round ended", () => {
+    // `mission.ended` is the end of a round, not of the log. With the flag
+    // left standing, a run continued after its first round never showed a
+    // busy row or a fish again — seen live, on the third round of a run.
+    const events = [
+      entry("agent.status", { agentId: "a1", status: "working" }),
+      entry("mission.ended", { reason: "completed" }),
+      entry("user.message", { content: "carry on" }),
+      entry("agent.status", { agentId: "a1", status: "thinking" }),
+    ];
+    const rows = buildTranscript(events, {}, nameOf);
+    const latest = rows.filter((r) => r.kind === "did").pop();
+    expect(latest && latest.kind === "did" && latest.pending).toBe(true);
+    // And the status from the round that ended is not under way.
+    const first = rows[0];
+    expect(first && first.kind === "did" && Boolean(first.pending)).toBe(false);
   });
 });

@@ -10,13 +10,18 @@ What it draws is programmer pixel art and looks it. That is fine and is the
 point: it proves the atlas, the layering, the tinting and the animation timing
 are right, so the only thing left to judge afterwards is the drawing.
 
-**Three layers, not 2,560 cats.** `build` is a scale multiplier and `palette` a
-tint, so neither costs a frame. That leaves coat over base over outfit, drawn
-as separate rows and stacked at runtime:
+**Three layers, and only two of them cost art.** `size` is a scale multiplier
+and a breed's colouring is a tint, so neither costs a frame. That leaves the
+pattern over the base cat and a prop on top, drawn as separate rows and
+stacked at runtime:
 
     row  0      the base cat            16 frames
-    rows 1-8    one per coat pattern    16 frames each
-    rows 9-16   one per outfit          16 frames each
+    rows 1-8    one per pattern         16 frames each
+    rows 9-15   one per head prop       16 frames each
+
+Seven prop rows, not eight: `none` is a real choice in the catalogue and needs
+no art, so the renderer skips the layer rather than asking for a frame named
+after an absence.
 
 Everything is drawn in white and greys. Pixi's tint multiplies, so a white
 sprite takes the palette's colour exactly and a grey one keeps its shading
@@ -47,10 +52,25 @@ FRAMES = [
 ]
 TOTAL = sum(n for _, n in FRAMES)
 
-COATS = ("tabby", "tuxedo", "calico", "point", "spotted", "shaggy", "sleek", "patched")
-OUTFITS = (
-    "lab_coat", "hoodie", "blazer", "apron",
-    "overalls", "uniform", "vest", "scarf",
+#: The pattern rows. These are the *art*, not the breed names — `palette.ts`
+#: pairs each breed with the row it is drawn from, so two breeds could share a
+#: pattern later without the sheet changing.
+COATS = (
+    "tabby", "tuxedo", "calico", "point",
+    "spotted", "shaggy", "sleek", "patched", "marmalade",
+)
+
+#: What they wear, at head height.
+#:
+#: These replaced body outfits when the scene became portraits: the crop keeps
+#: the top 22 of the 40-pixel cell, so a lab coat was drawn entirely below the
+#: part anyone sees. Everything here sits on or beside the head.
+#:
+#: `none` has no row — a cat wearing nothing needs no art, and the renderer
+#: skips the layer rather than asking for a frame that does not exist.
+PROPS = (
+    "glasses", "scarf", "cap", "headphones",
+    "bow_tie", "bandana", "eyepatch",
 )
 
 WHITE = (255, 255, 255, 255)
@@ -178,10 +198,37 @@ def draw_coat(d: ImageDraw.ImageDraw, coat: str, anim: str, frame: int) -> None:
     elif coat == "patched":
         d.rectangle([cx - 6 + lean, top + 3, cx - 2 + lean, top + 9], fill=WHITE)
         d.rectangle([hx - 6, hy + 2, hx - 2, hy + 7], fill=WHITE)
+    elif coat == "marmalade":
+        # Pale cheeks and pale inner ears.
+        #
+        # The only pattern whose marking is *lighter* than the fur, which is
+        # why it is a row of its own rather than a recolour of `tabby`: every
+        # other one puts a darker colour on top, and the tint that makes this
+        # one work would make those look bleached.
+        #
+        # Two cheeks with a gap rather than one muzzle, because this layer is
+        # composited over the base and a solid patch would paint out the nose
+        # the base drew. Leaving `hx - 1 .. hx` clear keeps it.
+        d.rounded_rectangle([hx - 6, hy + 7, hx - 2, hy + 11], radius=2, fill=WHITE)
+        d.rounded_rectangle([hx + 2, hy + 7, hx + 6, hy + 11], radius=2, fill=WHITE)
+        d.polygon([(hx - 6, hy + 1), (hx - 5, hy - 3), (hx - 3, hy + 1)], fill=WHITE)
+        d.polygon([(hx + 6, hy + 1), (hx + 5, hy - 3), (hx + 3, hy + 1)], fill=WHITE)
+        # A chest patch, so the body is not bare if a full-length pose is ever
+        # drawn again.
+        d.rounded_rectangle(
+            [cx - 3 + lean, top + 4, cx + 3 + lean, top + 9], radius=2, fill=WHITE
+        )
 
 
-def draw_outfit(d: ImageDraw.ImageDraw, outfit: str, anim: str, frame: int) -> None:
-    """What they wear, tinted with the palette's cloth colour."""
+def draw_prop(d: ImageDraw.ImageDraw, prop: str, anim: str, frame: int) -> None:
+    """What they wear on their head, tinted with the breed's cloth colour.
+
+    Everything here is placed off the head box `draw_base` draws — 14 wide by
+    12 tall at `(hx, hy)`, with ears rising to `hy - 5`. Keeping the same
+    arithmetic rather than hard numbers is what makes a prop follow the head
+    when a pose leans or bobs; a fixed rectangle would float free of the cat
+    on every frame but the resting one.
+    """
     o = pose_offsets(anim, frame)
     bob, lean, slump = int(o.get("bob", 0)), int(o.get("lean", 0)), int(o.get("slump", 0))
     sitting = anim == "sit"
@@ -190,36 +237,47 @@ def draw_outfit(d: ImageDraw.ImageDraw, outfit: str, anim: str, frame: int) -> N
     top = body_bottom - 13 + bob + slump
     hy, hx = top - 11 + int(o.get("head", 0)), cx + lean
 
-    hem = {
-        "lab_coat": 4, "hoodie": 1, "blazer": 2, "apron": 3,
-        "overalls": 2, "uniform": 1, "vest": 0, "scarf": -6,
-    }[outfit]
-    collar = outfit in ("lab_coat", "blazer", "uniform", "vest", "scarf")
-    belt = outfit in ("apron", "overalls", "uniform")
-
-    if outfit == "scarf":
+    if prop == "glasses":
+        # Two lenses on the eye line, joined over the muzzle.
+        d.rectangle([hx - 5, hy + 4, hx - 2, hy + 7], fill=WHITE)
+        d.rectangle([hx + 2, hy + 4, hx + 5, hy + 7], fill=WHITE)
+        d.rectangle([hx - 1, hy + 5, hx + 1, hy + 6], fill=SHADE)
+        d.rectangle([hx - 4, hy + 5, hx - 3, hy + 6], fill=DARK)
+        d.rectangle([hx + 3, hy + 5, hx + 4, hy + 6], fill=DARK)
+    elif prop == "scarf":
+        # Round the neck, with one end hanging. The only prop that sits below
+        # the head, and it is still inside the crop.
         d.rectangle([hx - 6, hy + 11, hx + 6, hy + 13], fill=WHITE)
         d.rectangle([hx + 2, hy + 13, hx + 4, hy + 18], fill=SHADE)
-        return
-
-    body_top = top + 2
-    d.rounded_rectangle(
-        [cx - 6 + lean, body_top, cx + 6 + lean, min(body_bottom + hem, ground)],
-        radius=2, fill=WHITE,
-    )
-    if collar:
-        d.polygon(
-            [(cx - 4 + lean, body_top), (cx + lean, body_top + 4), (cx + 4 + lean, body_top)],
-            fill=SHADE,
-        )
-    if belt:
-        d.rectangle([cx - 6 + lean, body_top + 7, cx + 6 + lean, body_top + 8], fill=DARK)
-    if outfit == "hoodie":
-        d.rounded_rectangle([hx - 7, hy + 8, hx + 7, hy + 13], radius=2, fill=SHADE)
+    elif prop == "cap":
+        # A crown and a peak, sitting between the ears.
+        d.rounded_rectangle([hx - 6, hy - 1, hx + 6, hy + 3], radius=2, fill=WHITE)
+        d.rectangle([hx - 7, hy + 3, hx + 2, hy + 4], fill=SHADE)
+    elif prop == "headphones":
+        # A band over the top and a cup at each ear.
+        d.rectangle([hx - 6, hy - 3, hx + 6, hy - 2], fill=WHITE)
+        d.rectangle([hx - 8, hy - 2, hx - 6, hy + 4], fill=WHITE)
+        d.rectangle([hx + 6, hy - 2, hx + 8, hy + 4], fill=WHITE)
+        d.rectangle([hx - 8, hy, hx - 7, hy + 2], fill=DARK)
+        d.rectangle([hx + 7, hy, hx + 8, hy + 2], fill=DARK)
+    elif prop == "bow_tie":
+        # Under the chin: two wings and a knot.
+        d.polygon([(hx - 5, hy + 11), (hx - 1, hy + 13), (hx - 5, hy + 15)], fill=WHITE)
+        d.polygon([(hx + 5, hy + 11), (hx + 1, hy + 13), (hx + 5, hy + 15)], fill=WHITE)
+        d.rectangle([hx - 1, hy + 12, hx + 1, hy + 14], fill=SHADE)
+    elif prop == "bandana":
+        # Tied over the crown, knot to one side.
+        d.polygon([(hx - 7, hy + 3), (hx, hy - 2), (hx + 7, hy + 3)], fill=WHITE)
+        d.rectangle([hx - 7, hy + 3, hx + 7, hy + 4], fill=WHITE)
+        d.rectangle([hx + 6, hy + 4, hx + 9, hy + 7], fill=SHADE)
+    elif prop == "eyepatch":
+        # One eye, and the strap that holds it.
+        d.rectangle([hx + 2, hy + 3, hx + 6, hy + 8], fill=WHITE)
+        d.rectangle([hx - 7, hy + 2, hx + 2, hy + 3], fill=SHADE)
 
 
 def build() -> None:
-    rows = 1 + len(COATS) + len(OUTFITS)
+    rows = 1 + len(COATS) + len(PROPS)
     sheet = Image.new("RGBA", (CELL_W * TOTAL, CELL_H * rows), NONE)
 
     def cell(col: int, row: int):
@@ -259,13 +317,13 @@ def build() -> None:
     emit("base", 0, draw_base)
     for i, coat in enumerate(COATS):
         emit(
-            f"coat.{coat}", 1 + i,
+            f"breed.{coat}", 1 + i,
             lambda d, a, f, c=coat: draw_coat(d, c, a, f),
         )
-    for i, outfit in enumerate(OUTFITS):
+    for i, prop in enumerate(PROPS):
         emit(
-            f"outfit.{outfit}", 1 + len(COATS) + i,
-            lambda d, a, f, o=outfit: draw_outfit(d, o, a, f),
+            f"prop.{prop}", 1 + len(COATS) + i,
+            lambda d, a, f, o=prop: draw_prop(d, o, a, f),
         )
 
     OUT.mkdir(parents=True, exist_ok=True)

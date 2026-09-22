@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 
 from agentd.agents.avatar import default_avatar
+from agentd.db.models import TeamMember
 from agentd.agents.service import AgentService
 from agentd.teams import layouts
 from agentd.teams.service import EXPORT_VERSION, ImportRejected, TeamService
@@ -90,25 +91,62 @@ async def test_two_members_cannot_share_a_seat(teams, agents):
         )
 
 
-async def test_a_second_leader_is_refused_by_the_partial_index(teams, agents):
+async def test_two_leaders_cannot_be_saved(teams, agents):
+    """A caller asking for two leaders gets one, from seat 0.
+
+    This used to be `pytest.raises(IntegrityError)` — the partial unique index
+    catching a second leader on the way in. It cannot fire through this door
+    any more, because `set_members` derives the role from the seat and a list
+    has only one seat 0. The rule still holds; the layer that enforces it moved
+    from the database to the one function that writes.
+    """
     a, b = await make_agent(agents, "A"), await make_agent(agents, "B")
     team = await make_team(teams, [a])
+
+    await teams.set_members(
+        team.id,
+        [
+            {"agent_id": a.id, "seat_index": 0, "role_in_team": "leader"},
+            {"agent_id": b.id, "seat_index": 1, "role_in_team": "leader"},
+        ],
+    )
+
+    roles = {m.seat_index: m.role_in_team for m in await teams.members(team.id)}
+    assert roles == {0: "leader", 1: "member"}
+
+
+async def test_the_partial_index_still_guards_a_hand_written_row(db, teams, agents):
+    """The database half of the rule is still there.
+
+    `set_members` is the only door the app uses, but it is not the only way a
+    row can appear — a hand-edited database, or a future writer that forgets.
+    The index is the backstop and this is the only test that can still reach
+    it, so it writes the row directly rather than through the service.
+    """
+    a, b = await make_agent(agents, "A"), await make_agent(agents, "B")
+    team = await make_team(teams, [a])
+
     with pytest.raises(IntegrityError):
-        await teams.set_members(
-            team.id,
-            [
-                {"agent_id": a.id, "seat_index": 0, "role_in_team": "leader"},
-                {"agent_id": b.id, "seat_index": 1, "role_in_team": "leader"},
-            ],
-        )
+        async with db.session() as s:
+            s.add(
+                TeamMember(
+                    team_id=team.id,
+                    agent_id=b.id,
+                    seat_index=1,
+                    role_in_team="leader",
+                )
+            )
+            await s.commit()
 
 
 async def test_no_leader_is_caught_by_the_validator_not_the_database(teams, agents):
     """The two halves of the rule live in different places, and both are needed:
     SQL can say "at most one" and cannot say "at least one" (§5.2)."""
     a = await make_agent(agents, "A")
+    # Seat 0 is what makes a leader now, so the only way to have none is to
+    # leave it empty. Forgetting to name one is no longer possible.
     team = await teams.create(
-        {"name": "Leaderless", "members": [{"agent_id": a.id, "seat_index": 0}]}
+        {"name": "Leaderless", "members": [{"agent_id": a.id, "seat_index": 1}]}
     )
     findings = await teams.validate(team.id)
     assert "no_leader" in {f.code for f in findings}
@@ -123,7 +161,7 @@ async def test_saving_accepts_a_team_that_cannot_run(teams, agents):
     save would throw the work away (§5.2)."""
     a = await make_agent(agents, "A")
     team = await teams.create(
-        {"name": "WIP", "members": [{"agent_id": a.id, "seat_index": 0}]}
+        {"name": "WIP", "members": [{"agent_id": a.id, "seat_index": 1}]}
     )
     saved = await teams.get(team.id)
     assert saved.id == team.id  # saved despite the error below

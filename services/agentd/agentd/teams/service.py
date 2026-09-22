@@ -166,16 +166,25 @@ class TeamService:
         unique per team: swapping two members one row at a time transiently
         violates both constraints, and there is no ordering of individual
         updates that avoids it.
+
+        **The seat decides the leader**, here rather than only in the builder.
+        It used to be a separate field a client sent, which meant one fact in
+        two places — the desk somebody sits at, and whether they are in charge —
+        and they could disagree. They did: a real five-person team had its
+        leader in seat 4, so the room seated the QA engineer at the head of the
+        table (§1). Import is the other door into this function and would have
+        been the second way to get them out of step.
         """
         async with self._db.session() as s:
             await s.execute(delete(TeamMember).where(TeamMember.team_id == team_id))
             for member in members:
+                seat = int(member["seat_index"])
                 s.add(
                     TeamMember(
                         team_id=team_id,
                         agent_id=member["agent_id"],
-                        seat_index=int(member["seat_index"]),
-                        role_in_team=member.get("role_in_team", "member"),
+                        seat_index=seat,
+                        role_in_team="leader" if seat == 0 else "member",
                         overrides=member.get("overrides"),
                     )
                 )

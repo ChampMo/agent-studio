@@ -23,13 +23,95 @@ import { cn } from "../lib/cn";
 import { Portrait } from "../components/ui/Portrait";
 import { isActive, shapeFor } from "./animation/poses";
 import { ThrobberIcon } from "../components/ui/icons";
-import type { SceneState } from "./bindings/sceneState";
+import type { SceneState, Throw } from "./bindings/sceneState";
+import { THINGS } from "./entities/throwArt";
+import { justHappened, playChime } from "./audio";
 import { WINDOW_MS, ageOf, recentTalk, type TalkLine } from "./bindings/talk";
+import { bySeat } from "./bindings/order";
 import { useEventStore } from "../stores/eventStore";
 
 interface Spot {
   x: number;
   y: number;
+}
+
+/** How long a thrown thing is in the air, and how high it hops. Matches the
+ *  room's `THROW_SEC` so the two views throw at the same speed. */
+const FLIGHT_MS = 1500;
+const HOP_PX = 36;
+/** After landing: held in the recipient's hands, then faded out. */
+const LINGER_MS = 600;
+const FADE_MS = 400;
+
+/** The drawing for a throw, chosen by seq like the room does. */
+function thingFor(item: Throw): string {
+  const things = THINGS[item.kind];
+  return `/art/throw/${item.kind}/${things[Math.abs(item.seq) % things.length]}.png`;
+}
+
+/**
+ * One thing flying from one portrait to another.
+ *
+ * Two animations on two elements: the outer moves in a straight line, the
+ * inner hops up and back down, which together is an arc without computing
+ * one. Both are started once, when the element mounts, with the Web
+ * Animations API — a CSS transition would need a second render to have
+ * something to transition *from*.
+ */
+function Flying({ item, from, to }: { item: Throw; from: Spot; to: Spot }) {
+  const outer = useRef<HTMLDivElement>(null);
+  const inner = useRef<HTMLImageElement>(null);
+  useLayoutEffect(() => {
+    const line = outer.current?.animate(
+      [
+        { transform: `translate(${from.x}px, ${from.y}px)` },
+        { transform: `translate(${to.x}px, ${to.y}px)` },
+      ],
+      { duration: FLIGHT_MS, easing: "linear", fill: "forwards" },
+    );
+    const hop = inner.current?.animate(
+      [
+        { transform: "translateY(0) rotate(0deg)" },
+        { transform: `translateY(-${HOP_PX}px) rotate(20deg)`, offset: 0.5 },
+        { transform: "translateY(0) rotate(0deg)" },
+      ],
+      { duration: FLIGHT_MS, easing: "ease-in-out", fill: "forwards" },
+    );
+    // Then it sits where it landed and fades: opaque through the flight and
+    // the linger, gone by the end of the fade.
+    const total = FLIGHT_MS + LINGER_MS + FADE_MS;
+    const fade = outer.current?.animate(
+      [
+        { opacity: 1 },
+        { opacity: 1, offset: (FLIGHT_MS + LINGER_MS) / total },
+        { opacity: 0 },
+      ],
+      { duration: total, easing: "linear", fill: "forwards" },
+    );
+    return () => {
+      line?.cancel();
+      hop?.cancel();
+      fade?.cancel();
+    };
+  }, [from.x, from.y, to.x, to.y]);
+  return (
+    <div
+      ref={outer}
+      // Above the faces: the list is painted after this overlay, and a thing
+      // thrown behind the cat it was thrown at was never seen to arrive.
+      className="pointer-events-none absolute left-0 top-0 z-10"
+      style={{ transform: `translate(${from.x}px, ${from.y}px)` }}
+    >
+      <img
+        ref={inner}
+        src={thingFor(item)}
+        alt=""
+        aria-hidden="true"
+        className="-ml-8 -mt-8 block h-16 w-16"
+        style={{ imageRendering: "pixelated" }}
+      />
+    </div>
+  );
 }
 
 export function CompactRoster({ state }: { state: SceneState }) {
@@ -39,6 +121,46 @@ export function CompactRoster({ state }: { state: SceneState }) {
   const box = useRef<HTMLDivElement>(null);
   const cards = useRef(new Map<string, HTMLElement>());
   const [spots, setSpots] = useState<Record<string, Spot>>({});
+
+  //: Things in the air: the same throws the room throws, gated the same way
+  //: (`justHappened`), drawn as images flying portrait to portrait. Each is
+  //: removed when its flight ends.
+  const [flights, setFlights] = useState<Throw[]>([]);
+  const thrownUpTo = useRef(0);
+  useEffect(() => {
+    const at = Date.now();
+    const fresh: Throw[] = [];
+    for (const item of state.throws) {
+      if (item.seq <= thrownUpTo.current) continue;
+      thrownUpTo.current = item.seq;
+      if (justHappened(item.ts, at, replaying)) fresh.push(item);
+    }
+    if (fresh.length === 0) return;
+    setFlights((was) => [...was, ...fresh]);
+    playChime("throw");
+    // Not returned as the effect's cleanup: a second throw inside the 800ms
+    // re-runs the effect, and a cleanup would cancel the first one's landing
+    // and leave it hanging in the DOM for ever. Landings are owned by the
+    // timer list below and cleared only when the roster unmounts.
+    const landed = window.setTimeout(() => {
+      timers.current.delete(landed);
+      playChime("land");
+    }, FLIGHT_MS);
+    timers.current.add(landed);
+    const id = window.setTimeout(() => {
+      timers.current.delete(id);
+      setFlights((was) => was.filter((f) => !fresh.includes(f)));
+    }, FLIGHT_MS + LINGER_MS + FADE_MS);
+    timers.current.add(id);
+  }, [state.throws, replaying]);
+  const timers = useRef(new Set<number>());
+  useEffect(() => {
+    const pending = timers.current;
+    return () => {
+      for (const id of pending) window.clearTimeout(id);
+      pending.clear();
+    };
+  }, []);
 
   //: The clock the lines are measured against.
   //:
@@ -98,15 +220,15 @@ export function CompactRoster({ state }: { state: SceneState }) {
     return () => observer.disconnect();
   }, [state.actors.length]);
 
-  // The leader first, then everyone else in seat order.
-  //
-  // The room seats people by `seatIndex` and puts the leader at the head of the
-  // table, which is a position you can see. A row has no head — so the thing
-  // that carries the same fact here is being first. Seat order is kept for the
-  // rest so the row does not reshuffle itself as statuses change.
-  const ordered = [...state.actors].sort(
-    (a, b) =>
-      Number(b.isLeader) - Number(a.isLeader) || a.seatIndex - b.seatIndex,
+  // The same order the rail and the room use — `order.ts` owns the rule now.
+  // It lived here as its own sort, and the rail had a different one, so the
+  // two lists of the same five people disagreed.
+  const ordered = bySeat(
+    state.actors.map((a) => ({
+      ...a,
+      seat_index: a.seatIndex,
+      role_in_team: a.isLeader ? "leader" : "member",
+    })),
   );
 
   if (state.actors.length === 0) {
@@ -123,6 +245,16 @@ export function CompactRoster({ state }: { state: SceneState }) {
       className="relative flex h-full flex-col overflow-auto px-3 py-2.5"
     >
       <Lines lines={lines} spots={spots} now={now} />
+      {flights.map((item) => {
+        // The person is at the bottom of the box, where the composer is.
+        const front: Spot | null = box.current
+          ? { x: box.current.clientWidth / 2, y: box.current.clientHeight - 12 }
+          : null;
+        const from = item.from === "front" ? front : spots[item.from];
+        const to = item.to === "front" ? front : spots[item.to];
+        if (!from || !to) return null;
+        return <Flying key={`${item.seq}-${item.kind}`} item={item} from={from} to={to} />;
+      })}
 
       {/* `my-auto` rather than `justify-center`: it centres the row in the pane
           when there is room, and lets it scroll from the top when there is not
@@ -140,10 +272,10 @@ export function CompactRoster({ state }: { state: SceneState }) {
           //: a spinner over it would say the app is working on something when
           //: it is the person who has been asked.
           const busy = isActive(actor.pose);
-          //: The one the mission currently turns on — the same `place` the room
-          //: uses to walk somebody to the front. A ring rather than a filled
-          //: card: it marks a face without turning it into a button.
-          const onFloor = actor.place === "floor";
+          //: The one the mission currently turns on — the same agent the
+          //: room's camera turns to. A ring rather than a filled card: it
+          //: marks a face without turning it into a button.
+          const onFloor = actor.agentId === state.focusAgentId;
           return (
             <li
               key={actor.agentId}
@@ -162,7 +294,7 @@ export function CompactRoster({ state }: { state: SceneState }) {
                     "ring-2 ring-accent ring-offset-2 ring-offset-room-sky",
                 )}
               >
-                <Portrait avatar={actor.avatar} name={actor.name} size={40} />
+                <Portrait avatar={actor.avatar} name={actor.name} size={80} />
 
                 {/* Top right, half off the portrait's edge, on its own disc so
                     the bars stay readable over whatever fur is behind them.
@@ -199,10 +331,25 @@ export function CompactRoster({ state }: { state: SceneState }) {
 
               {/* The job, then what they are doing. Both are on the log; the
                   room shows the second as a posture and this shows it as the
-                  word it already was. */}
-              <span className="max-w-full truncate text-[11px] leading-tight text-faint">
-                {actor.title ? `${actor.title} · ` : ""}
-                {shape.caption}
+                  word it already was.
+
+                  Two spans, not one string, because `truncate` eats from the
+                  end — and the status is at the end and is the only half that
+                  changes. `Senior Full-Stack Developer · idle` measured 159px
+                  in a 136px column, so the Developer and the PM showed a job
+                  title and no status at all, on the one view whose whole
+                  purpose is who is doing what. The title gives way; the status
+                  never does. */}
+              <span className="flex max-w-full items-baseline gap-1 text-[11px] leading-tight text-faint">
+                {actor.title ? (
+                  <>
+                    <span className="min-w-0 truncate">{actor.title}</span>
+                    <span aria-hidden="true" className="shrink-0">
+                      ·
+                    </span>
+                  </>
+                ) : null}
+                <span className="shrink-0">{shape.caption}</span>
               </span>
             </li>
           );

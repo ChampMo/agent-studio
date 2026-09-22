@@ -226,6 +226,16 @@ export function groupRows(rows: Row[]): Grouped[] {
       out.push(row);
       continue;
     }
+    // The same for the busy row. It is the live "this agent is thinking"
+    // line, appended after the log and gone the moment the agent speaks —
+    // and it was landing inside a collapsed fold of that agent's tool calls,
+    // so a reader saw "Pell · 1 step" and nothing moving. It stands on its
+    // own while it exists; there is nothing to fold it into afterwards.
+    if (row.kind === "busy") {
+      flush();
+      out.push(row);
+      continue;
+    }
     const last = run[run.length - 1];
     // Chrome belongs to nobody, so it joins whatever run it lands in rather
     // than breaking one in half — the alternative is a fold, a lone warning,

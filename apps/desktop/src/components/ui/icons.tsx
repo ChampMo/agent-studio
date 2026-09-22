@@ -232,6 +232,57 @@ export function PanelIcon(props: IconProps) {
   );
 }
 
+/** The scene pane's three drawings, for the button that cycles them. */
+export function AutoModeIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="8" cy="8" r="5.5" />
+      <path d="M8 2.5v11" />
+      <path d="M8 2.5a5.5 5.5 0 0 1 0 11z" fill="currentColor" stroke="none" />
+    </Svg>
+  );
+}
+
+export function RoomIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M8 2.5 13.5 5.5v5L8 13.5 2.5 10.5v-5z" />
+      <path d="M2.5 5.5 8 8.5l5.5-3M8 8.5v5" />
+    </Svg>
+  );
+}
+
+export function RosterIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="4" cy="7" r="1.8" />
+      <circle cx="8" cy="7" r="1.8" />
+      <circle cx="12" cy="7" r="1.8" />
+      <path d="M3 11.5h10" />
+    </Svg>
+  );
+}
+
+/** Two overlapping frames: "in its own window". */
+export function PopOutIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="5.5" y="2.5" width="8" height="8" rx="1" />
+      <path d="M2.5 6v6.5a1 1 0 0 0 1 1H10" />
+    </Svg>
+  );
+}
+
+/** The reverse: an arrow back into the frame. */
+export function PopInIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="2.5" y="5.5" width="8" height="8" rx="1" />
+      <path d="M13.5 2.5 8.5 7.5M9 3h4.5v4.5" />
+    </Svg>
+  );
+}
+
 export function CloseIcon(props: IconProps) {
   return (
     <Svg {...props}>

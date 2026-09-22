@@ -5,6 +5,10 @@
 
 # --- local data ---
 .data/
+# A backup taken before wiping the local database holds real run output and
+# workspace paths. It belongs outside the working tree; this is the net under
+# that rule, because this repository is public.
+.data-backup*/
 *.db
 *.db-wal
 *.db-shm

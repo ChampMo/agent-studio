@@ -336,7 +336,7 @@
    },
    "duration": 160
   },
-  "coat.tabby.sit.0": {
+  "breed.tabby.sit.0": {
    "frame": {
     "x": 0,
     "y": 40,
@@ -357,7 +357,7 @@
    },
    "duration": 160
   },
-  "coat.tabby.idle.0": {
+  "breed.tabby.idle.0": {
    "frame": {
     "x": 32,
     "y": 40,
@@ -378,7 +378,7 @@
    },
    "duration": 160
   },
-  "coat.tabby.idle.1": {
+  "breed.tabby.idle.1": {
    "frame": {
     "x": 64,
     "y": 40,
@@ -399,7 +399,7 @@
    },
    "duration": 160
   },
-  "coat.tabby.thinking.0": {
+  "breed.tabby.thinking.0": {
    "frame": {
     "x": 96,
     "y": 40,
@@ -420,7 +420,7 @@
    },
    "duration": 160
   },
-  "coat.tabby.thinking.1": {
+  "breed.tabby.thinking.1": {
    "frame": {
     "x": 128,
     "y": 40,
@@ -441,7 +441,7 @@
    },
    "duration": 160
   },
-  "coat.tabby.thinking.2": {
+  "breed.tabby.thinking.2": {
    "frame": {
     "x": 160,
     "y": 40,
@@ -462,7 +462,7 @@
    },
    "duration": 160
   },
-  "coat.tabby.working.0": {
+  "breed.tabby.working.0": {
    "frame": {
     "x": 192,
     "y": 40,
@@ -483,7 +483,7 @@
    },
    "duration": 160
   },
-  "coat.tabby.working.1": {
+  "breed.tabby.working.1": {
    "frame": {
     "x": 224,
     "y": 40,
@@ -504,7 +504,7 @@
    },
    "duration": 160
   },
-  "coat.tabby.working.2": {
+  "breed.tabby.working.2": {
    "frame": {
     "x": 256,
     "y": 40,
@@ -525,7 +525,7 @@
    },
    "duration": 160
   },
-  "coat.tabby.waiting.0": {
+  "breed.tabby.waiting.0": {
    "frame": {
     "x": 288,
     "y": 40,
@@ -546,7 +546,7 @@
    },
    "duration": 160
   },
-  "coat.tabby.waiting.1": {
+  "breed.tabby.waiting.1": {
    "frame": {
     "x": 320,
     "y": 40,
@@ -567,7 +567,7 @@
    },
    "duration": 160
   },
-  "coat.tabby.blocked.0": {
+  "breed.tabby.blocked.0": {
    "frame": {
     "x": 352,
     "y": 40,
@@ -588,7 +588,7 @@
    },
    "duration": 160
   },
-  "coat.tabby.walk.0": {
+  "breed.tabby.walk.0": {
    "frame": {
     "x": 384,
     "y": 40,
@@ -609,7 +609,7 @@
    },
    "duration": 160
   },
-  "coat.tabby.walk.1": {
+  "breed.tabby.walk.1": {
    "frame": {
     "x": 416,
     "y": 40,
@@ -630,7 +630,7 @@
    },
    "duration": 160
   },
-  "coat.tabby.walk.2": {
+  "breed.tabby.walk.2": {
    "frame": {
     "x": 448,
     "y": 40,
@@ -651,7 +651,7 @@
    },
    "duration": 160
   },
-  "coat.tabby.walk.3": {
+  "breed.tabby.walk.3": {
    "frame": {
     "x": 480,
     "y": 40,
@@ -672,7 +672,7 @@
    },
    "duration": 160
   },
-  "coat.tuxedo.sit.0": {
+  "breed.tuxedo.sit.0": {
    "frame": {
     "x": 0,
     "y": 80,
@@ -693,7 +693,7 @@
    },
    "duration": 160
   },
-  "coat.tuxedo.idle.0": {
+  "breed.tuxedo.idle.0": {
    "frame": {
     "x": 32,
     "y": 80,
@@ -714,7 +714,7 @@
    },
    "duration": 160
   },
-  "coat.tuxedo.idle.1": {
+  "breed.tuxedo.idle.1": {
    "frame": {
     "x": 64,
     "y": 80,
@@ -735,7 +735,7 @@
    },
    "duration": 160
   },
-  "coat.tuxedo.thinking.0": {
+  "breed.tuxedo.thinking.0": {
    "frame": {
     "x": 96,
     "y": 80,
@@ -756,7 +756,7 @@
    },
    "duration": 160
   },
-  "coat.tuxedo.thinking.1": {
+  "breed.tuxedo.thinking.1": {
    "frame": {
     "x": 128,
     "y": 80,
@@ -777,7 +777,7 @@
    },
    "duration": 160
   },
-  "coat.tuxedo.thinking.2": {
+  "breed.tuxedo.thinking.2": {
    "frame": {
     "x": 160,
     "y": 80,
@@ -798,7 +798,7 @@
    },
    "duration": 160
   },
-  "coat.tuxedo.working.0": {
+  "breed.tuxedo.working.0": {
    "frame": {
     "x": 192,
     "y": 80,
@@ -819,7 +819,7 @@
    },
    "duration": 160
   },
-  "coat.tuxedo.working.1": {
+  "breed.tuxedo.working.1": {
    "frame": {
     "x": 224,
     "y": 80,
@@ -840,7 +840,7 @@
    },
    "duration": 160
   },
-  "coat.tuxedo.working.2": {
+  "breed.tuxedo.working.2": {
    "frame": {
     "x": 256,
     "y": 80,
@@ -861,7 +861,7 @@
    },
    "duration": 160
   },
-  "coat.tuxedo.waiting.0": {
+  "breed.tuxedo.waiting.0": {
    "frame": {
     "x": 288,
     "y": 80,
@@ -882,7 +882,7 @@
    },
    "duration": 160
   },
-  "coat.tuxedo.waiting.1": {
+  "breed.tuxedo.waiting.1": {
    "frame": {
     "x": 320,
     "y": 80,
@@ -903,7 +903,7 @@
    },
    "duration": 160
   },
-  "coat.tuxedo.blocked.0": {
+  "breed.tuxedo.blocked.0": {
    "frame": {
     "x": 352,
     "y": 80,
@@ -924,7 +924,7 @@
    },
    "duration": 160
   },
-  "coat.tuxedo.walk.0": {
+  "breed.tuxedo.walk.0": {
    "frame": {
     "x": 384,
     "y": 80,
@@ -945,7 +945,7 @@
    },
    "duration": 160
   },
-  "coat.tuxedo.walk.1": {
+  "breed.tuxedo.walk.1": {
    "frame": {
     "x": 416,
     "y": 80,
@@ -966,7 +966,7 @@
    },
    "duration": 160
   },
-  "coat.tuxedo.walk.2": {
+  "breed.tuxedo.walk.2": {
    "frame": {
     "x": 448,
     "y": 80,
@@ -987,7 +987,7 @@
    },
    "duration": 160
   },
-  "coat.tuxedo.walk.3": {
+  "breed.tuxedo.walk.3": {
    "frame": {
     "x": 480,
     "y": 80,
@@ -1008,7 +1008,7 @@
    },
    "duration": 160
   },
-  "coat.calico.sit.0": {
+  "breed.calico.sit.0": {
    "frame": {
     "x": 0,
     "y": 120,
@@ -1029,7 +1029,7 @@
    },
    "duration": 160
   },
-  "coat.calico.idle.0": {
+  "breed.calico.idle.0": {
    "frame": {
     "x": 32,
     "y": 120,
@@ -1050,7 +1050,7 @@
    },
    "duration": 160
   },
-  "coat.calico.idle.1": {
+  "breed.calico.idle.1": {
    "frame": {
     "x": 64,
     "y": 120,
@@ -1071,7 +1071,7 @@
    },
    "duration": 160
   },
-  "coat.calico.thinking.0": {
+  "breed.calico.thinking.0": {
    "frame": {
     "x": 96,
     "y": 120,
@@ -1092,7 +1092,7 @@
    },
    "duration": 160
   },
-  "coat.calico.thinking.1": {
+  "breed.calico.thinking.1": {
    "frame": {
     "x": 128,
     "y": 120,
@@ -1113,7 +1113,7 @@
    },
    "duration": 160
   },
-  "coat.calico.thinking.2": {
+  "breed.calico.thinking.2": {
    "frame": {
     "x": 160,
     "y": 120,
@@ -1134,7 +1134,7 @@
    },
    "duration": 160
   },
-  "coat.calico.working.0": {
+  "breed.calico.working.0": {
    "frame": {
     "x": 192,
     "y": 120,
@@ -1155,7 +1155,7 @@
    },
    "duration": 160
   },
-  "coat.calico.working.1": {
+  "breed.calico.working.1": {
    "frame": {
     "x": 224,
     "y": 120,
@@ -1176,7 +1176,7 @@
    },
    "duration": 160
   },
-  "coat.calico.working.2": {
+  "breed.calico.working.2": {
    "frame": {
     "x": 256,
     "y": 120,
@@ -1197,7 +1197,7 @@
    },
    "duration": 160
   },
-  "coat.calico.waiting.0": {
+  "breed.calico.waiting.0": {
    "frame": {
     "x": 288,
     "y": 120,
@@ -1218,7 +1218,7 @@
    },
    "duration": 160
   },
-  "coat.calico.waiting.1": {
+  "breed.calico.waiting.1": {
    "frame": {
     "x": 320,
     "y": 120,
@@ -1239,7 +1239,7 @@
    },
    "duration": 160
   },
-  "coat.calico.blocked.0": {
+  "breed.calico.blocked.0": {
    "frame": {
     "x": 352,
     "y": 120,
@@ -1260,7 +1260,7 @@
    },
    "duration": 160
   },
-  "coat.calico.walk.0": {
+  "breed.calico.walk.0": {
    "frame": {
     "x": 384,
     "y": 120,
@@ -1281,7 +1281,7 @@
    },
    "duration": 160
   },
-  "coat.calico.walk.1": {
+  "breed.calico.walk.1": {
    "frame": {
     "x": 416,
     "y": 120,
@@ -1302,7 +1302,7 @@
    },
    "duration": 160
   },
-  "coat.calico.walk.2": {
+  "breed.calico.walk.2": {
    "frame": {
     "x": 448,
     "y": 120,
@@ -1323,7 +1323,7 @@
    },
    "duration": 160
   },
-  "coat.calico.walk.3": {
+  "breed.calico.walk.3": {
    "frame": {
     "x": 480,
     "y": 120,
@@ -1344,7 +1344,7 @@
    },
    "duration": 160
   },
-  "coat.point.sit.0": {
+  "breed.point.sit.0": {
    "frame": {
     "x": 0,
     "y": 160,
@@ -1365,7 +1365,7 @@
    },
    "duration": 160
   },
-  "coat.point.idle.0": {
+  "breed.point.idle.0": {
    "frame": {
     "x": 32,
     "y": 160,
@@ -1386,7 +1386,7 @@
    },
    "duration": 160
   },
-  "coat.point.idle.1": {
+  "breed.point.idle.1": {
    "frame": {
     "x": 64,
     "y": 160,
@@ -1407,7 +1407,7 @@
    },
    "duration": 160
   },
-  "coat.point.thinking.0": {
+  "breed.point.thinking.0": {
    "frame": {
     "x": 96,
     "y": 160,
@@ -1428,7 +1428,7 @@
    },
    "duration": 160
   },
-  "coat.point.thinking.1": {
+  "breed.point.thinking.1": {
    "frame": {
     "x": 128,
     "y": 160,
@@ -1449,7 +1449,7 @@
    },
    "duration": 160
   },
-  "coat.point.thinking.2": {
+  "breed.point.thinking.2": {
    "frame": {
     "x": 160,
     "y": 160,
@@ -1470,7 +1470,7 @@
    },
    "duration": 160
   },
-  "coat.point.working.0": {
+  "breed.point.working.0": {
    "frame": {
     "x": 192,
     "y": 160,
@@ -1491,7 +1491,7 @@
    },
    "duration": 160
   },
-  "coat.point.working.1": {
+  "breed.point.working.1": {
    "frame": {
     "x": 224,
     "y": 160,
@@ -1512,7 +1512,7 @@
    },
    "duration": 160
   },
-  "coat.point.working.2": {
+  "breed.point.working.2": {
    "frame": {
     "x": 256,
     "y": 160,
@@ -1533,7 +1533,7 @@
    },
    "duration": 160
   },
-  "coat.point.waiting.0": {
+  "breed.point.waiting.0": {
    "frame": {
     "x": 288,
     "y": 160,
@@ -1554,7 +1554,7 @@
    },
    "duration": 160
   },
-  "coat.point.waiting.1": {
+  "breed.point.waiting.1": {
    "frame": {
     "x": 320,
     "y": 160,
@@ -1575,7 +1575,7 @@
    },
    "duration": 160
   },
-  "coat.point.blocked.0": {
+  "breed.point.blocked.0": {
    "frame": {
     "x": 352,
     "y": 160,
@@ -1596,7 +1596,7 @@
    },
    "duration": 160
   },
-  "coat.point.walk.0": {
+  "breed.point.walk.0": {
    "frame": {
     "x": 384,
     "y": 160,
@@ -1617,7 +1617,7 @@
    },
    "duration": 160
   },
-  "coat.point.walk.1": {
+  "breed.point.walk.1": {
    "frame": {
     "x": 416,
     "y": 160,
@@ -1638,7 +1638,7 @@
    },
    "duration": 160
   },
-  "coat.point.walk.2": {
+  "breed.point.walk.2": {
    "frame": {
     "x": 448,
     "y": 160,
@@ -1659,7 +1659,7 @@
    },
    "duration": 160
   },
-  "coat.point.walk.3": {
+  "breed.point.walk.3": {
    "frame": {
     "x": 480,
     "y": 160,
@@ -1680,7 +1680,7 @@
    },
    "duration": 160
   },
-  "coat.spotted.sit.0": {
+  "breed.spotted.sit.0": {
    "frame": {
     "x": 0,
     "y": 200,
@@ -1701,7 +1701,7 @@
    },
    "duration": 160
   },
-  "coat.spotted.idle.0": {
+  "breed.spotted.idle.0": {
    "frame": {
     "x": 32,
     "y": 200,
@@ -1722,7 +1722,7 @@
    },
    "duration": 160
   },
-  "coat.spotted.idle.1": {
+  "breed.spotted.idle.1": {
    "frame": {
     "x": 64,
     "y": 200,
@@ -1743,7 +1743,7 @@
    },
    "duration": 160
   },
-  "coat.spotted.thinking.0": {
+  "breed.spotted.thinking.0": {
    "frame": {
     "x": 96,
     "y": 200,
@@ -1764,7 +1764,7 @@
    },
    "duration": 160
   },
-  "coat.spotted.thinking.1": {
+  "breed.spotted.thinking.1": {
    "frame": {
     "x": 128,
     "y": 200,
@@ -1785,7 +1785,7 @@
    },
    "duration": 160
   },
-  "coat.spotted.thinking.2": {
+  "breed.spotted.thinking.2": {
    "frame": {
     "x": 160,
     "y": 200,
@@ -1806,7 +1806,7 @@
    },
    "duration": 160
   },
-  "coat.spotted.working.0": {
+  "breed.spotted.working.0": {
    "frame": {
     "x": 192,
     "y": 200,
@@ -1827,7 +1827,7 @@
    },
    "duration": 160
   },
-  "coat.spotted.working.1": {
+  "breed.spotted.working.1": {
    "frame": {
     "x": 224,
     "y": 200,
@@ -1848,7 +1848,7 @@
    },
    "duration": 160
   },
-  "coat.spotted.working.2": {
+  "breed.spotted.working.2": {
    "frame": {
     "x": 256,
     "y": 200,
@@ -1869,7 +1869,7 @@
    },
    "duration": 160
   },
-  "coat.spotted.waiting.0": {
+  "breed.spotted.waiting.0": {
    "frame": {
     "x": 288,
     "y": 200,
@@ -1890,7 +1890,7 @@
    },
    "duration": 160
   },
-  "coat.spotted.waiting.1": {
+  "breed.spotted.waiting.1": {
    "frame": {
     "x": 320,
     "y": 200,
@@ -1911,7 +1911,7 @@
    },
    "duration": 160
   },
-  "coat.spotted.blocked.0": {
+  "breed.spotted.blocked.0": {
    "frame": {
     "x": 352,
     "y": 200,
@@ -1932,7 +1932,7 @@
    },
    "duration": 160
   },
-  "coat.spotted.walk.0": {
+  "breed.spotted.walk.0": {
    "frame": {
     "x": 384,
     "y": 200,
@@ -1953,7 +1953,7 @@
    },
    "duration": 160
   },
-  "coat.spotted.walk.1": {
+  "breed.spotted.walk.1": {
    "frame": {
     "x": 416,
     "y": 200,
@@ -1974,7 +1974,7 @@
    },
    "duration": 160
   },
-  "coat.spotted.walk.2": {
+  "breed.spotted.walk.2": {
    "frame": {
     "x": 448,
     "y": 200,
@@ -1995,7 +1995,7 @@
    },
    "duration": 160
   },
-  "coat.spotted.walk.3": {
+  "breed.spotted.walk.3": {
    "frame": {
     "x": 480,
     "y": 200,
@@ -2016,7 +2016,7 @@
    },
    "duration": 160
   },
-  "coat.shaggy.sit.0": {
+  "breed.shaggy.sit.0": {
    "frame": {
     "x": 0,
     "y": 240,
@@ -2037,7 +2037,7 @@
    },
    "duration": 160
   },
-  "coat.shaggy.idle.0": {
+  "breed.shaggy.idle.0": {
    "frame": {
     "x": 32,
     "y": 240,
@@ -2058,7 +2058,7 @@
    },
    "duration": 160
   },
-  "coat.shaggy.idle.1": {
+  "breed.shaggy.idle.1": {
    "frame": {
     "x": 64,
     "y": 240,
@@ -2079,7 +2079,7 @@
    },
    "duration": 160
   },
-  "coat.shaggy.thinking.0": {
+  "breed.shaggy.thinking.0": {
    "frame": {
     "x": 96,
     "y": 240,
@@ -2100,7 +2100,7 @@
    },
    "duration": 160
   },
-  "coat.shaggy.thinking.1": {
+  "breed.shaggy.thinking.1": {
    "frame": {
     "x": 128,
     "y": 240,
@@ -2121,7 +2121,7 @@
    },
    "duration": 160
   },
-  "coat.shaggy.thinking.2": {
+  "breed.shaggy.thinking.2": {
    "frame": {
     "x": 160,
     "y": 240,
@@ -2142,7 +2142,7 @@
    },
    "duration": 160
   },
-  "coat.shaggy.working.0": {
+  "breed.shaggy.working.0": {
    "frame": {
     "x": 192,
     "y": 240,
@@ -2163,7 +2163,7 @@
    },
    "duration": 160
   },
-  "coat.shaggy.working.1": {
+  "breed.shaggy.working.1": {
    "frame": {
     "x": 224,
     "y": 240,
@@ -2184,7 +2184,7 @@
    },
    "duration": 160
   },
-  "coat.shaggy.working.2": {
+  "breed.shaggy.working.2": {
    "frame": {
     "x": 256,
     "y": 240,
@@ -2205,7 +2205,7 @@
    },
    "duration": 160
   },
-  "coat.shaggy.waiting.0": {
+  "breed.shaggy.waiting.0": {
    "frame": {
     "x": 288,
     "y": 240,
@@ -2226,7 +2226,7 @@
    },
    "duration": 160
   },
-  "coat.shaggy.waiting.1": {
+  "breed.shaggy.waiting.1": {
    "frame": {
     "x": 320,
     "y": 240,
@@ -2247,7 +2247,7 @@
    },
    "duration": 160
   },
-  "coat.shaggy.blocked.0": {
+  "breed.shaggy.blocked.0": {
    "frame": {
     "x": 352,
     "y": 240,
@@ -2268,7 +2268,7 @@
    },
    "duration": 160
   },
-  "coat.shaggy.walk.0": {
+  "breed.shaggy.walk.0": {
    "frame": {
     "x": 384,
     "y": 240,
@@ -2289,7 +2289,7 @@
    },
    "duration": 160
   },
-  "coat.shaggy.walk.1": {
+  "breed.shaggy.walk.1": {
    "frame": {
     "x": 416,
     "y": 240,
@@ -2310,7 +2310,7 @@
    },
    "duration": 160
   },
-  "coat.shaggy.walk.2": {
+  "breed.shaggy.walk.2": {
    "frame": {
     "x": 448,
     "y": 240,
@@ -2331,7 +2331,7 @@
    },
    "duration": 160
   },
-  "coat.shaggy.walk.3": {
+  "breed.shaggy.walk.3": {
    "frame": {
     "x": 480,
     "y": 240,
@@ -2352,7 +2352,7 @@
    },
    "duration": 160
   },
-  "coat.sleek.sit.0": {
+  "breed.sleek.sit.0": {
    "frame": {
     "x": 0,
     "y": 280,
@@ -2373,7 +2373,7 @@
    },
    "duration": 160
   },
-  "coat.sleek.idle.0": {
+  "breed.sleek.idle.0": {
    "frame": {
     "x": 32,
     "y": 280,
@@ -2394,7 +2394,7 @@
    },
    "duration": 160
   },
-  "coat.sleek.idle.1": {
+  "breed.sleek.idle.1": {
    "frame": {
     "x": 64,
     "y": 280,
@@ -2415,7 +2415,7 @@
    },
    "duration": 160
   },
-  "coat.sleek.thinking.0": {
+  "breed.sleek.thinking.0": {
    "frame": {
     "x": 96,
     "y": 280,
@@ -2436,7 +2436,7 @@
    },
    "duration": 160
   },
-  "coat.sleek.thinking.1": {
+  "breed.sleek.thinking.1": {
    "frame": {
     "x": 128,
     "y": 280,
@@ -2457,7 +2457,7 @@
    },
    "duration": 160
   },
-  "coat.sleek.thinking.2": {
+  "breed.sleek.thinking.2": {
    "frame": {
     "x": 160,
     "y": 280,
@@ -2478,7 +2478,7 @@
    },
    "duration": 160
   },
-  "coat.sleek.working.0": {
+  "breed.sleek.working.0": {
    "frame": {
     "x": 192,
     "y": 280,
@@ -2499,7 +2499,7 @@
    },
    "duration": 160
   },
-  "coat.sleek.working.1": {
+  "breed.sleek.working.1": {
    "frame": {
     "x": 224,
     "y": 280,
@@ -2520,7 +2520,7 @@
    },
    "duration": 160
   },
-  "coat.sleek.working.2": {
+  "breed.sleek.working.2": {
    "frame": {
     "x": 256,
     "y": 280,
@@ -2541,7 +2541,7 @@
    },
    "duration": 160
   },
-  "coat.sleek.waiting.0": {
+  "breed.sleek.waiting.0": {
    "frame": {
     "x": 288,
     "y": 280,
@@ -2562,7 +2562,7 @@
    },
    "duration": 160
   },
-  "coat.sleek.waiting.1": {
+  "breed.sleek.waiting.1": {
    "frame": {
     "x": 320,
     "y": 280,
@@ -2583,7 +2583,7 @@
    },
    "duration": 160
   },
-  "coat.sleek.blocked.0": {
+  "breed.sleek.blocked.0": {
    "frame": {
     "x": 352,
     "y": 280,
@@ -2604,7 +2604,7 @@
    },
    "duration": 160
   },
-  "coat.sleek.walk.0": {
+  "breed.sleek.walk.0": {
    "frame": {
     "x": 384,
     "y": 280,
@@ -2625,7 +2625,7 @@
    },
    "duration": 160
   },
-  "coat.sleek.walk.1": {
+  "breed.sleek.walk.1": {
    "frame": {
     "x": 416,
     "y": 280,
@@ -2646,7 +2646,7 @@
    },
    "duration": 160
   },
-  "coat.sleek.walk.2": {
+  "breed.sleek.walk.2": {
    "frame": {
     "x": 448,
     "y": 280,
@@ -2667,7 +2667,7 @@
    },
    "duration": 160
   },
-  "coat.sleek.walk.3": {
+  "breed.sleek.walk.3": {
    "frame": {
     "x": 480,
     "y": 280,
@@ -2688,7 +2688,7 @@
    },
    "duration": 160
   },
-  "coat.patched.sit.0": {
+  "breed.patched.sit.0": {
    "frame": {
     "x": 0,
     "y": 320,
@@ -2709,7 +2709,7 @@
    },
    "duration": 160
   },
-  "coat.patched.idle.0": {
+  "breed.patched.idle.0": {
    "frame": {
     "x": 32,
     "y": 320,
@@ -2730,7 +2730,7 @@
    },
    "duration": 160
   },
-  "coat.patched.idle.1": {
+  "breed.patched.idle.1": {
    "frame": {
     "x": 64,
     "y": 320,
@@ -2751,7 +2751,7 @@
    },
    "duration": 160
   },
-  "coat.patched.thinking.0": {
+  "breed.patched.thinking.0": {
    "frame": {
     "x": 96,
     "y": 320,
@@ -2772,7 +2772,7 @@
    },
    "duration": 160
   },
-  "coat.patched.thinking.1": {
+  "breed.patched.thinking.1": {
    "frame": {
     "x": 128,
     "y": 320,
@@ -2793,7 +2793,7 @@
    },
    "duration": 160
   },
-  "coat.patched.thinking.2": {
+  "breed.patched.thinking.2": {
    "frame": {
     "x": 160,
     "y": 320,
@@ -2814,7 +2814,7 @@
    },
    "duration": 160
   },
-  "coat.patched.working.0": {
+  "breed.patched.working.0": {
    "frame": {
     "x": 192,
     "y": 320,
@@ -2835,7 +2835,7 @@
    },
    "duration": 160
   },
-  "coat.patched.working.1": {
+  "breed.patched.working.1": {
    "frame": {
     "x": 224,
     "y": 320,
@@ -2856,7 +2856,7 @@
    },
    "duration": 160
   },
-  "coat.patched.working.2": {
+  "breed.patched.working.2": {
    "frame": {
     "x": 256,
     "y": 320,
@@ -2877,7 +2877,7 @@
    },
    "duration": 160
   },
-  "coat.patched.waiting.0": {
+  "breed.patched.waiting.0": {
    "frame": {
     "x": 288,
     "y": 320,
@@ -2898,7 +2898,7 @@
    },
    "duration": 160
   },
-  "coat.patched.waiting.1": {
+  "breed.patched.waiting.1": {
    "frame": {
     "x": 320,
     "y": 320,
@@ -2919,7 +2919,7 @@
    },
    "duration": 160
   },
-  "coat.patched.blocked.0": {
+  "breed.patched.blocked.0": {
    "frame": {
     "x": 352,
     "y": 320,
@@ -2940,7 +2940,7 @@
    },
    "duration": 160
   },
-  "coat.patched.walk.0": {
+  "breed.patched.walk.0": {
    "frame": {
     "x": 384,
     "y": 320,
@@ -2961,7 +2961,7 @@
    },
    "duration": 160
   },
-  "coat.patched.walk.1": {
+  "breed.patched.walk.1": {
    "frame": {
     "x": 416,
     "y": 320,
@@ -2982,7 +2982,7 @@
    },
    "duration": 160
   },
-  "coat.patched.walk.2": {
+  "breed.patched.walk.2": {
    "frame": {
     "x": 448,
     "y": 320,
@@ -3003,7 +3003,7 @@
    },
    "duration": 160
   },
-  "coat.patched.walk.3": {
+  "breed.patched.walk.3": {
    "frame": {
     "x": 480,
     "y": 320,
@@ -3024,7 +3024,7 @@
    },
    "duration": 160
   },
-  "outfit.lab_coat.sit.0": {
+  "breed.marmalade.sit.0": {
    "frame": {
     "x": 0,
     "y": 360,
@@ -3045,7 +3045,7 @@
    },
    "duration": 160
   },
-  "outfit.lab_coat.idle.0": {
+  "breed.marmalade.idle.0": {
    "frame": {
     "x": 32,
     "y": 360,
@@ -3066,7 +3066,7 @@
    },
    "duration": 160
   },
-  "outfit.lab_coat.idle.1": {
+  "breed.marmalade.idle.1": {
    "frame": {
     "x": 64,
     "y": 360,
@@ -3087,7 +3087,7 @@
    },
    "duration": 160
   },
-  "outfit.lab_coat.thinking.0": {
+  "breed.marmalade.thinking.0": {
    "frame": {
     "x": 96,
     "y": 360,
@@ -3108,7 +3108,7 @@
    },
    "duration": 160
   },
-  "outfit.lab_coat.thinking.1": {
+  "breed.marmalade.thinking.1": {
    "frame": {
     "x": 128,
     "y": 360,
@@ -3129,7 +3129,7 @@
    },
    "duration": 160
   },
-  "outfit.lab_coat.thinking.2": {
+  "breed.marmalade.thinking.2": {
    "frame": {
     "x": 160,
     "y": 360,
@@ -3150,7 +3150,7 @@
    },
    "duration": 160
   },
-  "outfit.lab_coat.working.0": {
+  "breed.marmalade.working.0": {
    "frame": {
     "x": 192,
     "y": 360,
@@ -3171,7 +3171,7 @@
    },
    "duration": 160
   },
-  "outfit.lab_coat.working.1": {
+  "breed.marmalade.working.1": {
    "frame": {
     "x": 224,
     "y": 360,
@@ -3192,7 +3192,7 @@
    },
    "duration": 160
   },
-  "outfit.lab_coat.working.2": {
+  "breed.marmalade.working.2": {
    "frame": {
     "x": 256,
     "y": 360,
@@ -3213,7 +3213,7 @@
    },
    "duration": 160
   },
-  "outfit.lab_coat.waiting.0": {
+  "breed.marmalade.waiting.0": {
    "frame": {
     "x": 288,
     "y": 360,
@@ -3234,7 +3234,7 @@
    },
    "duration": 160
   },
-  "outfit.lab_coat.waiting.1": {
+  "breed.marmalade.waiting.1": {
    "frame": {
     "x": 320,
     "y": 360,
@@ -3255,7 +3255,7 @@
    },
    "duration": 160
   },
-  "outfit.lab_coat.blocked.0": {
+  "breed.marmalade.blocked.0": {
    "frame": {
     "x": 352,
     "y": 360,
@@ -3276,7 +3276,7 @@
    },
    "duration": 160
   },
-  "outfit.lab_coat.walk.0": {
+  "breed.marmalade.walk.0": {
    "frame": {
     "x": 384,
     "y": 360,
@@ -3297,7 +3297,7 @@
    },
    "duration": 160
   },
-  "outfit.lab_coat.walk.1": {
+  "breed.marmalade.walk.1": {
    "frame": {
     "x": 416,
     "y": 360,
@@ -3318,7 +3318,7 @@
    },
    "duration": 160
   },
-  "outfit.lab_coat.walk.2": {
+  "breed.marmalade.walk.2": {
    "frame": {
     "x": 448,
     "y": 360,
@@ -3339,7 +3339,7 @@
    },
    "duration": 160
   },
-  "outfit.lab_coat.walk.3": {
+  "breed.marmalade.walk.3": {
    "frame": {
     "x": 480,
     "y": 360,
@@ -3360,7 +3360,7 @@
    },
    "duration": 160
   },
-  "outfit.hoodie.sit.0": {
+  "prop.glasses.sit.0": {
    "frame": {
     "x": 0,
     "y": 400,
@@ -3381,7 +3381,7 @@
    },
    "duration": 160
   },
-  "outfit.hoodie.idle.0": {
+  "prop.glasses.idle.0": {
    "frame": {
     "x": 32,
     "y": 400,
@@ -3402,7 +3402,7 @@
    },
    "duration": 160
   },
-  "outfit.hoodie.idle.1": {
+  "prop.glasses.idle.1": {
    "frame": {
     "x": 64,
     "y": 400,
@@ -3423,7 +3423,7 @@
    },
    "duration": 160
   },
-  "outfit.hoodie.thinking.0": {
+  "prop.glasses.thinking.0": {
    "frame": {
     "x": 96,
     "y": 400,
@@ -3444,7 +3444,7 @@
    },
    "duration": 160
   },
-  "outfit.hoodie.thinking.1": {
+  "prop.glasses.thinking.1": {
    "frame": {
     "x": 128,
     "y": 400,
@@ -3465,7 +3465,7 @@
    },
    "duration": 160
   },
-  "outfit.hoodie.thinking.2": {
+  "prop.glasses.thinking.2": {
    "frame": {
     "x": 160,
     "y": 400,
@@ -3486,7 +3486,7 @@
    },
    "duration": 160
   },
-  "outfit.hoodie.working.0": {
+  "prop.glasses.working.0": {
    "frame": {
     "x": 192,
     "y": 400,
@@ -3507,7 +3507,7 @@
    },
    "duration": 160
   },
-  "outfit.hoodie.working.1": {
+  "prop.glasses.working.1": {
    "frame": {
     "x": 224,
     "y": 400,
@@ -3528,7 +3528,7 @@
    },
    "duration": 160
   },
-  "outfit.hoodie.working.2": {
+  "prop.glasses.working.2": {
    "frame": {
     "x": 256,
     "y": 400,
@@ -3549,7 +3549,7 @@
    },
    "duration": 160
   },
-  "outfit.hoodie.waiting.0": {
+  "prop.glasses.waiting.0": {
    "frame": {
     "x": 288,
     "y": 400,
@@ -3570,7 +3570,7 @@
    },
    "duration": 160
   },
-  "outfit.hoodie.waiting.1": {
+  "prop.glasses.waiting.1": {
    "frame": {
     "x": 320,
     "y": 400,
@@ -3591,7 +3591,7 @@
    },
    "duration": 160
   },
-  "outfit.hoodie.blocked.0": {
+  "prop.glasses.blocked.0": {
    "frame": {
     "x": 352,
     "y": 400,
@@ -3612,7 +3612,7 @@
    },
    "duration": 160
   },
-  "outfit.hoodie.walk.0": {
+  "prop.glasses.walk.0": {
    "frame": {
     "x": 384,
     "y": 400,
@@ -3633,7 +3633,7 @@
    },
    "duration": 160
   },
-  "outfit.hoodie.walk.1": {
+  "prop.glasses.walk.1": {
    "frame": {
     "x": 416,
     "y": 400,
@@ -3654,7 +3654,7 @@
    },
    "duration": 160
   },
-  "outfit.hoodie.walk.2": {
+  "prop.glasses.walk.2": {
    "frame": {
     "x": 448,
     "y": 400,
@@ -3675,7 +3675,7 @@
    },
    "duration": 160
   },
-  "outfit.hoodie.walk.3": {
+  "prop.glasses.walk.3": {
    "frame": {
     "x": 480,
     "y": 400,
@@ -3696,7 +3696,7 @@
    },
    "duration": 160
   },
-  "outfit.blazer.sit.0": {
+  "prop.scarf.sit.0": {
    "frame": {
     "x": 0,
     "y": 440,
@@ -3717,7 +3717,7 @@
    },
    "duration": 160
   },
-  "outfit.blazer.idle.0": {
+  "prop.scarf.idle.0": {
    "frame": {
     "x": 32,
     "y": 440,
@@ -3738,7 +3738,7 @@
    },
    "duration": 160
   },
-  "outfit.blazer.idle.1": {
+  "prop.scarf.idle.1": {
    "frame": {
     "x": 64,
     "y": 440,
@@ -3759,7 +3759,7 @@
    },
    "duration": 160
   },
-  "outfit.blazer.thinking.0": {
+  "prop.scarf.thinking.0": {
    "frame": {
     "x": 96,
     "y": 440,
@@ -3780,7 +3780,7 @@
    },
    "duration": 160
   },
-  "outfit.blazer.thinking.1": {
+  "prop.scarf.thinking.1": {
    "frame": {
     "x": 128,
     "y": 440,
@@ -3801,7 +3801,7 @@
    },
    "duration": 160
   },
-  "outfit.blazer.thinking.2": {
+  "prop.scarf.thinking.2": {
    "frame": {
     "x": 160,
     "y": 440,
@@ -3822,7 +3822,7 @@
    },
    "duration": 160
   },
-  "outfit.blazer.working.0": {
+  "prop.scarf.working.0": {
    "frame": {
     "x": 192,
     "y": 440,
@@ -3843,7 +3843,7 @@
    },
    "duration": 160
   },
-  "outfit.blazer.working.1": {
+  "prop.scarf.working.1": {
    "frame": {
     "x": 224,
     "y": 440,
@@ -3864,7 +3864,7 @@
    },
    "duration": 160
   },
-  "outfit.blazer.working.2": {
+  "prop.scarf.working.2": {
    "frame": {
     "x": 256,
     "y": 440,
@@ -3885,7 +3885,7 @@
    },
    "duration": 160
   },
-  "outfit.blazer.waiting.0": {
+  "prop.scarf.waiting.0": {
    "frame": {
     "x": 288,
     "y": 440,
@@ -3906,7 +3906,7 @@
    },
    "duration": 160
   },
-  "outfit.blazer.waiting.1": {
+  "prop.scarf.waiting.1": {
    "frame": {
     "x": 320,
     "y": 440,
@@ -3927,7 +3927,7 @@
    },
    "duration": 160
   },
-  "outfit.blazer.blocked.0": {
+  "prop.scarf.blocked.0": {
    "frame": {
     "x": 352,
     "y": 440,
@@ -3948,7 +3948,7 @@
    },
    "duration": 160
   },
-  "outfit.blazer.walk.0": {
+  "prop.scarf.walk.0": {
    "frame": {
     "x": 384,
     "y": 440,
@@ -3969,7 +3969,7 @@
    },
    "duration": 160
   },
-  "outfit.blazer.walk.1": {
+  "prop.scarf.walk.1": {
    "frame": {
     "x": 416,
     "y": 440,
@@ -3990,7 +3990,7 @@
    },
    "duration": 160
   },
-  "outfit.blazer.walk.2": {
+  "prop.scarf.walk.2": {
    "frame": {
     "x": 448,
     "y": 440,
@@ -4011,7 +4011,7 @@
    },
    "duration": 160
   },
-  "outfit.blazer.walk.3": {
+  "prop.scarf.walk.3": {
    "frame": {
     "x": 480,
     "y": 440,
@@ -4032,7 +4032,7 @@
    },
    "duration": 160
   },
-  "outfit.apron.sit.0": {
+  "prop.cap.sit.0": {
    "frame": {
     "x": 0,
     "y": 480,
@@ -4053,7 +4053,7 @@
    },
    "duration": 160
   },
-  "outfit.apron.idle.0": {
+  "prop.cap.idle.0": {
    "frame": {
     "x": 32,
     "y": 480,
@@ -4074,7 +4074,7 @@
    },
    "duration": 160
   },
-  "outfit.apron.idle.1": {
+  "prop.cap.idle.1": {
    "frame": {
     "x": 64,
     "y": 480,
@@ -4095,7 +4095,7 @@
    },
    "duration": 160
   },
-  "outfit.apron.thinking.0": {
+  "prop.cap.thinking.0": {
    "frame": {
     "x": 96,
     "y": 480,
@@ -4116,7 +4116,7 @@
    },
    "duration": 160
   },
-  "outfit.apron.thinking.1": {
+  "prop.cap.thinking.1": {
    "frame": {
     "x": 128,
     "y": 480,
@@ -4137,7 +4137,7 @@
    },
    "duration": 160
   },
-  "outfit.apron.thinking.2": {
+  "prop.cap.thinking.2": {
    "frame": {
     "x": 160,
     "y": 480,
@@ -4158,7 +4158,7 @@
    },
    "duration": 160
   },
-  "outfit.apron.working.0": {
+  "prop.cap.working.0": {
    "frame": {
     "x": 192,
     "y": 480,
@@ -4179,7 +4179,7 @@
    },
    "duration": 160
   },
-  "outfit.apron.working.1": {
+  "prop.cap.working.1": {
    "frame": {
     "x": 224,
     "y": 480,
@@ -4200,7 +4200,7 @@
    },
    "duration": 160
   },
-  "outfit.apron.working.2": {
+  "prop.cap.working.2": {
    "frame": {
     "x": 256,
     "y": 480,
@@ -4221,7 +4221,7 @@
    },
    "duration": 160
   },
-  "outfit.apron.waiting.0": {
+  "prop.cap.waiting.0": {
    "frame": {
     "x": 288,
     "y": 480,
@@ -4242,7 +4242,7 @@
    },
    "duration": 160
   },
-  "outfit.apron.waiting.1": {
+  "prop.cap.waiting.1": {
    "frame": {
     "x": 320,
     "y": 480,
@@ -4263,7 +4263,7 @@
    },
    "duration": 160
   },
-  "outfit.apron.blocked.0": {
+  "prop.cap.blocked.0": {
    "frame": {
     "x": 352,
     "y": 480,
@@ -4284,7 +4284,7 @@
    },
    "duration": 160
   },
-  "outfit.apron.walk.0": {
+  "prop.cap.walk.0": {
    "frame": {
     "x": 384,
     "y": 480,
@@ -4305,7 +4305,7 @@
    },
    "duration": 160
   },
-  "outfit.apron.walk.1": {
+  "prop.cap.walk.1": {
    "frame": {
     "x": 416,
     "y": 480,
@@ -4326,7 +4326,7 @@
    },
    "duration": 160
   },
-  "outfit.apron.walk.2": {
+  "prop.cap.walk.2": {
    "frame": {
     "x": 448,
     "y": 480,
@@ -4347,7 +4347,7 @@
    },
    "duration": 160
   },
-  "outfit.apron.walk.3": {
+  "prop.cap.walk.3": {
    "frame": {
     "x": 480,
     "y": 480,
@@ -4368,7 +4368,7 @@
    },
    "duration": 160
   },
-  "outfit.overalls.sit.0": {
+  "prop.headphones.sit.0": {
    "frame": {
     "x": 0,
     "y": 520,
@@ -4389,7 +4389,7 @@
    },
    "duration": 160
   },
-  "outfit.overalls.idle.0": {
+  "prop.headphones.idle.0": {
    "frame": {
     "x": 32,
     "y": 520,
@@ -4410,7 +4410,7 @@
    },
    "duration": 160
   },
-  "outfit.overalls.idle.1": {
+  "prop.headphones.idle.1": {
    "frame": {
     "x": 64,
     "y": 520,
@@ -4431,7 +4431,7 @@
    },
    "duration": 160
   },
-  "outfit.overalls.thinking.0": {
+  "prop.headphones.thinking.0": {
    "frame": {
     "x": 96,
     "y": 520,
@@ -4452,7 +4452,7 @@
    },
    "duration": 160
   },
-  "outfit.overalls.thinking.1": {
+  "prop.headphones.thinking.1": {
    "frame": {
     "x": 128,
     "y": 520,
@@ -4473,7 +4473,7 @@
    },
    "duration": 160
   },
-  "outfit.overalls.thinking.2": {
+  "prop.headphones.thinking.2": {
    "frame": {
     "x": 160,
     "y": 520,
@@ -4494,7 +4494,7 @@
    },
    "duration": 160
   },
-  "outfit.overalls.working.0": {
+  "prop.headphones.working.0": {
    "frame": {
     "x": 192,
     "y": 520,
@@ -4515,7 +4515,7 @@
    },
    "duration": 160
   },
-  "outfit.overalls.working.1": {
+  "prop.headphones.working.1": {
    "frame": {
     "x": 224,
     "y": 520,
@@ -4536,7 +4536,7 @@
    },
    "duration": 160
   },
-  "outfit.overalls.working.2": {
+  "prop.headphones.working.2": {
    "frame": {
     "x": 256,
     "y": 520,
@@ -4557,7 +4557,7 @@
    },
    "duration": 160
   },
-  "outfit.overalls.waiting.0": {
+  "prop.headphones.waiting.0": {
    "frame": {
     "x": 288,
     "y": 520,
@@ -4578,7 +4578,7 @@
    },
    "duration": 160
   },
-  "outfit.overalls.waiting.1": {
+  "prop.headphones.waiting.1": {
    "frame": {
     "x": 320,
     "y": 520,
@@ -4599,7 +4599,7 @@
    },
    "duration": 160
   },
-  "outfit.overalls.blocked.0": {
+  "prop.headphones.blocked.0": {
    "frame": {
     "x": 352,
     "y": 520,
@@ -4620,7 +4620,7 @@
    },
    "duration": 160
   },
-  "outfit.overalls.walk.0": {
+  "prop.headphones.walk.0": {
    "frame": {
     "x": 384,
     "y": 520,
@@ -4641,7 +4641,7 @@
    },
    "duration": 160
   },
-  "outfit.overalls.walk.1": {
+  "prop.headphones.walk.1": {
    "frame": {
     "x": 416,
     "y": 520,
@@ -4662,7 +4662,7 @@
    },
    "duration": 160
   },
-  "outfit.overalls.walk.2": {
+  "prop.headphones.walk.2": {
    "frame": {
     "x": 448,
     "y": 520,
@@ -4683,7 +4683,7 @@
    },
    "duration": 160
   },
-  "outfit.overalls.walk.3": {
+  "prop.headphones.walk.3": {
    "frame": {
     "x": 480,
     "y": 520,
@@ -4704,7 +4704,7 @@
    },
    "duration": 160
   },
-  "outfit.uniform.sit.0": {
+  "prop.bow_tie.sit.0": {
    "frame": {
     "x": 0,
     "y": 560,
@@ -4725,7 +4725,7 @@
    },
    "duration": 160
   },
-  "outfit.uniform.idle.0": {
+  "prop.bow_tie.idle.0": {
    "frame": {
     "x": 32,
     "y": 560,
@@ -4746,7 +4746,7 @@
    },
    "duration": 160
   },
-  "outfit.uniform.idle.1": {
+  "prop.bow_tie.idle.1": {
    "frame": {
     "x": 64,
     "y": 560,
@@ -4767,7 +4767,7 @@
    },
    "duration": 160
   },
-  "outfit.uniform.thinking.0": {
+  "prop.bow_tie.thinking.0": {
    "frame": {
     "x": 96,
     "y": 560,
@@ -4788,7 +4788,7 @@
    },
    "duration": 160
   },
-  "outfit.uniform.thinking.1": {
+  "prop.bow_tie.thinking.1": {
    "frame": {
     "x": 128,
     "y": 560,
@@ -4809,7 +4809,7 @@
    },
    "duration": 160
   },
-  "outfit.uniform.thinking.2": {
+  "prop.bow_tie.thinking.2": {
    "frame": {
     "x": 160,
     "y": 560,
@@ -4830,7 +4830,7 @@
    },
    "duration": 160
   },
-  "outfit.uniform.working.0": {
+  "prop.bow_tie.working.0": {
    "frame": {
     "x": 192,
     "y": 560,
@@ -4851,7 +4851,7 @@
    },
    "duration": 160
   },
-  "outfit.uniform.working.1": {
+  "prop.bow_tie.working.1": {
    "frame": {
     "x": 224,
     "y": 560,
@@ -4872,7 +4872,7 @@
    },
    "duration": 160
   },
-  "outfit.uniform.working.2": {
+  "prop.bow_tie.working.2": {
    "frame": {
     "x": 256,
     "y": 560,
@@ -4893,7 +4893,7 @@
    },
    "duration": 160
   },
-  "outfit.uniform.waiting.0": {
+  "prop.bow_tie.waiting.0": {
    "frame": {
     "x": 288,
     "y": 560,
@@ -4914,7 +4914,7 @@
    },
    "duration": 160
   },
-  "outfit.uniform.waiting.1": {
+  "prop.bow_tie.waiting.1": {
    "frame": {
     "x": 320,
     "y": 560,
@@ -4935,7 +4935,7 @@
    },
    "duration": 160
   },
-  "outfit.uniform.blocked.0": {
+  "prop.bow_tie.blocked.0": {
    "frame": {
     "x": 352,
     "y": 560,
@@ -4956,7 +4956,7 @@
    },
    "duration": 160
   },
-  "outfit.uniform.walk.0": {
+  "prop.bow_tie.walk.0": {
    "frame": {
     "x": 384,
     "y": 560,
@@ -4977,7 +4977,7 @@
    },
    "duration": 160
   },
-  "outfit.uniform.walk.1": {
+  "prop.bow_tie.walk.1": {
    "frame": {
     "x": 416,
     "y": 560,
@@ -4998,7 +4998,7 @@
    },
    "duration": 160
   },
-  "outfit.uniform.walk.2": {
+  "prop.bow_tie.walk.2": {
    "frame": {
     "x": 448,
     "y": 560,
@@ -5019,7 +5019,7 @@
    },
    "duration": 160
   },
-  "outfit.uniform.walk.3": {
+  "prop.bow_tie.walk.3": {
    "frame": {
     "x": 480,
     "y": 560,
@@ -5040,7 +5040,7 @@
    },
    "duration": 160
   },
-  "outfit.vest.sit.0": {
+  "prop.bandana.sit.0": {
    "frame": {
     "x": 0,
     "y": 600,
@@ -5061,7 +5061,7 @@
    },
    "duration": 160
   },
-  "outfit.vest.idle.0": {
+  "prop.bandana.idle.0": {
    "frame": {
     "x": 32,
     "y": 600,
@@ -5082,7 +5082,7 @@
    },
    "duration": 160
   },
-  "outfit.vest.idle.1": {
+  "prop.bandana.idle.1": {
    "frame": {
     "x": 64,
     "y": 600,
@@ -5103,7 +5103,7 @@
    },
    "duration": 160
   },
-  "outfit.vest.thinking.0": {
+  "prop.bandana.thinking.0": {
    "frame": {
     "x": 96,
     "y": 600,
@@ -5124,7 +5124,7 @@
    },
    "duration": 160
   },
-  "outfit.vest.thinking.1": {
+  "prop.bandana.thinking.1": {
    "frame": {
     "x": 128,
     "y": 600,
@@ -5145,7 +5145,7 @@
    },
    "duration": 160
   },
-  "outfit.vest.thinking.2": {
+  "prop.bandana.thinking.2": {
    "frame": {
     "x": 160,
     "y": 600,
@@ -5166,7 +5166,7 @@
    },
    "duration": 160
   },
-  "outfit.vest.working.0": {
+  "prop.bandana.working.0": {
    "frame": {
     "x": 192,
     "y": 600,
@@ -5187,7 +5187,7 @@
    },
    "duration": 160
   },
-  "outfit.vest.working.1": {
+  "prop.bandana.working.1": {
    "frame": {
     "x": 224,
     "y": 600,
@@ -5208,7 +5208,7 @@
    },
    "duration": 160
   },
-  "outfit.vest.working.2": {
+  "prop.bandana.working.2": {
    "frame": {
     "x": 256,
     "y": 600,
@@ -5229,7 +5229,7 @@
    },
    "duration": 160
   },
-  "outfit.vest.waiting.0": {
+  "prop.bandana.waiting.0": {
    "frame": {
     "x": 288,
     "y": 600,
@@ -5250,7 +5250,7 @@
    },
    "duration": 160
   },
-  "outfit.vest.waiting.1": {
+  "prop.bandana.waiting.1": {
    "frame": {
     "x": 320,
     "y": 600,
@@ -5271,7 +5271,7 @@
    },
    "duration": 160
   },
-  "outfit.vest.blocked.0": {
+  "prop.bandana.blocked.0": {
    "frame": {
     "x": 352,
     "y": 600,
@@ -5292,7 +5292,7 @@
    },
    "duration": 160
   },
-  "outfit.vest.walk.0": {
+  "prop.bandana.walk.0": {
    "frame": {
     "x": 384,
     "y": 600,
@@ -5313,7 +5313,7 @@
    },
    "duration": 160
   },
-  "outfit.vest.walk.1": {
+  "prop.bandana.walk.1": {
    "frame": {
     "x": 416,
     "y": 600,
@@ -5334,7 +5334,7 @@
    },
    "duration": 160
   },
-  "outfit.vest.walk.2": {
+  "prop.bandana.walk.2": {
    "frame": {
     "x": 448,
     "y": 600,
@@ -5355,7 +5355,7 @@
    },
    "duration": 160
   },
-  "outfit.vest.walk.3": {
+  "prop.bandana.walk.3": {
    "frame": {
     "x": 480,
     "y": 600,
@@ -5376,7 +5376,7 @@
    },
    "duration": 160
   },
-  "outfit.scarf.sit.0": {
+  "prop.eyepatch.sit.0": {
    "frame": {
     "x": 0,
     "y": 640,
@@ -5397,7 +5397,7 @@
    },
    "duration": 160
   },
-  "outfit.scarf.idle.0": {
+  "prop.eyepatch.idle.0": {
    "frame": {
     "x": 32,
     "y": 640,
@@ -5418,7 +5418,7 @@
    },
    "duration": 160
   },
-  "outfit.scarf.idle.1": {
+  "prop.eyepatch.idle.1": {
    "frame": {
     "x": 64,
     "y": 640,
@@ -5439,7 +5439,7 @@
    },
    "duration": 160
   },
-  "outfit.scarf.thinking.0": {
+  "prop.eyepatch.thinking.0": {
    "frame": {
     "x": 96,
     "y": 640,
@@ -5460,7 +5460,7 @@
    },
    "duration": 160
   },
-  "outfit.scarf.thinking.1": {
+  "prop.eyepatch.thinking.1": {
    "frame": {
     "x": 128,
     "y": 640,
@@ -5481,7 +5481,7 @@
    },
    "duration": 160
   },
-  "outfit.scarf.thinking.2": {
+  "prop.eyepatch.thinking.2": {
    "frame": {
     "x": 160,
     "y": 640,
@@ -5502,7 +5502,7 @@
    },
    "duration": 160
   },
-  "outfit.scarf.working.0": {
+  "prop.eyepatch.working.0": {
    "frame": {
     "x": 192,
     "y": 640,
@@ -5523,7 +5523,7 @@
    },
    "duration": 160
   },
-  "outfit.scarf.working.1": {
+  "prop.eyepatch.working.1": {
    "frame": {
     "x": 224,
     "y": 640,
@@ -5544,7 +5544,7 @@
    },
    "duration": 160
   },
-  "outfit.scarf.working.2": {
+  "prop.eyepatch.working.2": {
    "frame": {
     "x": 256,
     "y": 640,
@@ -5565,7 +5565,7 @@
    },
    "duration": 160
   },
-  "outfit.scarf.waiting.0": {
+  "prop.eyepatch.waiting.0": {
    "frame": {
     "x": 288,
     "y": 640,
@@ -5586,7 +5586,7 @@
    },
    "duration": 160
   },
-  "outfit.scarf.waiting.1": {
+  "prop.eyepatch.waiting.1": {
    "frame": {
     "x": 320,
     "y": 640,
@@ -5607,7 +5607,7 @@
    },
    "duration": 160
   },
-  "outfit.scarf.blocked.0": {
+  "prop.eyepatch.blocked.0": {
    "frame": {
     "x": 352,
     "y": 640,
@@ -5628,7 +5628,7 @@
    },
    "duration": 160
   },
-  "outfit.scarf.walk.0": {
+  "prop.eyepatch.walk.0": {
    "frame": {
     "x": 384,
     "y": 640,
@@ -5649,7 +5649,7 @@
    },
    "duration": 160
   },
-  "outfit.scarf.walk.1": {
+  "prop.eyepatch.walk.1": {
    "frame": {
     "x": 416,
     "y": 640,
@@ -5670,7 +5670,7 @@
    },
    "duration": 160
   },
-  "outfit.scarf.walk.2": {
+  "prop.eyepatch.walk.2": {
    "frame": {
     "x": 448,
     "y": 640,
@@ -5691,7 +5691,7 @@
    },
    "duration": 160
   },
-  "outfit.scarf.walk.3": {
+  "prop.eyepatch.walk.3": {
    "frame": {
     "x": 480,
     "y": 640,
@@ -5767,673 +5767,673 @@
     "direction": "forward"
    },
    {
-    "name": "coat.tabby.sit",
+    "name": "breed.tabby.sit",
     "from": 16,
     "to": 16,
     "direction": "forward"
    },
    {
-    "name": "coat.tabby.idle",
+    "name": "breed.tabby.idle",
     "from": 17,
     "to": 18,
     "direction": "forward"
    },
    {
-    "name": "coat.tabby.thinking",
+    "name": "breed.tabby.thinking",
     "from": 19,
     "to": 21,
     "direction": "forward"
    },
    {
-    "name": "coat.tabby.working",
+    "name": "breed.tabby.working",
     "from": 22,
     "to": 24,
     "direction": "forward"
    },
    {
-    "name": "coat.tabby.waiting",
+    "name": "breed.tabby.waiting",
     "from": 25,
     "to": 26,
     "direction": "forward"
    },
    {
-    "name": "coat.tabby.blocked",
+    "name": "breed.tabby.blocked",
     "from": 27,
     "to": 27,
     "direction": "forward"
    },
    {
-    "name": "coat.tabby.walk",
+    "name": "breed.tabby.walk",
     "from": 28,
     "to": 31,
     "direction": "forward"
    },
    {
-    "name": "coat.tuxedo.sit",
+    "name": "breed.tuxedo.sit",
     "from": 32,
     "to": 32,
     "direction": "forward"
    },
    {
-    "name": "coat.tuxedo.idle",
+    "name": "breed.tuxedo.idle",
     "from": 33,
     "to": 34,
     "direction": "forward"
    },
    {
-    "name": "coat.tuxedo.thinking",
+    "name": "breed.tuxedo.thinking",
     "from": 35,
     "to": 37,
     "direction": "forward"
    },
    {
-    "name": "coat.tuxedo.working",
+    "name": "breed.tuxedo.working",
     "from": 38,
     "to": 40,
     "direction": "forward"
    },
    {
-    "name": "coat.tuxedo.waiting",
+    "name": "breed.tuxedo.waiting",
     "from": 41,
     "to": 42,
     "direction": "forward"
    },
    {
-    "name": "coat.tuxedo.blocked",
+    "name": "breed.tuxedo.blocked",
     "from": 43,
     "to": 43,
     "direction": "forward"
    },
    {
-    "name": "coat.tuxedo.walk",
+    "name": "breed.tuxedo.walk",
     "from": 44,
     "to": 47,
     "direction": "forward"
    },
    {
-    "name": "coat.calico.sit",
+    "name": "breed.calico.sit",
     "from": 48,
     "to": 48,
     "direction": "forward"
    },
    {
-    "name": "coat.calico.idle",
+    "name": "breed.calico.idle",
     "from": 49,
     "to": 50,
     "direction": "forward"
    },
    {
-    "name": "coat.calico.thinking",
+    "name": "breed.calico.thinking",
     "from": 51,
     "to": 53,
     "direction": "forward"
    },
    {
-    "name": "coat.calico.working",
+    "name": "breed.calico.working",
     "from": 54,
     "to": 56,
     "direction": "forward"
    },
    {
-    "name": "coat.calico.waiting",
+    "name": "breed.calico.waiting",
     "from": 57,
     "to": 58,
     "direction": "forward"
    },
    {
-    "name": "coat.calico.blocked",
+    "name": "breed.calico.blocked",
     "from": 59,
     "to": 59,
     "direction": "forward"
    },
    {
-    "name": "coat.calico.walk",
+    "name": "breed.calico.walk",
     "from": 60,
     "to": 63,
     "direction": "forward"
    },
    {
-    "name": "coat.point.sit",
+    "name": "breed.point.sit",
     "from": 64,
     "to": 64,
     "direction": "forward"
    },
    {
-    "name": "coat.point.idle",
+    "name": "breed.point.idle",
     "from": 65,
     "to": 66,
     "direction": "forward"
    },
    {
-    "name": "coat.point.thinking",
+    "name": "breed.point.thinking",
     "from": 67,
     "to": 69,
     "direction": "forward"
    },
    {
-    "name": "coat.point.working",
+    "name": "breed.point.working",
     "from": 70,
     "to": 72,
     "direction": "forward"
    },
    {
-    "name": "coat.point.waiting",
+    "name": "breed.point.waiting",
     "from": 73,
     "to": 74,
     "direction": "forward"
    },
    {
-    "name": "coat.point.blocked",
+    "name": "breed.point.blocked",
     "from": 75,
     "to": 75,
     "direction": "forward"
    },
    {
-    "name": "coat.point.walk",
+    "name": "breed.point.walk",
     "from": 76,
     "to": 79,
     "direction": "forward"
    },
    {
-    "name": "coat.spotted.sit",
+    "name": "breed.spotted.sit",
     "from": 80,
     "to": 80,
     "direction": "forward"
    },
    {
-    "name": "coat.spotted.idle",
+    "name": "breed.spotted.idle",
     "from": 81,
     "to": 82,
     "direction": "forward"
    },
    {
-    "name": "coat.spotted.thinking",
+    "name": "breed.spotted.thinking",
     "from": 83,
     "to": 85,
     "direction": "forward"
    },
    {
-    "name": "coat.spotted.working",
+    "name": "breed.spotted.working",
     "from": 86,
     "to": 88,
     "direction": "forward"
    },
    {
-    "name": "coat.spotted.waiting",
+    "name": "breed.spotted.waiting",
     "from": 89,
     "to": 90,
     "direction": "forward"
    },
    {
-    "name": "coat.spotted.blocked",
+    "name": "breed.spotted.blocked",
     "from": 91,
     "to": 91,
     "direction": "forward"
    },
    {
-    "name": "coat.spotted.walk",
+    "name": "breed.spotted.walk",
     "from": 92,
     "to": 95,
     "direction": "forward"
    },
    {
-    "name": "coat.shaggy.sit",
+    "name": "breed.shaggy.sit",
     "from": 96,
     "to": 96,
     "direction": "forward"
    },
    {
-    "name": "coat.shaggy.idle",
+    "name": "breed.shaggy.idle",
     "from": 97,
     "to": 98,
     "direction": "forward"
    },
    {
-    "name": "coat.shaggy.thinking",
+    "name": "breed.shaggy.thinking",
     "from": 99,
     "to": 101,
     "direction": "forward"
    },
    {
-    "name": "coat.shaggy.working",
+    "name": "breed.shaggy.working",
     "from": 102,
     "to": 104,
     "direction": "forward"
    },
    {
-    "name": "coat.shaggy.waiting",
+    "name": "breed.shaggy.waiting",
     "from": 105,
     "to": 106,
     "direction": "forward"
    },
    {
-    "name": "coat.shaggy.blocked",
+    "name": "breed.shaggy.blocked",
     "from": 107,
     "to": 107,
     "direction": "forward"
    },
    {
-    "name": "coat.shaggy.walk",
+    "name": "breed.shaggy.walk",
     "from": 108,
     "to": 111,
     "direction": "forward"
    },
    {
-    "name": "coat.sleek.sit",
+    "name": "breed.sleek.sit",
     "from": 112,
     "to": 112,
     "direction": "forward"
    },
    {
-    "name": "coat.sleek.idle",
+    "name": "breed.sleek.idle",
     "from": 113,
     "to": 114,
     "direction": "forward"
    },
    {
-    "name": "coat.sleek.thinking",
+    "name": "breed.sleek.thinking",
     "from": 115,
     "to": 117,
     "direction": "forward"
    },
    {
-    "name": "coat.sleek.working",
+    "name": "breed.sleek.working",
     "from": 118,
     "to": 120,
     "direction": "forward"
    },
    {
-    "name": "coat.sleek.waiting",
+    "name": "breed.sleek.waiting",
     "from": 121,
     "to": 122,
     "direction": "forward"
    },
    {
-    "name": "coat.sleek.blocked",
+    "name": "breed.sleek.blocked",
     "from": 123,
     "to": 123,
     "direction": "forward"
    },
    {
-    "name": "coat.sleek.walk",
+    "name": "breed.sleek.walk",
     "from": 124,
     "to": 127,
     "direction": "forward"
    },
    {
-    "name": "coat.patched.sit",
+    "name": "breed.patched.sit",
     "from": 128,
     "to": 128,
     "direction": "forward"
    },
    {
-    "name": "coat.patched.idle",
+    "name": "breed.patched.idle",
     "from": 129,
     "to": 130,
     "direction": "forward"
    },
    {
-    "name": "coat.patched.thinking",
+    "name": "breed.patched.thinking",
     "from": 131,
     "to": 133,
     "direction": "forward"
    },
    {
-    "name": "coat.patched.working",
+    "name": "breed.patched.working",
     "from": 134,
     "to": 136,
     "direction": "forward"
    },
    {
-    "name": "coat.patched.waiting",
+    "name": "breed.patched.waiting",
     "from": 137,
     "to": 138,
     "direction": "forward"
    },
    {
-    "name": "coat.patched.blocked",
+    "name": "breed.patched.blocked",
     "from": 139,
     "to": 139,
     "direction": "forward"
    },
    {
-    "name": "coat.patched.walk",
+    "name": "breed.patched.walk",
     "from": 140,
     "to": 143,
     "direction": "forward"
    },
    {
-    "name": "outfit.lab_coat.sit",
+    "name": "breed.marmalade.sit",
     "from": 144,
     "to": 144,
     "direction": "forward"
    },
    {
-    "name": "outfit.lab_coat.idle",
+    "name": "breed.marmalade.idle",
     "from": 145,
     "to": 146,
     "direction": "forward"
    },
    {
-    "name": "outfit.lab_coat.thinking",
+    "name": "breed.marmalade.thinking",
     "from": 147,
     "to": 149,
     "direction": "forward"
    },
    {
-    "name": "outfit.lab_coat.working",
+    "name": "breed.marmalade.working",
     "from": 150,
     "to": 152,
     "direction": "forward"
    },
    {
-    "name": "outfit.lab_coat.waiting",
+    "name": "breed.marmalade.waiting",
     "from": 153,
     "to": 154,
     "direction": "forward"
    },
    {
-    "name": "outfit.lab_coat.blocked",
+    "name": "breed.marmalade.blocked",
     "from": 155,
     "to": 155,
     "direction": "forward"
    },
    {
-    "name": "outfit.lab_coat.walk",
+    "name": "breed.marmalade.walk",
     "from": 156,
     "to": 159,
     "direction": "forward"
    },
    {
-    "name": "outfit.hoodie.sit",
+    "name": "prop.glasses.sit",
     "from": 160,
     "to": 160,
     "direction": "forward"
    },
    {
-    "name": "outfit.hoodie.idle",
+    "name": "prop.glasses.idle",
     "from": 161,
     "to": 162,
     "direction": "forward"
    },
    {
-    "name": "outfit.hoodie.thinking",
+    "name": "prop.glasses.thinking",
     "from": 163,
     "to": 165,
     "direction": "forward"
    },
    {
-    "name": "outfit.hoodie.working",
+    "name": "prop.glasses.working",
     "from": 166,
     "to": 168,
     "direction": "forward"
    },
    {
-    "name": "outfit.hoodie.waiting",
+    "name": "prop.glasses.waiting",
     "from": 169,
     "to": 170,
     "direction": "forward"
    },
    {
-    "name": "outfit.hoodie.blocked",
+    "name": "prop.glasses.blocked",
     "from": 171,
     "to": 171,
     "direction": "forward"
    },
    {
-    "name": "outfit.hoodie.walk",
+    "name": "prop.glasses.walk",
     "from": 172,
     "to": 175,
     "direction": "forward"
    },
    {
-    "name": "outfit.blazer.sit",
+    "name": "prop.scarf.sit",
     "from": 176,
     "to": 176,
     "direction": "forward"
    },
    {
-    "name": "outfit.blazer.idle",
+    "name": "prop.scarf.idle",
     "from": 177,
     "to": 178,
     "direction": "forward"
    },
    {
-    "name": "outfit.blazer.thinking",
+    "name": "prop.scarf.thinking",
     "from": 179,
     "to": 181,
     "direction": "forward"
    },
    {
-    "name": "outfit.blazer.working",
+    "name": "prop.scarf.working",
     "from": 182,
     "to": 184,
     "direction": "forward"
    },
    {
-    "name": "outfit.blazer.waiting",
+    "name": "prop.scarf.waiting",
     "from": 185,
     "to": 186,
     "direction": "forward"
    },
    {
-    "name": "outfit.blazer.blocked",
+    "name": "prop.scarf.blocked",
     "from": 187,
     "to": 187,
     "direction": "forward"
    },
    {
-    "name": "outfit.blazer.walk",
+    "name": "prop.scarf.walk",
     "from": 188,
     "to": 191,
     "direction": "forward"
    },
    {
-    "name": "outfit.apron.sit",
+    "name": "prop.cap.sit",
     "from": 192,
     "to": 192,
     "direction": "forward"
    },
    {
-    "name": "outfit.apron.idle",
+    "name": "prop.cap.idle",
     "from": 193,
     "to": 194,
     "direction": "forward"
    },
    {
-    "name": "outfit.apron.thinking",
+    "name": "prop.cap.thinking",
     "from": 195,
     "to": 197,
     "direction": "forward"
    },
    {
-    "name": "outfit.apron.working",
+    "name": "prop.cap.working",
     "from": 198,
     "to": 200,
     "direction": "forward"
    },
    {
-    "name": "outfit.apron.waiting",
+    "name": "prop.cap.waiting",
     "from": 201,
     "to": 202,
     "direction": "forward"
    },
    {
-    "name": "outfit.apron.blocked",
+    "name": "prop.cap.blocked",
     "from": 203,
     "to": 203,
     "direction": "forward"
    },
    {
-    "name": "outfit.apron.walk",
+    "name": "prop.cap.walk",
     "from": 204,
     "to": 207,
     "direction": "forward"
    },
    {
-    "name": "outfit.overalls.sit",
+    "name": "prop.headphones.sit",
     "from": 208,
     "to": 208,
     "direction": "forward"
    },
    {
-    "name": "outfit.overalls.idle",
+    "name": "prop.headphones.idle",
     "from": 209,
     "to": 210,
     "direction": "forward"
    },
    {
-    "name": "outfit.overalls.thinking",
+    "name": "prop.headphones.thinking",
     "from": 211,
     "to": 213,
     "direction": "forward"
    },
    {
-    "name": "outfit.overalls.working",
+    "name": "prop.headphones.working",
     "from": 214,
     "to": 216,
     "direction": "forward"
    },
    {
-    "name": "outfit.overalls.waiting",
+    "name": "prop.headphones.waiting",
     "from": 217,
     "to": 218,
     "direction": "forward"
    },
    {
-    "name": "outfit.overalls.blocked",
+    "name": "prop.headphones.blocked",
     "from": 219,
     "to": 219,
     "direction": "forward"
    },
    {
-    "name": "outfit.overalls.walk",
+    "name": "prop.headphones.walk",
     "from": 220,
     "to": 223,
     "direction": "forward"
    },
    {
-    "name": "outfit.uniform.sit",
+    "name": "prop.bow_tie.sit",
     "from": 224,
     "to": 224,
     "direction": "forward"
    },
    {
-    "name": "outfit.uniform.idle",
+    "name": "prop.bow_tie.idle",
     "from": 225,
     "to": 226,
     "direction": "forward"
    },
    {
-    "name": "outfit.uniform.thinking",
+    "name": "prop.bow_tie.thinking",
     "from": 227,
     "to": 229,
     "direction": "forward"
    },
    {
-    "name": "outfit.uniform.working",
+    "name": "prop.bow_tie.working",
     "from": 230,
     "to": 232,
     "direction": "forward"
    },
    {
-    "name": "outfit.uniform.waiting",
+    "name": "prop.bow_tie.waiting",
     "from": 233,
     "to": 234,
     "direction": "forward"
    },
    {
-    "name": "outfit.uniform.blocked",
+    "name": "prop.bow_tie.blocked",
     "from": 235,
     "to": 235,
     "direction": "forward"
    },
    {
-    "name": "outfit.uniform.walk",
+    "name": "prop.bow_tie.walk",
     "from": 236,
     "to": 239,
     "direction": "forward"
    },
    {
-    "name": "outfit.vest.sit",
+    "name": "prop.bandana.sit",
     "from": 240,
     "to": 240,
     "direction": "forward"
    },
    {
-    "name": "outfit.vest.idle",
+    "name": "prop.bandana.idle",
     "from": 241,
     "to": 242,
     "direction": "forward"
    },
    {
-    "name": "outfit.vest.thinking",
+    "name": "prop.bandana.thinking",
     "from": 243,
     "to": 245,
     "direction": "forward"
    },
    {
-    "name": "outfit.vest.working",
+    "name": "prop.bandana.working",
     "from": 246,
     "to": 248,
     "direction": "forward"
    },
    {
-    "name": "outfit.vest.waiting",
+    "name": "prop.bandana.waiting",
     "from": 249,
     "to": 250,
     "direction": "forward"
    },
    {
-    "name": "outfit.vest.blocked",
+    "name": "prop.bandana.blocked",
     "from": 251,
     "to": 251,
     "direction": "forward"
    },
    {
-    "name": "outfit.vest.walk",
+    "name": "prop.bandana.walk",
     "from": 252,
     "to": 255,
     "direction": "forward"
    },
    {
-    "name": "outfit.scarf.sit",
+    "name": "prop.eyepatch.sit",
     "from": 256,
     "to": 256,
     "direction": "forward"
    },
    {
-    "name": "outfit.scarf.idle",
+    "name": "prop.eyepatch.idle",
     "from": 257,
     "to": 258,
     "direction": "forward"
    },
    {
-    "name": "outfit.scarf.thinking",
+    "name": "prop.eyepatch.thinking",
     "from": 259,
     "to": 261,
     "direction": "forward"
    },
    {
-    "name": "outfit.scarf.working",
+    "name": "prop.eyepatch.working",
     "from": 262,
     "to": 264,
     "direction": "forward"
    },
    {
-    "name": "outfit.scarf.waiting",
+    "name": "prop.eyepatch.waiting",
     "from": 265,
     "to": 266,
     "direction": "forward"
    },
    {
-    "name": "outfit.scarf.blocked",
+    "name": "prop.eyepatch.blocked",
     "from": 267,
     "to": 267,
     "direction": "forward"
    },
    {
-    "name": "outfit.scarf.walk",
+    "name": "prop.eyepatch.walk",
     "from": 268,
     "to": 271,
     "direction": "forward"

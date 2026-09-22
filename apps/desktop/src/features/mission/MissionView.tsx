@@ -35,6 +35,7 @@ import { StatusMark } from "../../components/ui/StatusMark";
 import { missionLook } from "../../components/ui/status";
 import { SplitPane } from "../../components/ui/SplitPane";
 import { SceneView } from "../../scene/SceneView";
+import { usePopoutStore } from "../../lib/popout";
 import { TimelinePanel } from "../timeline/TimelinePanel";
 import { FolderIcon, PanelIcon, TerminalIcon } from "../../components/ui/icons";
 import { usePanelStore, type PanelMode } from "../../stores/panelStore";
@@ -132,6 +133,59 @@ export function MissionView() {
       ? strings.mission.soloChat
       : (teams.find((t) => t.id === teamId)?.name ?? null);
 
+  const poppedOut =
+    usePopoutStore((st) => st.openFor) === missionId && missionId !== null;
+  const bringBack = usePopoutStore((st) => st.close);
+  const recordPane = (
+      <>
+        <div
+          role="tablist"
+          aria-label={strings.workview.recordTabs}
+          className="flex shrink-0 gap-1 border-b border-line px-3"
+        >
+          {(
+            [
+              ["timeline", strings.mission.viewTimeline, events.length],
+              ["artifacts", strings.mission.viewArtifacts, touched],
+            ] as const
+          ).map(([id, label, count]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={record === id}
+              onClick={() => setRecord(id)}
+              className={cn(
+                "-mb-px min-h-[24px] border-b-2 px-2.5 py-2 text-sm transition-colors",
+                record === id
+                  ? "border-accent text-text"
+                  : "border-transparent text-muted hover:text-text",
+              )}
+            >
+              {label}
+              {count === null ? null : (
+                <span className="ml-1.5 text-xs text-faint">
+                  {count}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* The timeline scrolls itself — it has a sticky header of its
+            own — so the wrapper must not add a second scroll area. */}
+        <div className="min-h-0 flex-1">
+          {record === "timeline" ? (
+            <TimelinePanel />
+          ) : (
+            <div className="h-full overflow-y-auto p-4">
+              <ArtifactViewer />
+            </div>
+          )}
+        </div>
+      </>
+  );
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="shrink-0 space-y-2.5 px-4 pb-3 pt-3.5">
@@ -202,61 +256,33 @@ export function MissionView() {
       <div className="min-h-0 flex-1 overflow-hidden px-3 pb-1">
         {/* Content sits on the opaque surface, never on the glass (§18.1). */}
         <div className="surface flex h-full min-h-0 flex-col overflow-hidden">
-          <SplitPane
-            label={strings.workview.splitter}
-            hint={strings.workview.splitterHint}
-            onHeightChange={setSceneHeight}
-            top={<SceneView heightPx={sceneHeight} />}
-            bottom={
-              <>
-                <div
-                  role="tablist"
-                  aria-label={strings.workview.recordTabs}
-                  className="flex shrink-0 gap-1 border-b border-line px-3"
+          {poppedOut ? (
+            // The room is in its own window: the record takes the whole
+            // column, and one line says where the room went and how to get
+            // it back. Two rooms for one run would be two renderers to keep
+            // in step.
+            <div className="flex h-full min-h-0 flex-col">
+              <div className="flex shrink-0 items-center justify-center gap-3 border-b border-line bg-room-sky px-3 py-1">
+                <span className="text-[11px] text-muted">{strings.scene.poppedOut}</span>
+                <button
+                  type="button"
+                  onClick={() => void bringBack()}
+                  className="rounded-card border border-line bg-solid px-2 py-0.5 text-[11px] text-muted hover:text-text"
                 >
-                  {(
-                    [
-                      ["timeline", strings.mission.viewTimeline, events.length],
-                      ["artifacts", strings.mission.viewArtifacts, touched],
-                    ] as const
-                  ).map(([id, label, count]) => (
-                    <button
-                      key={id}
-                      type="button"
-                      role="tab"
-                      aria-selected={record === id}
-                      onClick={() => setRecord(id)}
-                      className={cn(
-                        "-mb-px min-h-[24px] border-b-2 px-2.5 py-2 text-sm transition-colors",
-                        record === id
-                          ? "border-accent text-text"
-                          : "border-transparent text-muted hover:text-text",
-                      )}
-                    >
-                      {label}
-                      {count === null ? null : (
-                        <span className="ml-1.5 text-xs text-faint">
-                          {count}
-                        </span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-
-                {/* The timeline scrolls itself — it has a sticky header of its
-                    own — so the wrapper must not add a second scroll area. */}
-                <div className="min-h-0 flex-1">
-                  {record === "timeline" ? (
-                    <TimelinePanel />
-                  ) : (
-                    <div className="h-full overflow-y-auto p-4">
-                      <ArtifactViewer />
-                    </div>
-                  )}
-                </div>
-              </>
-            }
-          />
+                  {strings.scene.bringBack}
+                </button>
+              </div>
+              {recordPane}
+            </div>
+          ) : (
+            <SplitPane
+              label={strings.workview.splitter}
+              hint={strings.workview.splitterHint}
+              onHeightChange={setSceneHeight}
+              top={<SceneView heightPx={sceneHeight} />}
+              bottom={recordPane}
+            />
+          )}
         </div>
       </div>
 

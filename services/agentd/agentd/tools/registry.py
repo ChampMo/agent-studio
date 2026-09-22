@@ -318,6 +318,19 @@ SPECS: tuple[ToolSpec, ...] = (
 
 BY_ID: dict[str, ToolSpec] = {spec.id: spec for spec in SPECS}
 
+#: The tools whose success means a file now exists in the workspace.
+#:
+#: Three places need this and each needs it for a different reason: the runner
+#: publishes `artifact.created` off them, `/rewind` can only restore what they
+#: recorded, and the orchestrator uses them to tell a turn that produced
+#: something from one that only talked. Written down once so those three cannot
+#: come to disagree about what counts as producing a file (§2.1).
+#:
+#: `bash` is deliberately not here, and that is the honest gap `/rewind` already
+#: states: a file a shell command created has no recorded version, so nothing
+#: downstream may claim it did.
+FILE_TOOLS: tuple[str, ...] = ("write_file", "edit_file")
+
 
 def get(tool_id: str) -> ToolSpec | None:
     return BY_ID.get(tool_id)

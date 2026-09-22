@@ -108,6 +108,14 @@
   --room-paper: #e6eaee;
   --room-metal: #7e8b99;
   --room-ink: #141a22;
+  /* The two back walls, the scatter of dots on them, and the skirting where
+     they meet the floor. Dusk: the walls a step lighter than the floor, so the
+     room reads as a room and not a pit; the skirting warm, the one wooden
+     thing the walls have. */
+  --room-wall: #293847;
+  --room-wall-side: #212e3c;
+  --room-wall-dot: #354a5f;
+  --room-dado: #5a4640;
 
   /* How strongly each light lands. Per theme, because the same wash over a
      dark floor and a light one are not the same picture — and here rather than
@@ -178,6 +186,12 @@
   --room-paper: #ffffff;
   --room-metal: #8a9298;
   --room-ink: #2a3138;
+  /* Afternoon: warm paper walls, a soft coral skirting - the pink the drawn
+     furniture already carries - and the dots a pale echo of it. */
+  --room-wall: #f5eddf;
+  --room-wall-side: #eadfcb;
+  --room-wall-dot: #f2d2d9;
+  --room-dado: #eba9b9;
   --room-lamp-alpha: 0.6;
   --room-window-alpha: 0.45;
   --coat-ginger: #cd8140;
@@ -239,6 +253,12 @@
     --room-paper: #ffffff;
     --room-metal: #8a9298;
     --room-ink: #2a3138;
+    /* Afternoon: warm paper walls, a soft coral skirting - the pink the drawn
+       furniture already carries - and the dots a pale echo of it. */
+    --room-wall: #f5eddf;
+    --room-wall-side: #eadfcb;
+    --room-wall-dot: #f2d2d9;
+    --room-dado: #eba9b9;
     --room-lamp-alpha: 0.6;
     --room-window-alpha: 0.45;
     --coat-ginger: #cd8140;
@@ -462,50 +482,37 @@ input[type="number"]::-webkit-inner-spin-button {
 }
 
 /*
- * The busy fish (timeline). Three frames, and the bites go from the tail end
- * forward so the head is the last thing left — which is how anyone eats a
- * fish, and makes the loop read as one fish rather than three shapes.
- *
- * `steps(1, end)` on the parent and plain visibility here: pixel art that
- * cross-fades stops looking like pixel art.
+ * The busy fish (timeline): the four drawn frames under `art/loading/`, one
+ * 50x50 canvas each with the fish in the same place on every frame, so they
+ * are shown as one box whose background image steps from frame to frame.
+ * Scaled 1.2x and cropped to the ink (x 15-35, y 19-31 of the canvas).
+ * `steps(1, end)` so pixel art snaps rather than cross-fades; the still
+ * first frame is what `prefers-reduced-motion` gets.
  */
-@keyframes nibble {
-  0%,
-  100% {
-    opacity: 1;
-  }
-}
-.fish-bite-1,
-.fish-bite-2,
-.fish-bite-3 {
-  animation: none;
+.fish-loader {
+  display: inline-block;
+  width: 26px;
+  height: 16px;
+  background: url("/art/loading/1.png") -17px -22px / 60px 60px no-repeat;
+  image-rendering: pixelated;
 }
 @media (prefers-reduced-motion: no-preference) {
-  .fish-bite-1 {
-    animation: bite1 1.2s steps(1, end) infinite;
-  }
-  .fish-bite-2 {
-    animation: bite2 1.2s steps(1, end) infinite;
+  .fish-loader {
+    animation: fish-eat 1.6s steps(1, end) infinite;
   }
 }
-@keyframes bite1 {
-  0%,
-  33% {
-    opacity: 1;
+@keyframes fish-eat {
+  0% {
+    background-image: url("/art/loading/1.png");
   }
-  34%,
-  100% {
-    opacity: 0;
+  25% {
+    background-image: url("/art/loading/2.png");
   }
-}
-@keyframes bite2 {
-  0%,
-  66% {
-    opacity: 1;
+  50% {
+    background-image: url("/art/loading/3.png");
   }
-  67%,
-  100% {
-    opacity: 0;
+  75% {
+    background-image: url("/art/loading/4.png");
   }
 }
 
@@ -649,7 +656,7 @@ input[type="number"]::-webkit-inner-spin-button {
 /* Guarded rather than left to the blanket reduced-motion rule at the top of
    this file, which sets `animation-duration: 0.01ms` — on an infinite rotation
    that is not "stopped", it is a strobe, which is the opposite of what the
-   person asked for. Same shape as `fish-bite-*` above. */
+   person asked for. Same shape as `.fish-loader` above. */
 @media (prefers-reduced-motion: no-preference) {
   .ai-panel[data-state="working"]::before {
     animation: ai-spin 2.4s linear infinite;

@@ -14,6 +14,9 @@
 import { strings } from "../../lib/constants/strings.en";
 import { agentLook } from "../../components/ui/status";
 import { Portrait } from "../../components/ui/Portrait";
+import { MemberCard, useHoverCard } from "./MemberCard";
+import { bySeat } from "../../scene/bindings/order";
+import { cn } from "../../lib/cn";
 import type { SnapshotMember } from "../../stores/missionStore";
 import { formatDuration, formatTokens, type Vitals } from "./vitals";
 
@@ -24,6 +27,7 @@ export function RunVitals({
   roster: SnapshotMember[];
   vitals: Vitals;
 }) {
+  const card = useHoverCard();
   return (
     <>
       {roster.length > 0 ? (
@@ -42,14 +46,38 @@ export function RunVitals({
               comparison the panel invents. What is true is 445.1k of 601.4k,
               which is what the bar draws (§1.1). */}
           <ul className="space-y-2">
-            {roster.map((member) => {
+            {bySeat(roster).map((member) => {
               const stats = vitals.byAgent.get(member.agent_id);
               const look = stats?.status ? agentLook(stats.status) : null;
               const leader = member.role_in_team === "leader";
               const spent = stats?.tokens ?? 0;
               const share = vitals.tokens > 0 ? spent / vitals.tokens : 0;
               return (
-                <li key={member.agent_id} className="flex gap-2.5 px-1">
+                <li
+                  key={member.agent_id}
+                  // Focusable, because the card holds facts that are on no
+                  // other screen during a run — a hover-only affordance would
+                  // put them out of reach of anyone not using a mouse
+                  // (WCAG 2.1.1). `aria-describedby` is what makes the card
+                  // the row's description rather than a floating box.
+                  tabIndex={0}
+                  aria-describedby={
+                    card.open?.id === member.agent_id
+                      ? `member-card-${member.agent_id}`
+                      : undefined
+                  }
+                  onMouseEnter={(e) => card.show(member.agent_id, e.currentTarget)}
+                  onMouseLeave={card.hide}
+                  // No delay from the keyboard: a deliberate Tab is not a
+                  // pointer sweeping past on its way somewhere else.
+                  onFocus={(e) => card.show(member.agent_id, e.currentTarget, true)}
+                  onBlur={card.hide}
+                  className={cn(
+                    "flex gap-2.5 rounded-card px-1 py-0.5 transition-colors",
+                    "focus:outline-none focus-visible:ring-1 focus-visible:ring-focus",
+                    card.open?.id === member.agent_id && "bg-solid-2",
+                  )}
+                >
                   {/* The face stays. It is the same `avatar_config` the scene
                       and the transcript draw through `lookFor`, so the person
                       in the room, the person in the chat and the person on
@@ -108,6 +136,35 @@ export function RunVitals({
               );
             })}
           </ul>
+
+          {/* One card at a time, outside the list, so the rail's own
+              `overflow-hidden` cannot clip it. */}
+          {card.open
+            ? (() => {
+                const member = roster.find((m) => m.agent_id === card.open!.id);
+                if (!member) return null;
+                const stats = vitals.byAgent.get(member.agent_id);
+                const look = stats?.status ? agentLook(stats.status) : null;
+                return (
+                  <MemberCard
+                    member={member}
+                    anchor={card.open!.el}
+                    facts={{
+                      tokens: stats?.tokens ?? 0,
+                      roundTokens: vitals.tokens,
+                      // A tone this build does not know still gets a label
+                      // and a readable colour rather than none (§8).
+                      status: look
+                        ? {
+                            label: look.label,
+                            tone: TONE[look.tone] ?? "text-muted",
+                          }
+                        : null,
+                    }}
+                  />
+                );
+              })()
+            : null}
         </section>
       ) : null}
 

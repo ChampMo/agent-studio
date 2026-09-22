@@ -18,107 +18,315 @@ from typing import Any
 
 #: Every valid value, per slot. Adding an asset is an edit here plus the art.
 #:
-#: Rewritten for the cat office. The slot *keys* changed too — `body` became
-#: `build` and `hair` became `coat` — because a cat has no hair and a slot
-#: named for something the art does not draw is a name that has to be
-#: explained every time anyone reads it.
+#: **This list is the art that exists, and nothing else** (§11). Four cats were
+#: drawn, each at two widths, with four collars — so there are four breeds, two
+#: sizes and five collar values, not the nine and five and five that were here
+#: when the art was a tinted placeholder and any number was as cheap as any
+#: other. A catalogue longer than the drawings is a picker where several
+#: options produce the same cat, which is a control claiming to do something it
+#: does not (§1.1).
 #:
-#: Two of the four cost no artwork at all, which is what makes 5 x 8 x 8 x 8
-#: tractable: `build` is a scale multiplier and `palette` is a tint, exactly as
-#: `BODIES` and `PALETTES` already worked before any of this. So the sheet only
-#: has to carry `coat` x `outfit`, and those are drawn as separate layers over
-#: one base cat rather than as 64 whole characters.
+#: A cat is composited from four layers on one 100x100 canvas: the face
+#: (breed x size), the eyes (per breed, and they differ — marmalade's are
+#: black, siamese's blue, bombay's gold), the mouth (one drawing shared by all
+#: four), and the collar. Eyes and mouth each have two frames, which is what
+#: makes a cat blink and talk; neither is a slot, because neither is a choice.
+#:
+#: **`prop` became `headwear` and `glasses`**, because the drawings arrived and
+#: they do not overlap. Measured rather than assumed: a pair of glasses shares
+#: zero pixels with a cap and zero with the ear bows, so a cat can wear both
+#: and one slot could only ever show one of them. What *does* collide is
+#: everything on top of the head — a head bow over the ear bows is 220 shared
+#: pixels — so those stay one slot between them. The slots are named for the
+#: place on the cat rather than the thing, because the place is what decides
+#: what can be worn at once.
+#:
+#: Separate slots do not multiply the art. Each is one overlay layer, so the
+#: two cost 17 + 8 drawings rather than 17 x 8 characters — the same
+#: arithmetic that keeps four breeds from costing 2,560 cats.
 AVATAR_SLOTS: dict[str, tuple[str, ...]] = {
-    #: Proportions, not stats (§1.1). Drawn by scaling one silhouette.
-    "build": ("lithe", "average", "stocky", "lanky", "small"),
-    #: Fur pattern. An overlay on the base cat, so eight of these is eight
-    #: stencils rather than eight cats.
-    "coat": (
-        "tabby",
-        "tuxedo",
-        "calico",
-        "point",
-        "spotted",
-        "shaggy",
-        "sleek",
-        "patched",
+    #: The four drawn cats. The names are the four the previous catalogue
+    #: already used for these looks, so an agent that was any of them keeps
+    #: exactly the face it had.
+    "breed": ("marmalade", "siamese", "bombay", "tuxedo"),
+    #: Two drawings, not a scale factor. `Face-normal` and `Face-fat` are
+    #: separate pictures, which is why this is two values and not five: the
+    #: other three were a squash applied to one drawing, and a squashed cat is
+    #: not a rounder cat.
+    "size": ("normal", "fat"),
+    #: Worn on top of the head, where only one thing fits. Three shapes were
+    #: drawn — a big bow, a cap, and a small bow on each ear — so a value
+    #: names the shape and its colour, because "red" alone would not say which
+    #: of three red things was meant.
+    "headwear": (
+        "none",
+        "bow_red",
+        "bow_amber",
+        "bow_green",
+        "bow_jade",
+        "bow_rose",
+        "bow_violet",
+        "bow_orchid",
+        "bow_blue",
+        "bow_pink",
+        "cap_tan",
+        "cap_brown",
+        "ears_blue",
+        "ears_violet",
+        "ears_rose",
+        "ears_brown",
+        "ears_amber",
     ),
-    #: What they wear to the office. Also an overlay.
-    "outfit": (
-        "lab_coat",
-        "hoodie",
-        "blazer",
-        "apron",
-        "overalls",
-        "uniform",
-        "vest",
-        "scarf",
-    ),
-    #: Fur colour, applied as a tint. No extra frames.
-    "palette": (
-        "ginger",
-        "charcoal",
-        "cream",
-        "grey",
-        "brown",
-        "snow",
-        "ink",
-        "smoke",
-    ),
+    #: One shape in seven colours, so the values are the colours — the same
+    #: form the collars take, for the same reason.
+    "glasses": ("none", "blue", "red", "amber", "green", "teal", "brown", "pink"),
+    #: Four collars were drawn, each in a colour, each with the same bell.
+    #: `none` is first and is what an agent nobody dressed gets.
+    "collar": ("none", "blue", "green", "pink", "red"),
 }
 
-#: What each old value becomes, for agents created before the office had cats.
+#: The one slot that became two, and what each of its values becomes.
 #:
-#: One-to-one on purpose. A mapping that collapsed several old looks onto one
-#: cat would make agents that were deliberately different start looking alike,
-#: and the person who chose those looks would have no way to tell why.
+#: Written as a table of *sets of slots* rather than as another entry in
+#: `RETIRED`, because everything there answers "what is this value now" with
+#: one value, and a slot that splits cannot. An old `prop` is read once and
+#: lands on as many of the new slots as it has a meaning for.
+#:
+#: Only two of the eight have anywhere honest to go. `glasses` is the shape
+#: that was drawn, and `cap` is; the rest — a scarf, headphones, a bandana, an
+#: eyepatch — were names in a catalogue held open for art that was never made,
+#: so they become nothing rather than a hat somebody did not choose (§5.1).
+#: `bow_tie` is the one guess: the bow that exists is worn on the head rather
+#: than at the neck, which is the wrong place for the same object, and it
+#: keeps those agents distinct instead of flattening them into the undressed
+#: default.
+PROP_SPLIT: dict[str, dict[str, str]] = {
+    "none": {},
+    "glasses": {"glasses": "brown"},
+    "cap": {"headwear": "cap_brown"},
+    "bow_tie": {"headwear": "bow_red"},
+    "scarf": {},
+    "headphones": {},
+    "bandana": {},
+    "eyepatch": {},
+}
+
+#: What each old value becomes, for agents created before the catalogue changed.
+#:
+#: **One-to-one wherever it can be**, which is the rule migration 0019 wrote
+#: down and this change nearly broke: a mapping that collapses several old
+#: looks onto one cat makes agents that were deliberately different start
+#: looking alike, and the person who chose them has no way to tell why.
+#:
+#: `coat` -> `breed` keeps that promise exactly: eight patterns, eight breeds,
+#: nobody's pattern collides with anybody else's. What is dropped is the
+#: separately chosen `palette`, because a breed brings its own colouring — so
+#: some cats change colour, and none of them becomes another cat.
+#:
+#: `outfit` -> `prop` cannot be honest in the same way. A lab coat is not a
+#: pair of glasses and no pairing makes it one. These are **guesses**, chosen
+#: to keep everyone distinct rather than to be right, and the one thing they
+#: get correct is that no two old outfits land on the same prop.
 #:
 #: This rewrites a **preference**, not a record. `missions.roster_snapshot`
 #: keeps whatever was frozen at launch, so replaying an old run still reports
 #: the look it actually ran with — this build simply cannot draw it, and falls
 #: back to the default cat (§5.1, §8).
 LEGACY_AVATAR: dict[str, dict[str, str]] = {
-    "body": {
-        "slim": "lithe",
-        "average": "average",
-        "sturdy": "stocky",
-        "tall": "lanky",
-        "small": "small",
+    #: The four-slot cat catalogue that came before this one.
+    #: The three-slot catalogue this replaced. `breed` carried the whole of
+    #: what a cat looked like, so it is what a picture is chosen by — the
+    #: names did not change, which is why this map is an identity and every
+    #: cat keeps its own face.
+    #:
+    #: `prop` and `size` have nowhere to go and are dropped. That is the cost
+    #: of one picture per cat: two cats that differed only by a hat are now
+    #: the same cat, and the migration says so rather than inventing a
+    #: distinction the art does not have.
+    "breed": {
+        "tabby": "tabby",
+        "tuxedo": "tuxedo",
+        "calico": "calico",
+        "siamese": "siamese",
+        "bengal": "bengal",
+        "maine_coon": "maine_coon",
+        "bombay": "bombay",
+        "tortie": "tortie",
+        "marmalade": "marmalade",
     },
-    "hair": {
-        "short": "sleek",
-        "long": "shaggy",
-        "ponytail": "tabby",
-        "buzz": "spotted",
-        "curly": "calico",
-        "bun": "patched",
-        "bald": "tuxedo",
-        "hooded": "point",
+    #: The one-slot catalogue, which existed for exactly one build. `cat` was
+    #: `breed` under another name — the values never changed — so this is an
+    #: identity and every agent keeps the face it had.
+    #:
+    #: It is here because that build reached a real database. A machine that
+    #: ran it has agents holding `{"cat": ...}`, and a chain that only knew the
+    #: three-slot names would answer every one of them with the default cat.
+    "cat": {
+        "tabby": "tabby",
+        "tuxedo": "tuxedo",
+        "calico": "calico",
+        "siamese": "siamese",
+        "bengal": "bengal",
+        "maine_coon": "maine_coon",
+        "bombay": "bombay",
+        "tortie": "tortie",
+        "marmalade": "marmalade",
+    },
+    "coat": {
+        "tabby": "tabby",
+        "tuxedo": "tuxedo",
+        "calico": "calico",
+        "point": "siamese",
+        "spotted": "bengal",
+        "shaggy": "maine_coon",
+        "sleek": "bombay",
+        "patched": "tortie",
     },
     "outfit": {
-        "lab_coat": "lab_coat",
-        "hoodie": "hoodie",
-        "blazer": "blazer",
-        "robe": "apron",
-        "overalls": "overalls",
-        "uniform": "uniform",
-        "armor": "vest",
+        "lab_coat": "glasses",
+        "hoodie": "cap",
+        "blazer": "bow_tie",
+        "apron": "bandana",
+        "overalls": "none",
+        "uniform": "headphones",
+        "vest": "eyepatch",
+        "scarf": "scarf",
+        #: The human catalogue's three that the cat one renamed. 0019 should
+        #: have converted every row already, so these can only matter if that
+        #: is not true — which is the reason to write them rather than the
+        #: reason not to. They may share a target with a cat-era value above:
+        #: the two vocabularies never appear in one row, so within either era
+        #: the mapping is still one-to-one.
+        "robe": "bandana",
+        "armor": "eyepatch",
         "cloak": "scarf",
     },
-    "palette": {
-        "slate": "grey",
-        "amber": "ginger",
-        "teal": "smoke",
-        "rose": "cream",
-        "violet": "ink",
-        "moss": "brown",
-        "sand": "snow",
-        "ink": "charcoal",
+    "build": {
+        "lithe": "slim",
+        "average": "average",
+        "stocky": "plump",
+        #: `lanky` and `small` were a height and an overall scale, and the axis
+        #: they land on has neither. Ranked by the width they actually drew —
+        #: 0.92 and 0.94 against average's 1.0 — which is the only property of
+        #: them the new axis can carry. A guess, like the outfits, and distinct
+        #: for the same reason.
+        "lanky": "skinny",
+        "small": "chonky",
+    },
+    #: The five-value size list this replaced, one session old and never
+    #: released. Present so a database that ran that build lands somewhere
+    #: valid rather than failing its next save.
+    "size": {
+        "slim": "slim",
+        "average": "average",
+        "stout": "plump",
+        "tall": "skinny",
+        "small": "chonky",
+    },
+    #: And the human catalogue before that, so a row that somehow missed 0019
+    #: still lands somewhere sensible rather than on the default for everything.
+    "body": {
+        "slim": "slim",
+        "average": "average",
+        "sturdy": "plump",
+        "tall": "skinny",
+        "small": "chonky",
+    },
+    "hair": {
+        "short": "bombay",
+        "long": "maine_coon",
+        "ponytail": "tabby",
+        "buzz": "bengal",
+        "curly": "calico",
+        "bun": "tortie",
+        "bald": "tuxedo",
+        "hooded": "siamese",
     },
 }
 
+#: Values a previous catalogue had and this one does not, and what each
+#: becomes.
+#:
+#: Keyed by the **current** slot rather than by an old slot name, because these
+#: are not a different vocabulary — they are this vocabulary, shortened. Every
+#: map in `LEGACY_AVATAR` above still resolves to the catalogue *it* was written
+#: against, and this is what carries that answer the last step into the
+#: catalogue that exists now. Keeping the two separate is what let nine breeds
+#: become four without touching six tables that are each correct about their
+#: own era.
+#:
+#: **Breeds fold by what the cat looks like.** Five drawings went away and the
+#: agents who had them have to land on one of the four that did not:
+#: everything with orange in it goes to the marmalade, everything grey, white
+#: or patched goes to the tuxedo. Two agents that looked different can now look
+#: alike, and that is the honest cost of four drawings rather than nine — the
+#: rule 0019 wrote down held for as long as the catalogue was tints, and cannot
+#: hold when the art is hand-drawn.
+#:
+#: **Sizes fold by which drawing they are nearest.** `skinny` and `slim` were
+#: narrower than average, so all three become the normal cat; `plump` and
+#: `chonky` were wider, so both become the fat one.
+#:
+#: **Collars fold to none**, and that needs saying. The old values named a
+#: *kind* of collar — bell, tag, ribbon, studded — and the new ones name a
+#: *colour*. There is no colour in "a bell", so picking one would be inventing
+#: a choice nobody made (§5.1). Nothing is lost in practice: the slot is one
+#: session old, was never drawn, and every row in the database holds `none`.
+RETIRED: dict[str, dict[str, str]] = {
+    "breed": {
+        "bengal": "marmalade",
+        "tortie": "marmalade",
+        "tabby": "tuxedo",
+        "calico": "tuxedo",
+        "maine_coon": "tuxedo",
+    },
+    "size": {
+        "average": "normal",
+        "skinny": "normal",
+        "slim": "normal",
+        "plump": "fat",
+        "chonky": "fat",
+    },
+    "collar": {
+        "bell": "none",
+        "tag": "none",
+        "ribbon": "none",
+        "studded": "none",
+    },
+}
+
+
 #: Old slot key -> new one.
-LEGACY_SLOTS = {"body": "build", "hair": "coat"}
+#:
+#: `palette` is deliberately absent: colouring travels with the breed now, so
+#: there is nowhere for a separately chosen one to go, and dropping it is the
+#: documented cost of that fold. `collar` has no old name at all — nothing
+#: before this catalogue described one — so it is filled with its default
+#: rather than guessed at.
+LEGACY_SLOTS = {
+    # Two names for one choice, from catalogues that never coexisted: the human
+    # one had `hair` and no `coat`, the cat one the reverse, and the one-slot
+    # one had `cat` and neither. No config carries two of them, so the order
+    # these are read in cannot matter.
+    "cat": "breed",
+    "coat": "breed",
+    "hair": "breed",
+    "outfit": "prop",
+    "build": "size",
+    "body": "size",
+}
+
+
+def _land(slot: str, value: Any) -> str | None:
+    """One value against the current catalogue, folding a retired one on the way.
+
+    Returns `None` for anything it cannot place, so the caller can try the next
+    reading rather than writing a wrong answer.
+    """
+    if value in AVATAR_SLOTS[slot]:
+        return str(value)
+    folded = RETIRED.get(slot, {}).get(value)  # type: ignore[arg-type]
+    return folded if folded in AVATAR_SLOTS[slot] else None
 
 
 def migrate_avatar(config: Any) -> dict[str, str]:
@@ -127,20 +335,42 @@ def migrate_avatar(config: Any) -> dict[str, str]:
     Anything it cannot place falls back to the default for that slot rather
     than raising: this runs over rows nobody is watching, and a migration that
     fails on one odd value would leave the table half-converted.
+
+    **Two readings, each folded.** A value is tried as it stands first, because
+    most rows already speak this vocabulary and only need shortening —
+    `size: "chonky"` is a value this catalogue retired, not a foreign word. Only
+    if that fails is `LEGACY_AVATAR` consulted, and whatever *it* answers is
+    folded too, because those tables were written against the catalogue of
+    their own era: `coat: "patched"` resolves to `tortie`, which is itself now
+    retired, and has to take the second step to `marmalade`.
+
+    `palette` is dropped rather than mapped, and that is the one lossy step
+    that cannot be undone. It has no slot to go to — the breed carries the
+    colouring now.
+
+    `prop` is the one slot that does not resolve to a single value, because it
+    became two. `PROP_SPLIT` says what each of its values means in the
+    catalogue that replaced it.
     """
     out = default_avatar()
     if not isinstance(config, dict):
         return out
     for old_slot, value in config.items():
         slot = LEGACY_SLOTS.get(old_slot, old_slot)
+        if slot == "prop":
+            # The slot that became two. An `outfit` is a prop under the
+            # previous catalogue's name, so it is resolved to one first and
+            # then split across the slots that replaced it.
+            prop = value if value in PROP_SPLIT else LEGACY_AVATAR.get(old_slot, {}).get(value)
+            out.update(PROP_SPLIT.get(prop, {}))
+            continue
         if slot not in AVATAR_SLOTS:
             continue
-        if value in AVATAR_SLOTS[slot]:
-            out[slot] = value
-            continue
-        mapped = LEGACY_AVATAR.get(old_slot, {}).get(value)
-        if mapped in AVATAR_SLOTS[slot]:
-            out[slot] = mapped
+        landed = _land(slot, value) or _land(
+            slot, LEGACY_AVATAR.get(old_slot, {}).get(value)
+        )
+        if landed is not None:
+            out[slot] = landed
     return out
 
 

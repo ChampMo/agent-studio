@@ -23,6 +23,7 @@
  */
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "../../lib/cn";
+import { clipRect, shouldDropUp } from "./clipRect";
 
 export interface MenuItem {
   label: string;
@@ -41,26 +42,6 @@ export interface MenuItem {
   /** Shown under the label, greyed. Use it to say *why* something is disabled
    *  rather than leaving a dead row with no explanation. */
   hint?: string;
-}
-
-/**
- * The box a floating panel has to stay inside.
- *
- * The nearest ancestor that clips, because that is what actually cuts the panel
- * off — the window is no help when the thing doing the cutting is a column with
- * `overflow-hidden` three levels up.
- */
-function clipBounds(node: HTMLElement): { left: number; right: number } {
-  let parent = node.parentElement;
-  while (parent && parent !== document.body) {
-    const style = getComputedStyle(parent);
-    if (style.overflow !== "visible" || style.overflowX !== "visible") {
-      const box = parent.getBoundingClientRect();
-      return { left: box.left, right: box.right };
-    }
-    parent = parent.parentElement;
-  }
-  return { left: 0, right: window.innerWidth };
 }
 
 export function Menu({
@@ -139,11 +120,17 @@ export function Menu({
     const box = panel.current?.getBoundingClientRect();
     const anchor = triggerRef.current?.getBoundingClientRect();
     if (!box || !anchor) return;
-    const below = window.innerHeight - anchor.bottom;
-    const above = anchor.top;
-    // Only flip when down genuinely does not fit *and* up fits better, so a
-    // menu taller than the whole viewport still opens the predictable way.
-    setDropUp(below < box.height + 8 && above > below);
+    // Against the nearest clipping ancestor, not the window. The sideways
+    // check below already did this; the vertical one did not, and the bug it
+    // was hiding surfaced in `Select` first — see `clipRect`.
+    setDropUp(
+      shouldDropUp({
+        anchorTop: anchor.top,
+        anchorBottom: anchor.bottom,
+        panelHeight: box.height,
+        bounds: clipRect(panel.current!),
+      }),
+    );
   }, [open]);
 
   /**
@@ -166,7 +153,7 @@ export function Menu({
     }
     const box = panel.current?.getBoundingClientRect();
     if (!box || !panel.current) return;
-    const bounds = clipBounds(panel.current);
+    const bounds = clipRect(panel.current);
     // Only flip when this side genuinely does not fit and the other one does,
     // so a panel wider than the space it has stays where it is put.
     if (align === "end" && box.left < bounds.left) {

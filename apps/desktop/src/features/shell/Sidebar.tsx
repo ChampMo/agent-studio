@@ -30,13 +30,13 @@ const PLACES: { id: SidebarPlace; label: string; icon: React.ReactNode }[] = [
   {
     id: "roster",
     label: strings.sidebar.roster,
-    icon: <PersonIcon size={15} />,
+    icon: <PersonIcon size={18} />,
   },
-  { id: "teams", label: strings.sidebar.teams, icon: <TeamIcon size={15} /> },
+  { id: "teams", label: strings.sidebar.teams, icon: <TeamIcon size={18} /> },
   {
     id: "settings",
     label: strings.sidebar.settings,
-    icon: <SettingsIcon size={15} />,
+    icon: <SettingsIcon size={18} />,
   },
 ];
 
@@ -99,7 +99,7 @@ export function Sidebar({
           "text-muted transition-colors hover:bg-solid-2 hover:text-text",
         )}
       >
-        <PlusIcon size={15} />
+        <PlusIcon size={18} />
         {strings.sidebar.newShort}
       </button>
 

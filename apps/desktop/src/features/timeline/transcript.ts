@@ -277,7 +277,6 @@ export type Row = SaidRow | DidRow | NoteRow | AskRow | BrokenRow | BusyRow;
 
 /** Statuses that mean work is under way. `waiting` and `blocked` are neither
  *  of these: they are stopped, on a person or on a problem. */
-const SPINS = new Set(["thinking", "working"]);
 const RESTS = new Set(["idle", "waiting", "blocked"]);
 
 /** Which events are the run talking about itself rather than an agent acting. */
@@ -332,6 +331,9 @@ export function buildTranscript(
   const openCalls = new Map<string, DidRow>();
   /** The latest status each agent published. */
   const latestStatus = new Map<string, string>();
+  //: The row that carried each agent's latest status, so the one that is
+  //: still true can be marked as under way rather than sitting as a dot.
+  const latestStatusRow = new Map<string, DidRow>();
   let ended = false;
 
   const push = (row: Row) => {
@@ -343,6 +345,12 @@ export function buildTranscript(
 
   for (const { event, known, futureVersion } of events) {
     const type = event.draft.type;
+    // The first event after a round ended opens the next one. `mission.ended`
+    // ends a *round*, not the log: a continued run appends to the same
+    // events, and with `ended` left standing no continued round ever showed
+    // a spinner, a fish, or a busy row again — the same rule `deriveVitals`
+    // and the scene already carry, and the third place it has been needed.
+    if (ended && type !== "mission.ended") ended = false;
     const p = payloadOf(event);
     const base = { id: event.id, seq: event.seq, ts: event.ts };
     const agentId = typeof p.agentId === "string" ? p.agentId : null;
@@ -440,7 +448,7 @@ export function buildTranscript(
       if (type === "agent.status" && agentId) {
         latestStatus.set(agentId, String(p.status ?? ""));
       }
-      push({
+      const statusRow: DidRow = {
         ...base,
         kind: "did",
         agentId,
@@ -455,7 +463,9 @@ export function buildTranscript(
         // Still a row — every event makes one — but bookkeeping, so it folds
         // with the background rather than standing between two messages.
         ...(type === "agent.status" ? { chrome: true } : {}),
-      });
+      };
+      if (type === "agent.status" && agentId) latestStatusRow.set(agentId, statusRow);
+      push(statusRow);
       continue;
     }
 
@@ -488,7 +498,16 @@ export function buildTranscript(
       continue;
     }
 
-    if (type === "mission.ended") ended = true;
+    if (type === "mission.ended") {
+      ended = true;
+      // Nothing is under way once the round is over — closed here, at the
+      // ending, so a dangling call or status from this round cannot be
+      // carried into the next one as though it were still happening.
+      for (const row of openCalls.values()) row.pending = false;
+      openCalls.clear();
+      latestStatus.clear();
+      latestStatusRow.clear();
+    }
 
     if (type === "agent.request" && typeof p.requestId === "string") {
       const asker = typeof p.agentId === "string" ? p.agentId : null;
@@ -564,23 +583,22 @@ export function buildTranscript(
       .filter(Boolean),
   );
   for (const [agentId, status] of latestStatus) {
-    // Already visibly producing text — a second indicator for the same agent
-    // would be two claims about one thing.
+    // The status row itself is still true while it is the latest: `X is
+    // thinking` is happening now, not a thing that happened. Marked as under
+    // way so it draws the fish rather than a finished dot, and so the fold
+    // leaves it out where it can be seen. The same rule as a tool call whose
+    // end has not landed, and it clears the same way — `mission.ended`
+    // empties `latestStatus`.
+    //
+    // This *is* the busy indicator now. There used to be a separate `busy`
+    // row appended after the log as well, and with the fish on the status
+    // row it was the same fact twice, one above the other; the artist
+    // crossed it out. The `busy` kind stays in the types so a row of that
+    // shape still renders if one is ever produced again.
     if (typing.has(agentId)) continue;
     if (RESTS.has(status)) continue;
-    rows.push({
-      id: `busy-${agentId}`,
-      seq: null,
-      ts: null,
-      kind: "busy",
-      agentId,
-      name: nameOf(agentId),
-      status,
-      // A status this build has never heard of still means the agent said
-      // something is happening, so it spins — and is labelled with the word it
-      // actually published rather than a guess at what it means (§8).
-      spinning: SPINS.has(status) || !RESTS.has(status),
-    });
+    const row = latestStatusRow.get(agentId);
+    if (row) row.pending = true;
   }
 
   // A frame this build could not read at all. Surfaced, never swallowed (§8).

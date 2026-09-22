@@ -43,6 +43,13 @@ export interface Actor {
   /** The task this character is on, when the plan named one. */
   task: string | null;
   /**
+   * The tool this agent is using **right now**: an `agent.tool.start` whose
+   * `callId` has not had its `agent.tool.end`. The raw tool id off the log,
+   * so an id this build has never heard of passes through and the renderer
+   * draws nothing for it rather than a guess (§8). Null at an idle desk.
+   */
+  activeTool: string | null;
+  /**
    * Where the character stands (§12 M7).
    *
    * Not an animation: a *derived position*. Walking is how the renderer gets
@@ -57,8 +64,33 @@ export interface Actor {
   says: string | null;
 }
 
+/**
+ * Something thrown across the room, because the log says one cat sent
+ * something to another.
+ *
+ *   assign    the leader hands a task to its owner   (`mission.progress` pending)
+ *   done      the owner sends it back finished       (`mission.progress` done)
+ *   failed    the owner sends it back empty          (`mission.progress` failed)
+ *   message   one teammate messages another          (`send_message`, or a note
+ *                                                     from the person to one cat)
+ *   request   a question for the person              (`agent.request`)
+ *
+ * `"front"` is where the person is — the near edge of the room. A throw is
+ * a fact about *one moment*, so the renderer decides which are fresh; this
+ * lists every one on the log, in order, keyed by seq.
+ */
+export interface Throw {
+  seq: number;
+  ts: string;
+  kind: "assign" | "done" | "failed" | "message" | "request";
+  from: string | "front";
+  to: string | "front";
+}
+
 export interface SceneState {
   actors: Actor[];
+  /** Everything that has been thrown, oldest first. */
+  throws: Throw[];
   /** Who has the floor, if anyone. The camera follows this. */
   focusAgentId: string | null;
   /** Null while a mission runs; the reason once it has ended. */
@@ -93,8 +125,46 @@ function bubble(text: string): string | null {
     : `${trimmed.slice(0, BUBBLE_LIMIT).trimEnd()}…`;
 }
 
-/** `1. Gather sources → seat 2` — the plan's own line format. */
-const PLAN_LINE = /^\s*\d+\.\s*(.+?)\s*(?:→|->)\s*seat\s*(\d+)\s*$/;
+/**
+ * The teammate a typed name refers to, for the picture only: exact, then
+ * prefix, then contains, and nobody when that is not unique — the same order
+ * `Mailbox.resolve` uses on the backend, which is the answer that actually
+ * decides where the message went. A name this cannot place throws nothing;
+ * it never guesses.
+ */
+function whoIs(name: string, roster: SnapshotMember[]): string | null {
+  const key = name.trim().toLowerCase();
+  if (!key) return null;
+  const names = roster.map((m) => ({ id: m.agent_id, n: (m.name ?? "").toLowerCase() }));
+  for (const test of [
+    (n: string) => n === key,
+    (n: string) => n.startsWith(key),
+    (n: string) => n.includes(key),
+  ]) {
+    const hits = names.filter((m) => test(m.n));
+    if (hits.length === 1) return hits[0]!.id;
+    if (hits.length > 1) return null;
+  }
+  return null;
+}
+
+/** The tool of the newest open call, or null when there is none. */
+function newest(calls: { tool: string }[] | undefined): string | null {
+  const last = calls?.[calls.length - 1];
+  return last && last.tool ? last.tool : null;
+}
+
+/**
+ * `1. Gather sources → Wren` — the plan's own line format.
+ *
+ * The backend writes the assignee **by name** (a person approving a plan has
+ * no way to know who "seat 2" is) and used to write `→ seat 2`. This read
+ * only the old form, so from the day the plan started naming people every
+ * task quietly had no owner: no label under the cat, nobody walking to the
+ * floor, nothing thrown when a task changed hands. Both forms are read.
+ */
+const PLAN_LINE = /^\s*\d+\.\s*(.+?)\s*(?:→|->)\s*(.+?)\s*$/;
+const SEAT_WORD = /^seat\s*(\d+)$/i;
 
 /**
  * Which seat each task went to, read out of the plan the leader broadcast.
@@ -103,14 +173,29 @@ const PLAN_LINE = /^\s*\d+\.\s*(.+?)\s*(?:→|->)\s*seat\s*(\d+)\s*$/;
  * a label and a state but not an owner — so the mapping is recovered from the
  * same event stream rather than fetched from anywhere else (§2.1).
  */
-function taskSeats(events: { event: EventEnvelope }[]): Map<string, number> {
+function taskSeats(
+  events: { event: EventEnvelope }[],
+  roster: SnapshotMember[],
+): Map<string, number> {
   const seats = new Map<string, number>();
+  const seatOf = (who: string): number | null => {
+    const seat = SEAT_WORD.exec(who);
+    if (seat) return Number(seat[1]);
+    // The exact name the backend wrote, which is the roster's own. Not a
+    // fuzzy match: this decides who gets the caption and the walk.
+    const member = roster.find(
+      (m) => (m.name ?? "").trim().toLowerCase() === who.toLowerCase(),
+    );
+    return member ? member.seat_index : null;
+  };
   for (const { event } of events) {
     if (event.draft.type !== "agent.message") continue;
     const content = String((event.draft.payload as any).content ?? "");
     for (const line of content.split("\n")) {
       const match = PLAN_LINE.exec(line);
-      if (match) seats.set(match[1]!, Number(match[2]));
+      if (!match) continue;
+      const seat = seatOf(match[2]!.trim());
+      if (seat !== null) seats.set(match[1]!, seat);
     }
   }
   return seats;
@@ -122,7 +207,7 @@ export function deriveSceneState({
   seats,
   streaming = {},
 }: Options): SceneState {
-  const assignments = taskSeats(events);
+  const assignments = taskSeats(events, roster);
   const bySeat = new Map(roster.map((m) => [m.seat_index, m]));
 
   const poses = new Map<string, AgentPose>();
@@ -136,8 +221,28 @@ export function deriveSceneState({
   let onTask: string | null = null;
   let speaker: string | null = null;
   let spoken: string | null = null;
+  //: Tool calls that have started and not ended, per agent, newest last. The
+  //: desk shows the newest. Same rule as the transcript's pending spinner —
+  //: and the same reset: a cancelled run leaves a dangling start that was
+  //: true of the moment it was written, and a replay of it must not keep a
+  //: dish turning over a finished record for ever.
+  const open = new Map<string, { callId: string; tool: string }[]>();
+  const throws: Throw[] = [];
+  const leader = roster.find((m) => m.role_in_team === "leader")?.agent_id ?? null;
+  const known = new Set(roster.map((m) => m.agent_id));
+  //: The event being read, for the throws it produces.
+  let at: EventEnvelope | null = null;
+  const throwIt = (kind: Throw["kind"], from: string | null, to: string | null) => {
+    // Both ends have to be somebody in this room. A throw from nobody to
+    // nobody is a drawing of nothing.
+    if (!at || !from || !to || from === to) return;
+    if (from !== "front" && !known.has(from)) return;
+    if (to !== "front" && !known.has(to)) return;
+    throws.push({ seq: at.seq, ts: at.ts, kind, from, to });
+  };
 
   for (const { event } of events) {
+    at = event;
     const p = event.draft.payload as Record<string, any>;
 
     // The first event after a round ended opens the next one, and the room is
@@ -156,6 +261,7 @@ export function deriveSceneState({
       onTask = null;
       speaker = null;
       spoken = null;
+      open.clear();
     }
 
     switch (event.draft.type) {
@@ -175,8 +281,19 @@ export function deriveSceneState({
           tasks.delete(owner.agent_id);
           if (onTask === owner.agent_id) onTask = null;
         }
+        // The task changes hands: out from the leader when it is announced,
+        // back to the leader when it comes back finished or empty.
+        if (p.state === "pending") throwIt("assign", leader, owner.agent_id);
+        if (p.state === "done") throwIt("done", owner.agent_id, leader);
+        if (p.state === "failed") throwIt("failed", owner.agent_id, leader);
         break;
       }
+
+      case "user.message":
+        // A note to one teammate comes in from the front of the room. A
+        // broadcast is for everyone and is thrown at nobody in particular.
+        if (typeof p.to === "string" && p.to) throwIt("message", "front", String(p.to));
+        break;
 
       case "agent.message":
         // Only the latest speaker keeps a bubble. It clears itself when someone
@@ -187,7 +304,31 @@ export function deriveSceneState({
 
       case "agent.request":
         asking = String(p.agentId ?? "") || null;
+        throwIt("request", asking, "front");
         break;
+
+      case "agent.tool.start": {
+        const id = String(p.agentId ?? "");
+        const calls = open.get(id) ?? [];
+        calls.push({ callId: String(p.callId ?? ""), tool: String(p.tool ?? "") });
+        open.set(id, calls);
+        // A message to a teammate, thrown at whoever the name is — as the
+        // backend would resolve it, and at nobody when it would not.
+        if (p.tool === "send_message") {
+          const input = (p.input ?? {}) as Record<string, unknown>;
+          throwIt("message", id, whoIs(String(input.to ?? ""), roster));
+        }
+        break;
+      }
+
+      case "agent.tool.end": {
+        // The end reaches back and closes its own start. An end with no start
+        // — the start fell in the previous round — is simply nothing.
+        const id = String(p.agentId ?? "");
+        const callId = String(p.callId ?? "");
+        open.set(id, (open.get(id) ?? []).filter((c) => c.callId !== callId));
+        break;
+      }
 
       case "agent.request.resolved":
         // The answer ends the wait, and the log says so. The asker published
@@ -225,6 +366,7 @@ export function deriveSceneState({
   return {
     endReason,
     focusAgentId,
+    throws,
     seats: Math.max(seats, roster.length),
     actors: roster.map((member) => ({
       agentId: member.agent_id,
@@ -238,7 +380,15 @@ export function deriveSceneState({
       title: member.title ?? "",
       tools: member.tools ?? [],
       task: ended ? null : (tasks.get(member.agent_id) ?? null),
-      place: member.agent_id === focusAgentId ? "floor" : "seat",
+      activeTool: ended ? null : newest(open.get(member.agent_id)),
+      // Nobody leaves their seat any more. The walk to the front of the room
+      // was M7's way of showing whose turn it was, and with the tool on the
+      // desk and the things thrown between desks it had become a cat standing
+      // in the middle of the room away from the very desk that showed what it
+      // was doing. The camera still turns to them through `focusAgentId`, and
+      // the compact view still rings them. `floor` stays in the type so a
+      // renderer that wants the walk back has somewhere to read it from.
+      place: "seat",
       says: ended
         ? null
         : typing?.agentId === member.agent_id

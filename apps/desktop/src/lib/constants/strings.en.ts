@@ -91,6 +91,24 @@ export const strings = {
     resize: "Panel width",
     resizeHint:
       "Drag, or focus it and use the arrows. Home and End go to the limits.",
+    //: The hover card. Everything on it is either frozen into the mission at
+    //: launch or counted off the log — nothing about the agent as they are
+    //: today, because for an old run that is a different person (§5.1).
+    seat: (index: number) => `Seat ${index}`,
+    cardModel: "Model",
+    cardNoModel: "none recorded",
+    cardStatus: "Status",
+    cardShare: (percent: number) => `${percent}% of this round`,
+    //: Not "0". Nothing spent and nothing asked of them are the same number
+    //: and different facts.
+    cardNothingYet: "nothing yet",
+    cardTools: (n: number) =>
+      n === 1 ? "Carried 1 tool on this run" : `Carried ${n} tools on this run`,
+    cardNoTools: "Carried no tools on this run",
+    //: Present tense, on the builder: nothing has run yet, so this is what
+    //: they would take with them rather than what they took.
+    cardCarries: (n: number) => (n === 1 ? "Carries 1 tool" : `Carries ${n} tools`),
+    cardCarriesNone: "Carries no tools",
     showRun: "This run",
     beforeStart: "Available once the run has started",
     showTerminal: "Terminal",
@@ -112,6 +130,23 @@ export const strings = {
     empty: "Send a team out and they will appear here.",
     soundOn: "Sound on — click to mute",
     soundOff: "Muted — click for sound",
+    //: Appears only once somebody has moved the view, which is also how they
+    //: are told the automatic camera has stood down.
+    recentre: "Fit the room",
+    popOut: "Open the room in its own window",
+    popOutTitle: "Agent Studio room",
+    poppedOut: "The room is open in its own window.",
+    bringBack: "Bring it back",
+    popIn: "Put the room back in the main window",
+    //: The three ways the pane may draw, cycled by one button.
+    modeAuto: "Auto: the room when there is height for it, the roster when not",
+    modeRoom: "Room: always the room",
+    modeRoster: "Roster: always the row of faces",
+    modeAutoShort: "Auto",
+    modeRoomShort: "Room",
+    modeRosterShort: "Roster",
+    recentreHint:
+      "Scroll to zoom, drag to move. Arrows and +/- work too; 0 fits the room.",
   },
 
   mission: {
@@ -445,10 +480,8 @@ export const strings = {
     clickToRemove: (name: string) => `Take ${name} out of the team`,
     //: Named per seat: six seats meant six identical "Remove" links, and a
     //: screen reader announced every one of them the same.
-    makeLeaderFor: (name: string) => `Make ${name} the leader`,
     //: The solid star's accessible name. It is an image, not a control — there
     //: is nothing to do to the leader from this seat.
-    isLeader: (name: string) => `${name} is the team leader`,
     clearSeatFor: (name: string) => `Take ${name} out of this seat`,
     moreFor: (name: string) => `More options for ${name}`,
     archiveHint: "Out of the way, and reversible",
@@ -484,9 +517,19 @@ export const strings = {
     noAgents: "No agents yet. Create one first.",
     seats: "Seats",
     seat: "Seat",
+    //: The star is on the desk, not the person. Said in words too, because a
+    //: sticker and a colour are not a label on their own (§18.3).
+    leads: "leads",
+    seatZeroLeads:
+      "Seat 0 leads this team, and sits at the head of the table. Drag seats to swap.",
+    swapHint: "Drag a seat onto another to swap them.",
+    moreForSeat: (name: string) => `More for ${name}`,
+    moveEarlier: "Move to an earlier seat",
+    moveLater: "Move to a later seat",
+    alreadyFirstSeat: "Already in seat 0",
+    alreadyLastSeat: "Already in the last seat",
     emptySeat: "Drag an agent here, or click one on the left.",
     leader: "Leader",
-    makeLeader: "Make leader",
     clearSeat: "Remove",
     nameLabel: "Team name",
     layoutLabel: "Scene layout",
@@ -592,6 +635,10 @@ export const strings = {
     avatarLabel: "Avatar",
     avatarHint:
       "Assembled from assets that exist — the scene draws from this same list.",
+    //: A shortcut, said as one. Not "suggest": nothing about the role is read,
+    //: so it must not sound like the app has an opinion about how this agent
+    //: ought to look.
+    avatarShuffle: "Shuffle",
     samplingIgnored:
       "This model rejects sampling parameters, so any temperature set here would be dropped.",
     save: "Save to roster",

@@ -2,9 +2,10 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Everything the shell is allowed to do. Deliberately almost nothing: the window renders the frontend and the frontend talks to the backend over HTTP. `dialog:allow-open` is the folder picker for choosing a workspace (§16.2) - it can only open a chooser, and the path it returns is validated on the backend like any other untrusted input. The shell plugin is registered for Rust only: no permission here lets the page execute anything.",
-  "windows": ["main"],
+  "windows": ["main", "scene-*"],
   "permissions": [
     "core:default",
+    "core:window:allow-close",
     "dialog:allow-open"
   ]
 }

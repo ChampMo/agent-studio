@@ -23,6 +23,8 @@
  * a direction is right until the second caller.
  */
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+
+import { clipRect, shouldDropUp } from "./clipRect";
 import { cn } from "../../lib/cn";
 import { ChevronDownIcon } from "./icons";
 
@@ -114,9 +116,22 @@ export function Select({
     }
     const box = panel.current?.getBoundingClientRect();
     const anchor = trigger.current?.getBoundingClientRect();
-    if (!box || !anchor) return;
-    const below = window.innerHeight - anchor.bottom;
-    setDropUp(below < box.height + 8 && anchor.top > below);
+    if (!box || !panel.current || !anchor) return;
+    // Against whatever actually clips this, not the window.
+    //
+    // The window was the wrong bound and the difference is not academic: the
+    // provider dropdown inside `.ai-panel` had 323px of viewport below it and
+    // 61px of its list cut off, because `.ai-panel` sets `overflow: clip` to
+    // keep its rotating gradient inside its own border radius. A viewport
+    // check finds nothing wrong with that panel at all.
+    setDropUp(
+      shouldDropUp({
+        anchorTop: anchor.top,
+        anchorBottom: anchor.bottom,
+        panelHeight: box.height,
+        bounds: clipRect(panel.current),
+      }),
+    );
   }, [open]);
 
   const step = (delta: number) =>

@@ -260,3 +260,32 @@ describe("only the newest page is drawn", () => {
     expect(windowed(rows, 400).items).toEqual(rows);
   });
 });
+
+describe("the busy row", () => {
+  it("is never folded into the activity before it", () => {
+    const did = (id: string): Row => ({
+      id,
+      seq: 1,
+      ts: "2026-09-19T00:00:00Z",
+      kind: "did",
+      agentId: "a",
+      name: "Pell",
+      text: "tool ok",
+      tone: "idle",
+      pending: false,
+    } as Row);
+    const busy: Row = {
+      id: "busy-a",
+      seq: null,
+      ts: null,
+      kind: "busy",
+      agentId: "a",
+      name: "Pell",
+      status: "thinking",
+      spinning: true,
+    } as Row;
+    const items = groupRows([did("d1"), did("d2"), busy]);
+    expect(items[items.length - 1]).toBe(busy);
+    expect(items.some((i) => isGroup(i) && i.rows.includes(busy))).toBe(false);
+  });
+});

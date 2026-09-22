@@ -238,6 +238,12 @@ export const useEventStore = create<EventState>((set, get) => ({
       } else if (event.draft.type === "mission.ended") {
         next.endReason = (event.draft.payload as any).reason ?? "unknown";
         next.endLimit = (event.draft.payload as any).limit ?? null;
+        // A round stopped mid-reply never writes the message its deltas were
+        // previewing, so the previews would sit on screen as bubbles still
+        // "typing" under a round that had ended. The ending is the end of
+        // them too: what was typed is not on the log, and the log is the
+        // record.
+        next.streaming = {};
       } else if (s.endReason !== null) {
         // A mission can be continued, so `mission.ended` is the end of a
         // *round*, not the end of the log. Anything arriving after one means a

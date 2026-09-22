@@ -11,15 +11,72 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useEventStore } from "../stores/eventStore";
 import { useMissionStore } from "../stores/missionStore";
 import { useTeamStore } from "../stores/teamStore";
+import { useThemeStore } from "../stores/themeStore";
 import { strings } from "../lib/constants/strings.en";
 import { deriveSceneState } from "./bindings/sceneState";
 import { Scene } from "./engine/stage";
-import { isSoundOn, playChime, setSoundOn, shouldChime } from "./audio";
+import { isSoundOn, justHappened, playChime, playTool, setSoundOn, shouldChime } from "./audio";
+import { propFor } from "./entities/props";
 import { shouldAnimate } from "./engine/activity";
+import { cn } from "../lib/cn";
 import { COMPACT_BELOW } from "../components/ui/splitter";
 import { CompactRoster } from "./CompactRoster";
+import { closeThisSceneWindow, popOutScene } from "../lib/popout";
+import {
+  AutoModeIcon,
+  PopInIcon,
+  PopOutIcon,
+  RoomIcon,
+  RosterIcon,
+} from "../components/ui/icons";
 
-export function SceneView({ heightPx = Infinity }: { heightPx?: number } = {}) {
+/**
+ * How the pane draws: by its height, or pinned to one drawing.
+ *
+ * A preference about this machine's screen rather than about the run, so it
+ * lives in localStorage like the sound switch and the panel widths.
+ */
+export type SceneMode = "auto" | "room" | "roster";
+const MODE_KEY = "agent-studio.scene-mode";
+const NEXT_MODE: Record<SceneMode, SceneMode> = { auto: "room", room: "roster", roster: "auto" };
+const MODE_TITLE: Record<SceneMode, () => string> = {
+  auto: () => strings.scene.modeAuto,
+  room: () => strings.scene.modeRoom,
+  roster: () => strings.scene.modeRoster,
+};
+const MODE_ICON: Record<SceneMode, (props: { size?: number }) => JSX.Element> = {
+  auto: AutoModeIcon,
+  room: RoomIcon,
+  roster: RosterIcon,
+};
+/** The three small buttons in the top-right corner share one look. */
+const TOP_BUTTON =
+  "absolute top-2 flex h-6 w-7 items-center justify-center rounded bg-solid text-[11px] text-muted hover:text-text";
+
+function readMode(): SceneMode {
+  try {
+    const raw = localStorage.getItem(MODE_KEY);
+    return raw === "room" || raw === "roster" ? raw : "auto";
+  } catch {
+    return "auto";
+  }
+}
+function writeMode(mode: SceneMode): void {
+  try {
+    localStorage.setItem(MODE_KEY, mode);
+  } catch {
+    // Not remembering it is not a reason to fail.
+  }
+}
+
+export function SceneView({
+  heightPx = Infinity,
+  standalone = false,
+}: {
+  heightPx?: number;
+  /** Already in a window of its own: no button to open another. */
+  standalone?: boolean;
+} = {}) {
   const host = useRef<HTMLDivElement>(null);
   const scene = useRef<Scene | null>(null);
 
@@ -75,8 +132,12 @@ export function SceneView({ heightPx = Infinity }: { heightPx?: number } = {}) {
   // running. The ticker itself is stopped (§12 M9 criterion 2).
   const animating = shouldAnimate({ heightPx, ...awake });
   // Too short to be a room. The pane changes what it draws rather than drawing
-  // the same thing badly — see `CompactRoster`.
-  const compact = heightPx < COMPACT_BELOW;
+  // the same thing badly — see `CompactRoster`. Unless told otherwise: the
+  // mode button pins either drawing, and is remembered per machine.
+  const [mode, setMode] = useState<SceneMode>(readMode);
+  const compact =
+    mode === "roster" || (mode === "auto" && heightPx < COMPACT_BELOW);
+
   useEffect(() => {
     scene.current?.setAnimating(animating);
   }, [animating]);
@@ -95,9 +156,38 @@ export function SceneView({ heightPx = Infinity }: { heightPx?: number } = {}) {
     }
   }, [events, replaying]);
 
+  // The same gate for things thrown across the room: only throws this
+  // render has not seen, and only ones that just happened.
+  const thrownUpTo = useRef(0);
+  useEffect(() => {
+    const now = Date.now();
+    for (const item of state.throws) {
+      if (item.seq <= thrownUpTo.current) continue;
+      thrownUpTo.current = item.seq;
+      if (justHappened(item.ts, now, replaying)) scene.current?.throw_(item);
+    }
+  }, [state.throws, replaying]);
+
+  // A tool going on a desk makes its noise — the phone rings, the toolbox
+  // clinks. Read off the same `activeTool` the desk draws, so the sound and
+  // the picture cannot disagree, and never while replaying: a finished run
+  // read back is a record, and a record does not ring.
+  const toolsBefore = useRef(new Map<string, string | null>());
+  useEffect(() => {
+    for (const actor of state.actors) {
+      const before = toolsBefore.current.get(actor.agentId) ?? null;
+      toolsBefore.current.set(actor.agentId, actor.activeTool);
+      if (replaying || actor.activeTool === before) continue;
+      const prop = propFor(actor.activeTool);
+      if (prop) playTool(prop);
+    }
+  }, [state.actors, replaying]);
+
   // A different mission is a different log, and its sequence starts again.
   useEffect(() => {
     chimedUpTo.current = 0;
+    thrownUpTo.current = 0;
+    toolsBefore.current.clear();
   }, [missionId]);
 
   // What to draw as soon as there is something to draw it with. Mounting is
@@ -122,6 +212,8 @@ export function SceneView({ heightPx = Infinity }: { heightPx?: number } = {}) {
         return;
       }
       scene.current = instance;
+      instance.expose();
+      instance.onCameraChange(() => setDriven(instance.cameraDriven));
       // Draw immediately rather than waiting for the next event. A mission that
       // is paused, finished or simply quiet produces none, and the room stayed
       // empty until something happened to change the state.
@@ -134,6 +226,7 @@ export function SceneView({ heightPx = Infinity }: { heightPx?: number } = {}) {
     return () => {
       cancelled = true;
       scene.current = null;
+      setDriven(false);
       instance.destroy();
     };
   }, [compact]);
@@ -141,6 +234,29 @@ export function SceneView({ heightPx = Infinity }: { heightPx?: number } = {}) {
   useEffect(() => {
     scene.current?.render(state, layoutId);
   }, [state, layoutId]);
+
+  // The room's colours are read out of the stylesheet at draw time, so a theme
+  // change is a different room — but only if something asks for a draw. On a
+  // live run the next event does; on a finished one nothing ever would, and
+  // the afternoon room sat under dusk furniture until some other change came
+  // along. Same subscription `Portrait` keeps, for the same reason.
+  const theme = useThemeStore((s) => s.choice);
+  useEffect(() => {
+    scene.current?.render(latest.current.state, latest.current.layoutId);
+  }, [theme]);
+
+  //: Whether the view is where a person put it rather than where the scene
+  //: would put it. Mirrored into React so the button below can exist; the
+  //: scene remains the one that knows.
+  const [driven, setDriven] = useState(false);
+
+  // A round ending is the natural place to hand the camera back: the run has
+  // stopped, whatever was being inspected is finished, and the next round
+  // frames itself. Anything shorter — every event, say — would be the view
+  // being taken away mid-look, which is what `driven` exists to prevent.
+  useEffect(() => {
+    if (state.endReason !== null) scene.current?.recentre();
+  }, [state.endReason]);
 
   return (
     <div
@@ -160,7 +276,62 @@ export function SceneView({ heightPx = Infinity }: { heightPx?: number } = {}) {
           <p className="text-xs text-faint">{strings.scene.empty}</p>
         </div>
       ) : null}
+
+      {/* Only once the view is somebody's. A permanent "recentre" over a room
+          that is already centred is a button that does nothing, most of the
+          time, on a surface with very little room — and its appearing is also
+          the only thing that tells you the automatic camera has stepped
+          aside. */}
+      {driven ? (
+        <button
+          type="button"
+          onClick={() => scene.current?.recentre()}
+          title={strings.scene.recentreHint}
+          className={cn(
+            "absolute bottom-2 left-1/2 -translate-x-1/2 rounded-card",
+            "border border-line bg-solid px-2.5 py-1 text-[11px]",
+            "text-muted hover:text-text",
+          )}
+        >
+          {strings.scene.recentre}
+        </button>
+      ) : null}
       <button
+        type="button"
+        onClick={() => {
+          const next = NEXT_MODE[mode];
+          setMode(next);
+          writeMode(next);
+        }}
+        title={MODE_TITLE[mode]()}
+        aria-label={MODE_TITLE[mode]()}
+        className={TOP_BUTTON + " right-[4.5rem]"}
+      >
+        {MODE_ICON[mode]({ size: 14 })}
+      </button>
+      {standalone ? (
+        <button
+          type="button"
+          onClick={() => void closeThisSceneWindow()}
+          title={strings.scene.popIn}
+          aria-label={strings.scene.popIn}
+          className={TOP_BUTTON + " right-10"}
+        >
+          <PopInIcon size={14} />
+        </button>
+      ) : missionId ? (
+        <button
+          type="button"
+          onClick={() => void popOutScene(missionId)}
+          title={strings.scene.popOut}
+          aria-label={strings.scene.popOut}
+          className={TOP_BUTTON + " right-10"}
+        >
+          <PopOutIcon size={14} />
+        </button>
+      ) : null}
+      <button
+        type="button"
         onClick={() => {
           const next = !sound;
           setSoundOn(next);
@@ -173,7 +344,7 @@ export function SceneView({ heightPx = Infinity }: { heightPx?: number } = {}) {
         // An emoji is not an accessible name, and a tooltip is not one either.
         aria-label={sound ? strings.scene.soundOn : strings.scene.soundOff}
         aria-pressed={sound}
-        className="absolute right-2 top-2 rounded bg-solid px-2 py-1 text-[11px] text-muted hover:text-text"
+        className={TOP_BUTTON + " right-2"}
       >
         {sound ? "🔊" : "🔇"}
       </button>

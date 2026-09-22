@@ -82,7 +82,7 @@ def member(seat, agent_id, name, *, leader=False, model="m1", avatar=None):
         model=model,
         sampling=None,
         tools=[],
-        avatar_config=avatar or {"build": "lithe"},
+        avatar_config=avatar or {"size": "normal"},
     )
 
 
@@ -172,7 +172,7 @@ def test_overrides_are_resolved_into_the_snapshot_not_left_to_read_later():
         provider_id, model, sampling = "prov-1", "base-model", None
         tools = ["search", "read"]
         autonomy = "ask_dangerous"
-        avatar_config = {"build": "lithe"}
+        avatar_config = {"size": "normal"}
 
     class FakeMember:
         agent_id, seat_index, role_in_team = "a1", 0, "leader"
@@ -208,10 +208,11 @@ async def test_editing_an_agent_after_a_run_does_not_rewrite_the_record(db, bus)
                     "model": "m1",
                     "provider_id": None,
                     "avatar_config": {
-                        "build": "lithe",
-                        "coat": "patched",
-                        "outfit": "blazer",
-                        "palette": "smoke",
+                        "breed": "marmalade",
+                        "size": "normal",
+                        "headwear": "bow_red",
+                        "glasses": "none",
+                        "collar": "none",
                     },
                 }
             )
@@ -259,10 +260,11 @@ async def test_editing_an_agent_after_a_run_does_not_rewrite_the_record(db, bus)
             "name": "Renamed Entirely",
             "model": "some-other-model",
             "avatar_config": {
-                "build": "stocky",
-                "coat": "spotted",
-                "outfit": "vest",
-                "palette": "charcoal",
+                "breed": "siamese",
+                "size": "fat",
+                "headwear": "ears_violet",
+                "glasses": "teal",
+                "collar": "red",
             },
         },
     )
@@ -278,7 +280,15 @@ async def test_editing_an_agent_after_a_run_does_not_rewrite_the_record(db, bus)
     assert who is not None
     assert who.name == "One"                      # not "Renamed Entirely"
     assert who.model == "m1"                      # not "some-other-model"
-    assert who.avatar_config["outfit"] == "blazer"  # not "armor"
+    # Every slot, not one: the whole config was replaced above, so a check on
+    # a single key would pass while the other two had been rewritten.
+    assert who.avatar_config == {
+        "breed": "marmalade",
+        "size": "normal",
+        "headwear": "bow_red",
+        "glasses": "none",
+        "collar": "none",
+    }
     # And the archived member still has a seat to be drawn in.
     assert replayed.by_agent(made[2].id).seat_index == 2
     assert [m.seat_index for m in replayed.members] == [0, 1, 2]
@@ -386,8 +396,10 @@ async def test_a_team_that_cannot_run_is_refused_with_every_reason(db, bus):
     agents = AgentService(db)
     teams = TeamService(db)
     a = await agents.create({"name": "Solo", "model": None})
+    # Seat 1, so this team really has no leader: whoever sits in seat 0 is
+    # the leader, so a member there would have supplied one.
     team = await teams.create(
-        {"name": "Broken", "members": [{"agent_id": a.id, "seat_index": 0}]}
+        {"name": "Broken", "members": [{"agent_id": a.id, "seat_index": 1}]}
     )
 
     runner = MissionRunner(db, bus)

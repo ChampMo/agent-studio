@@ -610,6 +610,30 @@ function RowView({
 
   if (row.kind === "did") {
     if (row.detail) return <DidWithDetail row={row} />;
+    if (row.pending && row.chrome) {
+      // A status still in force — `Pell is thinking` right now. The face in
+      // the gutter and the fish beside the words, which is what the busy row
+      // used to be: this row *is* that indicator, on the log where it
+      // belongs. Announced, because for a blind reader it is the only sign
+      // the app is doing anything between one message and the next.
+      return (
+        <div role="status" className="flex items-center gap-2 text-[11px] text-faint">
+          <div className="w-7 shrink-0">
+            <Portrait avatar={row.agentId ? avatarOf(row.agentId) : null} name={row.name || "?"} size={26} />
+          </div>
+          <span className="mt-0.5"><Dots /></span>
+          <span className="min-w-0 flex-1 break-words">
+            {row.text}
+            <span className="opacity-70">…</span>
+          </span>
+          {row.ts ? (
+            <time className="shrink-0 tabular-nums opacity-60">
+              {formatTime(new Date(row.ts))}
+            </time>
+          ) : null}
+        </div>
+      );
+    }
     return (
       <div className="flex items-start gap-2 pl-9 text-[11px] text-faint">
         {row.pending ? (
@@ -710,7 +734,12 @@ function RowView({
             <MarkdownBody source={row.text} />
           )}
           {row.streaming ? (
-            <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse rounded-sm bg-accent align-text-bottom" />
+            // Still arriving: the same fish the busy row shows, on the bubble
+            // itself, because while the agent is typing this bubble is where
+            // the reader is looking and the busy row is deliberately absent.
+            <span className="ml-1.5 inline-block align-text-bottom">
+              <Dots />
+            </span>
           ) : null}
         </div>
 
@@ -801,9 +830,9 @@ function Spinner({ className }: { className?: string }) {
   );
 }
 
-/** The three dots a chat app shows while the other side is typing. */
 /**
- * A fish being eaten, three frames, looping while an agent is busy.
+ * A fish being eaten — the artist's four frames, looping while an agent is
+ * busy.
  *
  * It replaced three pulsing dots and means exactly what they meant: the latest
  * `agent.status` for this agent is one that means work. Nothing here is timed
@@ -811,39 +840,11 @@ function Spinner({ className }: { className?: string }) {
  * spend a minute on one turn and the app does not know how long is left. The
  * loop is a sign of life, not a bar.
  *
- * `prefers-reduced-motion` gets the whole fish, still. Somebody who has asked
- * for less movement should still be able to see that something is happening.
- *
- * Drawn as inline SVG rather than from the sprite sheet: it sits in the DOM
- * beside text at 14px, and pulling it out of a Pixi atlas would mean the
- * timeline waiting on the scene's assets to render a row of prose.
+ * The frames are `art/loading/1..4.png`, stepped through in CSS (`fish-eat`
+ * in `index.css`) so pixel art snaps rather than cross-fades. Somebody who
+ * asked for less motion gets the first frame, still: they should still be
+ * able to see that something is happening.
  */
 function Dots() {
-  return (
-    <span aria-hidden="true" className="inline-flex items-center">
-      <svg
-        width="18"
-        height="12"
-        viewBox="0 0 18 12"
-        className="text-accent motion-safe:animate-[nibble_1.2s_steps(1,end)_infinite]"
-        style={{ imageRendering: "pixelated" }}
-      >
-        {/* Tail, always there. */}
-        <path d="M0 4h2v4H0z M2 5h1v2H2z" fill="currentColor" />
-        {/* Body, in three bites. Each is its own group so the keyframes can
-            hide them one at a time — steps(1) so it snaps like pixel art
-            rather than fading. */}
-        <g className="fish-bite-1">
-          <path d="M3 3h5v6H3z" fill="currentColor" />
-        </g>
-        <g className="fish-bite-2">
-          <path d="M8 3h4v6H8z" fill="currentColor" />
-        </g>
-        <g className="fish-bite-3">
-          <path d="M12 4h3v4h-3z" fill="currentColor" />
-          <rect x="13" y="5" width="1" height="1" fill="var(--color-bg)" />
-        </g>
-      </svg>
-    </span>
-  );
+  return <span aria-hidden="true" className="fish-loader" />;
 }
