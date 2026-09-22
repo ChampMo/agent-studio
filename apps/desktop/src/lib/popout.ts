@@ -32,7 +32,9 @@ declare global {
   }
 }
 
-function inTauri(): boolean {
+/** Whether this page is the desktop shell rather than a browser tab. Exported
+ *  so nothing else has to keep a second copy of the test (§2.1). */
+export function inTauri(): boolean {
   return Boolean(
     (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__,
   );

@@ -152,6 +152,53 @@ async def list_endpoint_models(request: Request, body: ModelsIn) -> dict[str, An
     return {"models": models, "error": None}
 
 
+@router.get("/providers/{profile_id}/models")
+async def list_profile_models(request: Request, profile_id: str) -> dict[str, Any]:
+    """The same question, asked about an endpoint that is already saved.
+
+    `POST /providers/models` carries the key in its body, which is right for
+    the add-a-provider form — nothing is stored yet, so the caller is the only
+    one who has it. It is exactly wrong here: a saved profile's key is in the
+    OS keychain and **the client can never see it again** (§9.2). Asking the
+    page to supply a key it is not allowed to hold would mean typing one in to
+    read a list.
+
+    So this takes an id and reads the key on this side, the same way a run
+    does. Nothing about the profile is changed by asking.
+
+    A `search` profile is refused rather than asked. Nothing runs on one — it
+    is an endpoint `web_search` uses (§16.5) — so it has no models to offer and
+    an empty list would read as "this endpoint has none" rather than "this is
+    not that kind of endpoint".
+
+    Failures come back in the field, not as a 500, for the reason the POST
+    gives: an endpoint with no `/models` is a normal thing to meet and the form
+    falls back to a text field.
+    """
+    profile = await _load(request, profile_id)
+    if profile.kind == "search":
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"{profile.name!r} is a search endpoint; nothing runs on it",
+        )
+
+    try:
+        provider = registry.build_from_profile(profile)
+    except ProviderError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, exc.message) from exc
+
+    try:
+        models = await provider.list_models()
+    except ProviderError as exc:
+        return {"models": [], "error": exc.message}
+    except Exception as exc:  # noqa: BLE001 - anything here is the endpoint's
+        return {"models": [], "error": str(exc)}
+    finally:
+        await provider.aclose()
+
+    return {"models": models, "error": None}
+
+
 class SearchOrderIn(BaseModel):
     """Every search profile, in the order to try them."""
 

@@ -482,19 +482,33 @@ input[type="number"]::-webkit-inner-spin-button {
 }
 
 /*
- * The busy fish (timeline): the four drawn frames under `art/loading/`, one
- * 50x50 canvas each with the fish in the same place on every frame, so they
- * are shown as one box whose background image steps from frame to frame.
- * Scaled 1.2x and cropped to the ink (x 15-35, y 19-31 of the canvas).
- * `steps(1, end)` so pixel art snaps rather than cross-fades; the still
- * first frame is what `prefers-reduced-motion` gets.
+ * The busy fish: the four drawn frames under `art/loading/`, one 50x50 canvas
+ * each with the fish in the same place on every frame, so they are shown as
+ * one box whose background image steps from frame to frame.
+ *
+ * The crop is written once, in the art's own pixels — the ink sits at x 15-35,
+ * y 19-31, and this takes one pixel of margin around it — and `--fish-scale`
+ * multiplies every number in it. A second size is then a single custom
+ * property rather than four hand-multiplied offsets that can disagree with
+ * each other (§2.1).
+ *
+ * `steps(1, end)` so pixel art snaps rather than cross-fades; the still first
+ * frame is what `prefers-reduced-motion` gets.
  */
 .fish-loader {
+  --fish-scale: 1.2;
   display: inline-block;
-  width: 26px;
-  height: 16px;
-  background: url("/art/loading/1.png") -17px -22px / 60px 60px no-repeat;
+  width: calc(22px * var(--fish-scale));
+  height: calc(14px * var(--fish-scale));
+  background: url("/art/loading/1.png") calc(-14px * var(--fish-scale))
+    calc(-18px * var(--fish-scale)) /
+    calc(50px * var(--fish-scale)) calc(50px * var(--fish-scale)) no-repeat;
   image-rendering: pixelated;
+}
+
+/* The same fish, at the size the boot screen draws it beside the cat. */
+.fish-loader--boot {
+  --fish-scale: 3;
 }
 @media (prefers-reduced-motion: no-preference) {
   .fish-loader {

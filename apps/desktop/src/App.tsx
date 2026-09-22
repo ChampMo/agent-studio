@@ -10,7 +10,6 @@
  */
 import { useEffect, useState } from "react";
 import { apply, useThemeStore } from "./stores/themeStore";
-import { strings } from "./lib/constants/strings.en";
 import { useSettingsStore } from "./stores/settingsStore";
 import { OnboardingScreen } from "./features/settings/OnboardingScreen";
 import { SettingsPanel } from "./features/settings/SettingsPanel";
@@ -18,6 +17,7 @@ import { RosterPanel } from "./features/roster/RosterPanel";
 import { TeamsPanel } from "./features/teams/TeamsPanel";
 import { MissionPanel } from "./features/mission/MissionPanel";
 import { AppShell } from "./features/shell/AppShell";
+import { BootScreen } from "./features/shell/BootScreen";
 import { Sidebar, type SidebarPlace } from "./features/shell/Sidebar";
 import { RightPanel } from "./features/shell/RightPanel";
 import { useHistoryStore } from "./stores/historyStore";
@@ -61,14 +61,7 @@ export function App() {
     if (ready) void refreshApprovals();
   }, [ready, refreshApprovals]);
 
-  if (!ready) {
-    return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-2 text-center">
-        <p className="text-sm text-muted">{strings.app.waitingForBackend}</p>
-        <p className="text-xs text-faint">{strings.app.waitingHint}</p>
-      </div>
-    );
-  }
+  if (!ready) return <BootScreen />;
 
   // A window opened to show one room shows that room and nothing else. Read
   // once per window: the fact is set before any script runs and never changes.

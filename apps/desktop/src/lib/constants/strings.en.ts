@@ -20,8 +20,13 @@ export const strings = {
   app: {
     name: "Agent Studio",
     waitingForBackend: "Waiting for the backend to start…",
+    //: Two hints, because two things start it and they are checked in
+    //: different places. The packaged app spawns its own backend and has no
+    //: terminal to look at, so sending someone there was an instruction they
+    //: could not follow — and it is what every installed copy showed.
     waitingHint:
       "The dev launcher starts it. If this persists, check the terminal.",
+    waitingHintApp: "Agent Studio starts it. This normally takes a moment.",
   },
   sidebar: {
     newRun: "New run",
@@ -607,7 +612,6 @@ export const strings = {
     saveEdit: "Save changes",
     intro:
       "Describe the role and the model drafts a character. Nothing is saved until you review it and press Save.",
-    providerLabel: "Generate with",
     roleLabel: "Role",
     roleHint: "One line. What is this agent for?",
     rolePlaceholder: "research analyst who checks sources",
@@ -639,6 +643,37 @@ export const strings = {
     //: so it must not sound like the app has an opinion about how this agent
     //: ought to look.
     avatarShuffle: "Shuffle",
+    //: What this agent thinks with. Two fields, because they are two
+    //: choices: which endpoint, and which of that endpoint's models.
+    runsOnTitle: "Runs on",
+    runsOnHint:
+      "The endpoint this agent's turns go to, and the model it asks for. Each agent on a team can use a different one.",
+    endpointLabel: "Endpoint",
+    agentModelLabel: "Model",
+    //: The id is a string with no feedback until a mission fails on it, so the
+    //: button asks the endpoint rather than this app shipping a list (§3.1).
+    agentModelHint: "The exact model id this endpoint expects.",
+    modelPick: "Pick a model",
+    modelPlaceholder: "Fetch the list, or type the id",
+    fetchModels: "Fetch models from this endpoint",
+    fetchingModels: "Asking…",
+    modelsFound: (n: number) => `${n} model${n === 1 ? "" : "s"} offered`,
+    modelsNone: "This endpoint offered no models.",
+    modelsFailed: "Could not ask this endpoint:",
+    //: Kept as an option rather than dropped — a control showing a placeholder
+    //: over an agent that has a model is the form claiming a field is empty
+    //: when it is not (§1).
+    modelNotOffered: "Set here; the endpoint did not list it.",
+    //: Changing the endpoint moves the model with it, because a model id
+    //: belongs to the endpoint that offers it. Said out loud: the field
+    //: changed without the person touching it.
+    modelFollowedEndpoint: (model: string) =>
+      `Changed with the endpoint, to what it is set to run: ${model}. Fetch the list to pick another.`,
+    //: An agent with no model cannot take a turn — the runner sends the empty
+    //: string and the endpoint refuses it. Said here rather than three minutes
+    //: into a mission.
+    noModelWarning:
+      "Without a model id this agent cannot take a turn: the endpoint is sent an empty one and refuses it.",
     samplingIgnored:
       "This model rejects sampling parameters, so any temperature set here would be dropped.",
     save: "Save to roster",

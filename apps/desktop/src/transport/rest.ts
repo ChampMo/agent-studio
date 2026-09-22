@@ -278,6 +278,17 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
+  /** The same question about an endpoint that is already saved.
+   *
+   *  A GET with no body, because there is no key to send: a saved profile's
+   *  key is in the OS keychain and this app can never read it back (§9.2).
+   *  The backend reads it there, the same way a run does. `error` is again the
+   *  endpoint's own words, so a form can fall back to a text field. */
+  profileModels: (id: string) =>
+    request<{ models: string[]; error: string | null }>(
+      `/providers/${id}/models`,
+    ),
+
   /** The whole search fallback chain, in the order to try it. Sent as one list
    *  rather than a position per row: a position is a statement about the
    *  others, and two half-applied moves would leave the runner reading a table

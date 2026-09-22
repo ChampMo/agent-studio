@@ -93,8 +93,39 @@ export function AgentCreator({
   const [providerId, setProviderId] = useState<string>(
     agent?.providerId ?? active?.id ?? "",
   );
+
+  // And so is the model. It used to be neither: this form had no model field,
+  // and `save` sent `chosen?.model` — the *endpoint's* current default. So
+  // every agent on an endpoint ran the same model, and opening an agent that
+  // had been set to something else and pressing Save silently moved it back.
+  //
+  // Held as what this agent asks for, which is what the snapshot freezes and
+  // what `graph.py` sends. Empty is a real state and not a safe one: the
+  // runner sends `member.model or ""` and the endpoint refuses it, so the
+  // field says that rather than quietly filling itself in.
+  //: Same three sources as `providerId` above, in the same order and for the
+  //: same reason: the agent's own, then the endpoint a new agent starts on.
+  //: Reading only `agent?.model` left the create form's field empty whenever
+  //: the settings store had already loaded — the effect below fills it, and
+  //: the effect only runs when `providerId` is still blank, which it is not.
+  const [model, setModel] = useState<string>(
+    agent?.model ?? active?.model ?? "",
+  );
+  /** What the endpoint said it offers. Null until asked — not the same as an
+   *  empty list, and the two read differently below. */
+  const [models, setModels] = useState<string[] | null>(null);
+  const [fetching, setFetching] = useState(false);
+  const [modelsError, setModelsError] = useState<string | null>(null);
+  /** Said when this form moved the model itself, so a field that changed
+   *  without being touched explains why. */
+  const [modelNote, setModelNote] = useState<string | null>(null);
+
   useEffect(() => {
-    if (!providerId && active) setProviderId(active.id);
+    if (providerId || !active) return;
+    setProviderId(active.id);
+    // Only when there is nothing there. An agent being edited brought its own
+    // model, and the endpoint's default must not overwrite it.
+    setModel((current) => current || active.model);
   }, [active, providerId]);
 
   // Not `providers.filter((p) => p.hasKey)`, which offered Tavily and Brave —
@@ -104,6 +135,86 @@ export function AgentCreator({
   const usable = chatProviders(providers);
   const chosen = providers.find((p) => p.id === providerId) ?? null;
   const ignoresSampling = chosen?.capabilities?.sampling_params === false;
+
+  /**
+   * A model id belongs to the endpoint that offers it, so it moves with it.
+   *
+   * Keeping the old id across a change would leave a real-looking string that
+   * the new endpoint has never heard of, and nothing would say so until a
+   * mission failed on it. The endpoint's own model is the one thing known to
+   * work there, so that is what it lands on — and the form says it did,
+   * because a field that changes on its own is otherwise indistinguishable
+   * from one that was never set.
+   */
+  function pickEndpoint(id: string) {
+    if (id === providerId) return;
+    setProviderId(id);
+    // Fetched for a different server. Whatever it offered says nothing here.
+    setModels(null);
+    setModelsError(null);
+    const next = providers.find((p) => p.id === id) ?? null;
+    const fallback = next?.model ?? "";
+    setModel(fallback);
+    setModelNote(
+      fallback ? strings.creator.modelFollowedEndpoint(fallback) : null,
+    );
+  }
+
+  /**
+   * Ask the endpoint what it runs, rather than shipping a list.
+   *
+   * A GET by profile id, not the add-a-provider form's POST: a saved key lives
+   * in the OS keychain and this app can never read it back (§9.2), so the
+   * backend is the only side that can ask. The text field stays underneath for
+   * an endpoint with no `/models`, which is a normal thing to meet.
+   */
+  async function fetchModels() {
+    if (!providerId) return;
+    setFetching(true);
+    setModelsError(null);
+    try {
+      const answer = await api.profileModels(providerId);
+      setModels(answer.models);
+      // The endpoint's own words. "Connection refused" and "invalid api key"
+      // need different fixes, and one flattened message would hide which.
+      setModelsError(answer.error);
+    } catch (err) {
+      setModels([]);
+      setModelsError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setFetching(false);
+    }
+  }
+
+  /**
+   * A list to pick from only once the endpoint has actually offered one.
+   *
+   * The first version turned the field into a `Select` whenever there was
+   * *anything* to show, and an agent with a model already set counts as
+   * something — so every saved agent got a dropdown whose only entry was the
+   * model it already had, and the id could never be typed again. That is the
+   * one case the text field exists for: an endpoint with no `/models` offers
+   * nothing, and then this control would have locked the agent to the model it
+   * was created with. Found by trying to change one back.
+   *
+   * The agent's own id is kept as an option regardless, because dropping it
+   * would leave a placeholder over an agent that has a model — the form
+   * claiming a field is empty when it is not (§1).
+   */
+  const offered = models ?? [];
+  const pickFromList = offered.length > 0;
+  const modelOptions = [
+    ...(model && !offered.includes(model)
+      ? [
+          {
+            value: model,
+            label: model,
+            hint: strings.creator.modelNotOffered,
+          },
+        ]
+      : []),
+    ...offered.map((m) => ({ value: m, label: m })),
+  ];
 
   //: Which of the four the panel is in. Derived rather than stored, so it
   //: cannot drift from the thing it describes (§2.1): `busy` is the request,
@@ -198,20 +309,16 @@ export function AgentCreator({
     setBusy(true);
     setError(null);
     try {
+      // What this form owns, including the model — which is now a field on it
+      // rather than whatever the endpoint currently defaults to.
+      const runsOn = {
+        provider_id: providerId || null,
+        model: model.trim() || null,
+      };
       if (agent) {
-        // Only what this form owns. The provider and model are sent because
-        // they are on this form too; nothing else about the row is touched.
-        await updateAgent(agent.id, {
-          ...draft,
-          provider_id: providerId || null,
-          model: chosen?.model ?? agent.model,
-        });
+        await updateAgent(agent.id, { ...draft, ...runsOn });
       } else {
-        await createAgent({
-          ...draft,
-          provider_id: providerId || null,
-          model: chosen?.model ?? null,
-        });
+        await createAgent({ ...draft, ...runsOn });
       }
       onDone();
     } catch (err) {
@@ -248,6 +355,122 @@ export function AgentCreator({
           <p className="text-sm text-muted">
             {agent ? strings.creator.editIntro : strings.creator.intro}
           </p>
+        </div>
+
+        {/* What this agent thinks with, on both the create and the edit form.
+
+            It was on neither. The only endpoint control lived inside the
+            generate panel, which is not rendered when editing — so an agent's
+            endpoint could be chosen once and never changed, and its model
+            could not be chosen at all. Each agent on a team can run somewhere
+            different, and this is where that is said.
+
+            Above the generator on purpose: the endpoint is what drafts the
+            character, so choosing it first is the order the page is used in. */}
+        <div className="space-y-4">
+          <div>
+            <h3 className="text-sm font-medium text-text">
+              {strings.creator.runsOnTitle}
+            </h3>
+            <p className="mt-1 text-xs text-muted">
+              {strings.creator.runsOnHint}
+            </p>
+          </div>
+
+          <Field label={strings.creator.endpointLabel}>
+            <Select
+              value={providerId}
+              onChange={pickEndpoint}
+              placeholder="—"
+              options={usable.map((p) => ({
+                value: p.id,
+                label: p.name,
+                // What the endpoint itself is set to run, which is what a new
+                // agent starts on. Not necessarily what this agent asks for.
+                hint: p.model ?? undefined,
+              }))}
+            />
+          </Field>
+
+          <Field
+            label={strings.creator.agentModelLabel}
+            hint={strings.creator.agentModelHint}
+          >
+            <div className="space-y-2">
+              {/* A list only once the endpoint has given one. Before that the
+                  field is a text box, so an endpoint with no `/models` is no
+                  worse off than it was — and neither is an agent whose model
+                  someone wants to correct by hand. */}
+              {pickFromList ? (
+                <Select
+                  value={model}
+                  onChange={(next) => {
+                    setModelNote(null);
+                    setModel(next);
+                  }}
+                  placeholder={strings.creator.modelPick}
+                  options={modelOptions}
+                />
+              ) : (
+                <Input
+                  value={model}
+                  onChange={(e) => {
+                    setModelNote(null);
+                    setModel(e.target.value);
+                  }}
+                  placeholder={strings.creator.modelPlaceholder}
+                  className="font-mono"
+                />
+              )}
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void fetchModels()}
+                  disabled={fetching || !providerId}
+                  className={cn(
+                    "min-h-[24px] rounded-card border border-line px-2.5 py-1 text-xs",
+                    "text-muted transition-colors hover:bg-solid hover:text-text",
+                    "disabled:opacity-40",
+                  )}
+                >
+                  {fetching
+                    ? strings.creator.fetchingModels
+                    : strings.creator.fetchModels}
+                </button>
+                {models && models.length > 0 ? (
+                  <span className="text-[11px] text-faint">
+                    {strings.creator.modelsFound(models.length)}
+                  </span>
+                ) : null}
+                {/* Answered, and had nothing to offer. Different from not
+                    asked, and different from failing. */}
+                {models && models.length === 0 && !modelsError ? (
+                  <span className="text-[11px] text-faint">
+                    {strings.creator.modelsNone}
+                  </span>
+                ) : null}
+              </div>
+
+              {modelsError ? (
+                <p className="text-[11px] text-wait">
+                  {strings.creator.modelsFailed} {modelsError}
+                </p>
+              ) : null}
+
+              {modelNote ? (
+                <p className="text-[11px] text-muted">{modelNote}</p>
+              ) : null}
+
+              {/* Not a disabled Save: an agent is worth keeping half-built,
+                  and the team validator is the run gate, not this form. */}
+              {!model.trim() ? (
+                <p className="text-[11px] text-attn">
+                  {strings.creator.noModelWarning}
+                </p>
+              ) : null}
+            </div>
+          </Field>
         </div>
 
         {/* Only when there is nothing to lose. Regenerating over an agent
@@ -289,19 +512,6 @@ export function AgentCreator({
               </>
             }
           >
-            <Field label={strings.creator.providerLabel}>
-              <Select
-                value={providerId}
-                onChange={setProviderId}
-                placeholder="—"
-                options={usable.map((p) => ({
-                  value: p.id,
-                  label: p.name,
-                  hint: p.model ?? undefined,
-                }))}
-              />
-            </Field>
-
             <Field
               label={strings.creator.roleLabel}
               hint={strings.creator.roleHint}

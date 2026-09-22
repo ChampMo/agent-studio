@@ -3032,6 +3032,102 @@ rewrote nothing, and stamped itself done. The rows still said `prop` while
 and cannot hit this; in dev, **write the code a migration calls before the
 migration file**, or expect to re-run the fold by hand.
 
+### Every agent on an endpoint ran the same model, and Save put it back
+
+The agent form had no model field at all. Its only endpoint control lived
+**inside the generate panel**, which is not rendered when editing — so an
+agent's endpoint could be chosen once, at creation, and never changed, and its
+model could not be chosen at any point.
+
+What `save` did instead is the part worth recording: `model: chosen?.model`,
+the **endpoint profile's** current default. So every agent pointed at one
+endpoint ran one model whatever the roster card implied, and opening an agent
+whose model had been set another way and pressing Save moved it back — a field
+nobody could see, rewritten by a button that says nothing about it.
+
+`Runs on` is two fields, because they are two choices: which endpoint, and
+which of that endpoint's models. It sits on both forms, above the generator on
+the create one, since the endpoint is what drafts the character and choosing it
+first is the order the page is used in.
+
+**The endpoint select is now one control, not two.** "Generate with" was
+already writing `provider_id`, so it had been deciding what the agent *runs on*
+under a name that only mentions drafting. One value with two names in one form
+is the §2.1 shape at its smallest.
+
+**Changing the endpoint moves the model with it**, to that endpoint's own — and
+says so on the line underneath, because a field that changes without being
+touched is otherwise indistinguishable from one that was never set. Keeping the
+old id would leave a real-looking string the new endpoint has never heard of,
+with nothing to say so until a mission failed on it.
+
+### A saved key cannot travel to the page that wants the list
+
+`POST /providers/models` takes the key in its body, which is right for the
+add-a-provider form: nothing is stored yet, so the caller is the only one who
+has it. It is exactly wrong for an endpoint that already exists — that key is
+in the OS keychain and the client can never read it back (§9.2), so reusing
+that route would have meant typing a key in to read a list.
+
+`GET /providers/{id}/models` takes an id and reads the key on the backend, the
+same way a run does. A `search` profile is refused rather than asked: nothing
+runs on one (§16.5), and an empty list would read as *this endpoint has none*
+rather than *this is not that kind of endpoint*.
+
+**And the first real use of it found something.** Asked about this machine's
+three DeepSeek profiles, the endpoint answered `deepseek-flash` and
+`deepseek-v4-pro` — while the profiles are set to `deepseek-v4-flash`,
+`deepseek-v4-pro` and `deepseek-v4-flash-vision-exp`. CLAUDE.md recorded the
+first list months ago; two of the three ids in use are not in the list it
+returns today. Whether the endpoint still *serves* them is a separate question
+nobody has asked it, and runs have been working. Which is the argument for
+asking rather than shipping a list, demonstrated on the app's own settings.
+
+### A dropdown of one is a field you cannot type in
+
+The first version turned the model into a `Select` whenever there was anything
+to show — and an agent that already has a model counts as something. So every
+saved agent got a dropdown whose only entry was the model it already had, and
+the id could never be typed again.
+
+That is precisely the case the text field exists for. An endpoint with no
+`/models` offers nothing, so the list stays empty, so the control would have
+locked that agent to the model it was created with for ever. Found by trying to
+put one back after testing the save — not by a test, and not by reading it.
+
+The rule is now the one `ModelForm` already had: a list **only once the
+endpoint has given one**. The agent's own id is still carried into that list as
+an option labelled *"Set here; the endpoint did not list it"*, because dropping
+it would show a placeholder over an agent that has a model.
+
+### Opening the app said nothing about which app it was
+
+The first screen of a packaged build is two lines of grey text, for the second
+or two a one-file PyInstaller bundle spends unpacking itself. It is the cat and
+the fish now — the app's own artwork, and **the same `.fish-loader` the
+transcript uses for a busy agent**, so there is one drawing and one animation
+meaning "working" rather than a spinner invented for this screen.
+
+It claims nothing about progress, for the same reason the busy fish does not:
+the backend answers `/health` when it answers and this side is polling, so a
+bar would be measuring something nobody is measuring (§1.1).
+
+Three things were measured rather than guessed. The **mouth** is at 59% of the
+cat's canvas, not the middle, so a row centred the ordinary way puts the fish
+level with the eyes. The **gap** is 12px — closer and the fish crosses the
+whiskers, further and it reads as a cat and, separately, a fish. And the fish
+is eaten **from the right**, so the cat goes on the right of it.
+
+The CSS crop is written once now, in the art's own pixels, with
+`--fish-scale` multiplying every number in it. A second size was otherwise four
+hand-multiplied offsets that can disagree with each other.
+
+**The hint under it was wrong in every installed copy.** It said *"The dev
+launcher starts it. If this persists, check the terminal"* — an instruction
+nobody running the packaged app can follow, since it starts its own backend and
+has no terminal. `inTauri()` is exported from `popout.ts` rather than copied,
+and there are two sentences because there are two things that start it.
+
 ---
 
 ## Decisions made while building
