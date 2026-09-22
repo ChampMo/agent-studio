@@ -25,13 +25,41 @@ npm run codegen              # regenerate TS + Pydantic from the schema
 npm run codegen:check        # fail if either generated file is stale or hand-edited
 npm run test                 # codegen:check + pytest + vitest + cargo
 npm run build:sidecar        # freeze the backend into src-tauri/binaries/
-npm run package              # build:sidecar + tauri build -> MSI and NSIS installers
+npm run package              # build:sidecar + a signed tauri build -> MSI + NSIS
+npm run release:manifest     # write dist/latest.json from what the build produced
 ```
 
 `npm run package` needs no running copy of the app: Windows locks the image of a running
 process, and the build refuses rather than shipping the previous backend.
 
 `uv` installs to `C:\Users\<you>\.local\bin` and may not be on PATH in a fresh shell.
+
+## Cutting a release
+
+The app updates itself, so a release is a **signed** build plus one extra asset.
+
+1. Bump `version` in `src-tauri/tauri.conf.json`. That number is what an installed
+   copy compares against; nothing else decides whether an update is offered.
+2. `npm run package` — signs every bundle and writes a `.sig` beside each one.
+3. `npm run release:manifest -- --notes-file <your notes>` — copies the
+   bundles into `dist/` under their release names and writes
+   `dist/latest.json`, reading each `.sig` off disk.
+4. Publish the tag with everything in `dist/`:
+
+```bash
+gh release create v0.2.0 dist/* --notes-file NOTES.md
+```
+
+One command decides both the name in the manifest and the name of the uploaded
+file, so the url in `latest.json` cannot point at a 404.
+
+The endpoint is `releases/latest/download/latest.json`, so the asset has to be on
+whichever release GitHub calls latest. A draft or a pre-release is not it.
+
+**The signing key is at `~/.agent-studio/updater.key` and is not in this repo.**
+Every installed copy verifies against the public half compiled into it, so losing the
+private half means everyone reinstalls by hand. `*.key` is gitignored; the key lives
+outside the tree anyway, so there is no path by which `git add -A` can publish it.
 
 ---
 
@@ -3100,6 +3128,69 @@ endpoint has given one**. The agent's own id is still carried into that list as
 an option labelled *"Set here; the endpoint did not list it"*, because dropping
 it would show a placeholder over an agent that has a model.
 
+### The app can replace itself, and a signature is what makes that safe
+
+An installed copy asks GitHub once per launch whether there is a newer one,
+offers it in the sidebar, and — on a button, never on its own — downloads it,
+verifies it and installs it.
+
+**The endpoint is not the security boundary; the key is.** `plugins.updater.
+pubkey` is compiled into every build, and a bundle that is not signed by the
+matching private half is refused before a byte is written. A compromised
+endpoint can serve whatever it likes and every install will decline all of it.
+That is the whole reason this is safe to do automatically, and it is the
+sentence the Settings panel leads with.
+
+**The private key is outside the repository**, at `~/.agent-studio/updater.key`
+— not merely gitignored. `scripts/build-app.mjs` exists so that there is no
+line in `package.json` tempting anyone to put a path inside the tree. Lose it
+and every installed copy has to be replaced by hand, because they each verify
+against the public half they were built with.
+
+**One request to GitHub per launch is a real change in posture** for an app
+whose brief says it runs entirely on this machine, so the panel says so in
+those words. Finding that out from a packet capture would be the app being
+quietly untrue about itself (§1).
+
+**The progress bar here is honest, and that took a rule.** The download reports
+a content length and then chunk sizes, so a proportion is a measurement — but
+only when the server sent a length. `contentLength ?? 0` would have handed the
+panel a denominator and drawn a bar over a number nobody measured, which is the
+`costUsd` / `quota` / `ProbeResult.conclusive` rule in a fourth place. Null
+means no length, the panel says how much arrived instead, and a test fails on
+the `?? 0` version.
+
+**"Last asked", not "up to date".** A panel claiming to be current is making a
+statement about the present that it stopped being able to support the moment
+the check returned. Same reasoning as the search-allowance meter saying
+*measured when this key was last tested*.
+
+The sidebar row renders **nothing** when there is nothing waiting — including
+after a failed check, because being unable to reach GitHub is not news to
+somebody who did not ask, and Settings carries the endpoint's own words for
+anyone who did. A permanent "Up to date" row is how people learn to stop
+reading the bottom of that column, which is the argument that took `open_desks`
+off the team cards.
+
+### A build that fails to sign exits 0
+
+`tauri signer generate` prints three environment variables, `_PATH` among them,
+so `TAURI_SIGNING_PRIVATE_KEY_PATH` is the obvious one to set. The bundler does
+not read it. What happened was worse than an error: it printed *"A public key
+has been found, but no private key"*, produced both installers, and **exited
+with status 0**.
+
+So the exit code is not the thing to trust. `build-app.mjs` passes the key's
+*content* in `TAURI_SIGNING_PRIVATE_KEY`, and then checks that a `.sig` exists
+beside every bundle — because that is what a signed build actually leaves
+behind. Without that check the failure is invisible until somebody downloads
+the release and their app refuses it.
+
+**What this does not fix: v0.1.0 cannot update itself.** That build has no
+updater plugin in it at all, and its published installers were made before any
+of this, so they are unsigned and cannot be signed after the fact. The update
+path begins at the next release, and getting to it is one manual install.
+
 ### Opening the app said nothing about which app it was
 
 The first screen of a packaged build is two lines of grey text, for the second
@@ -3121,6 +3212,14 @@ is eaten **from the right**, so the cat goes on the right of it.
 The CSS crop is written once now, in the art's own pixels, with
 `--fish-scale` multiplying every number in it. A second size was otherwise four
 hand-multiplied offsets that can disagree with each other.
+
+**Then the words went too.** The sentence said what was being waited for, which
+is a fact about this app's internals shown to somebody who has just
+double-clicked an icon, for the second or two before it disappears. The cat and
+the fish already say the only useful thing, which is *something is happening*.
+It is `sr-only` rather than deleted: a picture of a cat says nothing at all to a
+screen reader, and that is the one reader for whom "just the cat" is no
+message.
 
 **The hint under it was wrong in every installed copy.** It said *"The dev
 launcher starts it. If this persists, check the terminal"* — an instruction

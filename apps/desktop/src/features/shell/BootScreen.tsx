@@ -13,8 +13,18 @@
  *
  * **It claims nothing about progress.** There is no bar and no percentage,
  * because there is nothing to measure: the backend answers `/health` when it
- * answers, and this side is polling. The loop is a sign of life (§1.1). The
- * only fact on screen is the sentence, and it says what is being waited for.
+ * answers, and this side is polling. The loop is a sign of life (§1.1).
+ *
+ * **And no words.** The sentence went with them: it said what was being waited
+ * for, which is a sentence about this app's own internals shown to somebody who
+ * has just double-clicked an icon, for the second or two before it goes away.
+ * The cat and the fish already say the only thing that is true and useful here,
+ * which is *something is happening*.
+ *
+ * It is not silent to a screen reader, where a picture of a cat says nothing at
+ * all. The sentence is still there and still live — `sr-only`, the same way the
+ * composer's label and the checkbox input are hidden rather than removed. That
+ * is the one reader for whom "just the cat" is no message.
  *
  * **This cat is not an agent.** Every other cat in the app is drawn from an
  * `avatar_config` that belongs to somebody; this one is the app's own face,
@@ -64,7 +74,7 @@ export function BootScreen() {
   const [missing, setMissing] = useState<string[]>([]);
 
   return (
-    <div className="flex h-full min-h-screen flex-col items-center justify-center gap-6 px-6 text-center">
+    <div className="flex h-full min-h-screen flex-col items-center justify-center px-6">
       <div
         aria-hidden="true"
         className="flex items-center"
@@ -93,12 +103,10 @@ export function BootScreen() {
         </span>
       </div>
 
-      <div aria-live="polite" className="space-y-1">
-        <p className="text-sm text-muted">{strings.app.waitingForBackend}</p>
-        <p className="text-xs text-faint">
-          {inTauri() ? strings.app.waitingHintApp : strings.app.waitingHint}
-        </p>
-      </div>
+      <p aria-live="polite" className="sr-only">
+        {strings.app.waitingForBackend}{" "}
+        {inTauri() ? strings.app.waitingHintApp : strings.app.waitingHint}
+      </p>
     </div>
   );
 }

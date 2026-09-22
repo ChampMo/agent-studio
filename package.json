@@ -18,7 +18,8 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "build:sidecar": "node scripts/build-sidecar.mjs",
-    "package": "npm run build:sidecar && tauri build",
+    "package": "npm run build:sidecar && node scripts/build-app.mjs",
+    "release:manifest": "node scripts/release-manifest.mjs",
     "test:rs": "cargo test --manifest-path src-tauri/Cargo.toml --lib"
   },
   "devDependencies": {

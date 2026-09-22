@@ -19,20 +19,7 @@ import { cn } from "../../lib/cn";
 import { FolderIcon } from "../../components/ui/icons";
 import { revealFolder } from "../../lib/reveal";
 import { api, type StoragePart } from "../../transport/rest";
-
-/** Bytes as a person reads them. Never rounded up past a boundary: 999 bytes
- *  is not "1 KB". */
-function size(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ["KB", "MB", "GB"];
-  let value = bytes / 1024;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
-}
+import { formatBytes as size } from "../../lib/format";
 
 export function StoragePanel() {
   const [root, setRoot] = useState<string | null>(null);

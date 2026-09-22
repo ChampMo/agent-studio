@@ -922,6 +922,48 @@ export const strings = {
     total: (size: string) => `${size} in total.`,
   },
 
+  update: {
+    title: "Updates",
+    //: Says what it does over the network, where the setting is, because
+    //: everything else in this app talks only to endpoints you configured or
+    //: to 127.0.0.1. Discovering this in a packet capture would be worse.
+    intro:
+      "Agent Studio can replace itself with a newer version instead of asking you to download an installer again. It asks GitHub once each time it starts whether there is one; nothing is downloaded or installed until you press the button.",
+    //: The one sentence that makes the mechanism trustworthy, said plainly.
+    signed:
+      "Every update is checked against a signing key built into this copy. A bundle that is not signed with the matching key is refused, whatever it came from.",
+    installed: (version: string) => `You are running ${version}.`,
+    unknownVersion: "Version unknown.",
+    check: "Check for updates",
+    checking: "Asking…",
+    //: Not "up to date", which reads as a live claim. This says when.
+    current: "No newer version was offered.",
+    checkedAt: (when: string) => `Last asked ${when}.`,
+    //: Never asked is a different thing from asked and told nothing.
+    neverChecked: "Not asked yet this session.",
+    available: (version: string) => `Version ${version} is available.`,
+    published: (when: string) => `Published ${when}.`,
+    notesTitle: "What the release says",
+    install: "Download and install",
+    //: A proportion only where the server declared a length. Otherwise the
+    //: number that is real, which is how much has arrived.
+    downloading: (done: string, total: string) => `${done} of ${total}`,
+    downloadingUnsized: (done: string) =>
+      `${done} downloaded — this endpoint did not say how large it is`,
+    installing: "Installing…",
+    ready: "Installed. Restart to run it.",
+    restart: "Restart now",
+    //: The endpoint's own words go after this. "404" and "signature mismatch"
+    //: need entirely different answers.
+    failed: "Could not update:",
+    //: The browser, where there is no app to replace.
+    unsupported:
+      "Updating in place needs the desktop app. This page is running in a browser.",
+    //: The sidebar row, which exists only when there is something to say.
+    banner: (version: string) => `Update to ${version}`,
+    bannerReady: "Restart to finish updating",
+  },
+
   connection: {
     idle: "Not connected",
     connecting: "Connecting…",

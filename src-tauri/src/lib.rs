@@ -338,6 +338,13 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         // The webview may open a folder picker; see capabilities/default.json.
         .plugin(tauri_plugin_dialog::init())
+        // Updating in place. The check, the download and the install are all
+        // driven from the page, because that is where there is somewhere to
+        // say what is happening and somewhere to decline.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        // Only `process:allow-restart` is granted. The page may bring the new
+        // copy up after an install; it may not exit the app on a whim.
+        .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
             reveal_folder,
             open_scene_window,

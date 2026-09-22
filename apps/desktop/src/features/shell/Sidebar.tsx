@@ -21,6 +21,7 @@ import {
 } from "../../components/ui/icons";
 import { ThemeToggle } from "../../components/ui/ThemeToggle";
 import { MissionList } from "./MissionList";
+import { UpdateNotice } from "./UpdateNotice";
 
 export type SidebarPlace = "work" | "roster" | "teams" | "settings";
 
@@ -113,6 +114,9 @@ export function Sidebar({
       </div>
 
       <div className="space-y-0.5 border-t border-line pt-2">
+        {/* Above the three places, and absent whenever there is nothing
+            waiting. It is not a fourth place — it is a thing that happens. */}
+        <UpdateNotice />
         {PLACES.map((entry) => (
           <button
             key={entry.id}

@@ -25,8 +25,9 @@ import { cn } from "../../lib/cn";
 import { SearchKeys } from "./SearchKeys";
 import { BudgetPanel } from "./BudgetPanel";
 import { StoragePanel } from "./StoragePanel";
+import { UpdatePanel } from "./UpdatePanel";
 
-type Where = "models" | "search" | "limits" | "storage";
+type Where = "models" | "search" | "limits" | "storage" | "updates";
 
 const SECTIONS: { id: Where; label: string; blurb: string }[] = [
   {
@@ -41,6 +42,9 @@ const SECTIONS: { id: Where; label: string; blurb: string }[] = [
   },
   { id: "limits", label: strings.budget.title, blurb: strings.budget.intro },
   { id: "storage", label: strings.storage.title, blurb: strings.storage.intro },
+  // Last, because it is the one thing here that is about the app itself
+  // rather than about what a run is allowed to do.
+  { id: "updates", label: strings.update.title, blurb: strings.update.intro },
   // No theme section. It is one setting with three values and a button for it
   // in the corner of the window, which is where it belongs — and a page that
   // held nothing else printed its own one-line description under the section
@@ -66,11 +70,11 @@ export function SettingsPanel() {
           beside the app's own left sidebar — two columns of vertical links
           against each other, and a whole column spent on four words.
 
-          Tabs rather than a list because there are four of them and they are
-          not going to become twelve: models, keys, limits, storage is the whole
-          surface of what this page configures. */}
-      {/* A plain nav, not role="tablist". These are four places rather than
-          four views of one thing, and a real tablist owes the reader arrow-key
+          Tabs rather than a list because there are five of them and they are
+          not going to become twelve: models, keys, limits, storage and the app
+          itself is the whole surface of what this page configures. */}
+      {/* A plain nav, not role="tablist". These are five places rather than
+          five views of one thing, and a real tablist owes the reader arrow-key
           roving focus — which would be extra code to make Tab behave worse than
           it already does here. `aria-current="page"` says which one you are on
           and every button stays in the tab order (WCAG 2.1.1). */}
@@ -168,6 +172,8 @@ export function SettingsPanel() {
               <StoragePanel />
             </div>
           ) : null}
+
+          {section.id === "updates" ? <UpdatePanel /> : null}
         </div>
       </div>
     </div>

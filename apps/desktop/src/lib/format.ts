@@ -31,3 +31,23 @@ export function formatTime(date: Date): string {
 export function formatDateTime(date: Date): string {
   return date.toLocaleString(LOCALE);
 }
+
+/**
+ * Bytes as a person reads them. Never rounded up past a boundary: 999 bytes is
+ * not "1 KB".
+ *
+ * Moved here from `StoragePanel`, which was its only reader until the updater
+ * needed to say how much of a download had arrived. Two copies of this would
+ * have been two answers to "how big is that" on one screen (§2.1).
+ */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB"];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
+}

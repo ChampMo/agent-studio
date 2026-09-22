@@ -23,6 +23,7 @@ import { RightPanel } from "./features/shell/RightPanel";
 import { useHistoryStore } from "./stores/historyStore";
 import { useMissionStore } from "./stores/missionStore";
 import { useApprovalStore } from "./stores/approvalStore";
+import { useUpdateStore } from "./stores/updateStore";
 import { sceneWindowMission } from "./lib/popout";
 import { ScenePage } from "./scene/ScenePage";
 
@@ -60,6 +61,19 @@ export function App() {
   useEffect(() => {
     if (ready) void refreshApprovals();
   }, [ready, refreshApprovals]);
+
+  // Asked once for the life of the window, here for the same reason the line
+  // above is: a capability that only one component performs disappears when
+  // that component does, and the sidebar row deliberately renders nothing when
+  // there is nothing waiting — so it can never be the thing that asks.
+  //
+  // Not gated on `ready`: whether this copy is out of date has nothing to do
+  // with whether its backend came up, and the boot screen is exactly when
+  // somebody is already waiting.
+  const checkForUpdate = useUpdateStore((s) => s.check);
+  useEffect(() => {
+    void checkForUpdate();
+  }, [checkForUpdate]);
 
   if (!ready) return <BootScreen />;
 

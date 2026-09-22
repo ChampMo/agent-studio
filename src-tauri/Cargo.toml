@@ -21,6 +21,13 @@ tauri-plugin-shell = "2"
 # The folder picker. Choosing a workspace is the one thing the window does
 # that the browser cannot (PROJECT_BRIEF.md section 16.2).
 tauri-plugin-dialog = "2"
+# Updating in place. The app fetches a signed bundle, verifies it against the
+# public key baked into tauri.conf.json, and installs it - so an update comes
+# from whoever holds the private key or it does not happen at all.
+tauri-plugin-updater = "2"
+# Restarting after one. The updater replaces the files; something has to bring
+# the new copy up, and it must be the app rather than the person.
+tauri-plugin-process = "2"
 rand = "0.8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
