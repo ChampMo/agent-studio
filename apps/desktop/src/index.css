@@ -506,9 +506,13 @@ input[type="number"]::-webkit-inner-spin-button {
   image-rendering: pixelated;
 }
 
-/* The same fish, at the size the boot screen draws it beside the cat. */
+/* The same fish, at the size the boot screen draws it.
+ *
+ * Larger than it was, because it used to sit beside a 128px cat and is now the
+ * only thing on the screen. 5x puts the ink at 110x70, which reads as the
+ * app's own mark rather than as a stray icon in the middle of a window. */
 .fish-loader--boot {
-  --fish-scale: 3;
+  --fish-scale: 5;
 }
 @media (prefers-reduced-motion: no-preference) {
   .fish-loader {

@@ -1,6 +1,6 @@
 {
   "name": "@agent-studio/shared",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "The central event contract. events.schema.json is the single source of truth for both the TypeScript types and the Pydantic models (PROJECT_BRIEF.md 2.2).",
   "type": "module",
