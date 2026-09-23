@@ -73,11 +73,26 @@ export const useSeenStore = create<SeenState>((set, get) => ({
   },
 }));
 
+/**
+ * The endings nobody needs to be told about, because they *are* the telling.
+ *
+ * `cancelled` is written in exactly two places and both of them are the person
+ * acting: the Stop button, and rejecting a plan at the gate. Marking such a run
+ * unread says *this finished while you were looking at something else* to
+ * somebody who was looking straight at it and is the reason it finished.
+ *
+ * Everything else stays. `crashed` especially: a run the backend closed because
+ * its process died is exactly what a person needs a dot for, and it is the one
+ * ending nobody chose.
+ */
+const ENDED_BY_YOU = new Set(["cancelled"]);
+
 /** True when a run has finished and this browser has not opened it since. */
 export function isUnread(
   seen: Record<string, string>,
   mission: { id: string; endedAt: string | null; endReason: string | null },
 ): boolean {
   if (!mission.endReason || !mission.endedAt) return false;
+  if (ENDED_BY_YOU.has(mission.endReason)) return false;
   return seen[mission.id] !== mission.endedAt;
 }

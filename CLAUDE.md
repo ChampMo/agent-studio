@@ -3176,6 +3176,40 @@ anyone who did. A permanent "Up to date" row is how people learn to stop
 reading the bottom of that column, which is the argument that took `open_desks`
 off the team cards.
 
+### The dot was not the thing I said it was
+
+Reported as an orange dot that came back after closing and reopening the app,
+and written up here — twice — as the tool-approval question that cannot survive
+a restart (§16.4). It was neither.
+
+`MissionList` draws three dots and they are different shapes: a pulsing accent
+dot for *working*, a hollow attn ring for *asking*, a solid attn dot for
+*unread*. The one on screen was solid, so it was `unread` — and the database
+settled it: one mission, `status=ended`, `end_reason=cancelled`,
+**`pending_request=None`**. Nothing was waiting on anything.
+
+Two claims made here before looking were wrong, and both were checkable:
+
+* **The approval case does not leave a stuck dot.** `_mark_pending` only sets
+  `pending_request` while `status == "running"`, and a plan interrupt sets
+  `status = "waiting"` — so the two kinds are already distinguishable in the
+  row, and `reap_orphans()` closing everything `running` already clears the
+  tool one through `_finish`. §16.4's open item is that the tool never *ran*,
+  not that anything is left dangling.
+* **The dot was correct about the facts and wrong about the person.** The run
+  had ended and had not been opened since, which is what `unread` means.
+
+The fix is the definition, not the mechanism. `cancelled` is written in exactly
+two places and both are the person acting — the Stop button, and rejecting a
+plan at the gate — so a dot saying *this finished while you were looking
+elsewhere* is being shown to somebody who was looking straight at it and is the
+reason it finished. `crashed` keeps its dot, and deserves it more than any other
+ending: it is the one nobody chose.
+
+**Read the pixels before naming the bug.** Three dots that differ by shape were
+designed precisely so they could be told apart, and the report was diagnosed
+twice from memory of what the rail *does* rather than from which dot was drawn.
+
 ### The room had never once been drawn in a shipped build
 
 v0.2.0 was published and the scene pane was **empty in it** — chrome buttons

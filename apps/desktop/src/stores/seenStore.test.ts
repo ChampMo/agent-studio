@@ -41,4 +41,22 @@ describe("what counts as unread", () => {
     // is a dot too many, never a run you were never told about.
     expect(isUnread({}, ended("2026-09-03T10:00:00Z"))).toBe(true);
   });
+
+  it("says nothing about a run you stopped yourself", () => {
+    // Found on a real install: a run was stopped with the Stop button and came
+    // back orange on the next launch, telling the person a run had finished
+    // that they finished. `cancelled` is written in two places and both are
+    // the person acting — the Stop button, and rejecting a plan at the gate.
+    expect(isUnread({}, ended("2026-09-03T10:00:00Z", "cancelled"))).toBe(false);
+  });
+
+  it("still marks a run that died on its own", () => {
+    // The opposite case, and the one the dot exists for. `crashed` is the one
+    // ending nobody chose, so it is exactly what somebody needs telling about.
+    expect(isUnread({}, ended("2026-09-03T10:00:00Z", "crashed"))).toBe(true);
+    expect(isUnread({}, ended("2026-09-03T10:00:00Z", "budget_exceeded"))).toBe(
+      true,
+    );
+    expect(isUnread({}, ended("2026-09-03T10:00:00Z", "failed"))).toBe(true);
+  });
 });
