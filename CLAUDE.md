@@ -3174,6 +3174,56 @@ anyone who did. A permanent "Up to date" row is how people learn to stop
 reading the bottom of that column, which is the argument that took `open_desks`
 off the team cards.
 
+### The room had never once been drawn in a shipped build
+
+v0.2.0 was published and the scene pane was **empty in it** — chrome buttons
+over a blank rectangle, while dev rendered the room perfectly. Three separate
+bugs, all one cause: **the app has a Content Security Policy and dev has none**,
+so nothing in the scene had ever been exercised under the policy it ships with.
+
+    Error: Current environment does not allow unsafe-eval,
+    please use pixi.js/unsafe-eval module to enable support.
+        at new Qt (WebGLRenderer) -> _h.init -> xM.mount
+
+Pixi writes its uniform and shader sync routines with `new Function`, so
+`Application.init()` threw and **no canvas was ever created**. `import
+"pixi.js/unsafe-eval"` is Pixi's own answer: the same routines, interpreted.
+Putting `'unsafe-eval'` in the policy would also have worked and is the wrong
+trade in the one app that runs model output and reads fetched pages (§2.7).
+
+`loadTextures.config.preferWorkers = false` is the second. Pixi decodes
+textures in a worker built from a `blob:` URL, which the policy refuses — so
+every texture that goes through `Assets.load` failed. The drawn cats never
+noticed, because `artFetch` uses `new Image()` and `Texture.from`; the **decor
+did**, and so does `sheet.ts`, which is the sprite-sheet *fallback* — the path
+taken exactly when a cat has no drawing, which is the path nobody exercises
+until an old `roster_snapshot` names a breed this build cannot draw.
+
+And the updater added hours earlier was already broken: `getVersion()` goes
+through Tauri's IPC at `http://ipc.localhost`, which `connect-src` did not
+allow. It shipped in v0.2.0 that way.
+
+**How it was found matters more than the fixes.** A release Tauri build has no
+devtools, so the scene pane's silence was unreadable from outside. WebView2
+still honours `--remote-debugging-port`, so launching the installed binary with
+`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222` puts CDP on
+a socket and the real console, a real `evaluate` and `Page.captureScreenshot`
+all become reachable. Every one of these was invisible until then.
+
+**And the near-miss is the lesson.** The first theory was the blob worker. It
+was tested by serving the production bundle with the policy *as written in
+`tauri.conf.json`* — which reported **ALLOWED**, so the theory was dropped.
+Tauri does not ship that policy. It rewrites it, turning `default-src 'self'`
+into an explicit `script-src 'self' 'sha256-...'` list of its own injected
+scripts, and a hash-based `script-src` does not admit a blob worker while a
+bare `default-src 'self'` does. The reproduction was faithful to the config and
+not to the artifact, and it produced a confident wrong answer. **When a bug
+only exists in the shipped build, only the shipped build is the witness.**
+
+Verified on the real binary, not on a test harness: canvas 676x280, floor,
+walls, the cat at its desk, and the decor back on the walls — a before and
+after at the same canvas size, on the same run.
+
 ### v0.2.0, and the chain checked from the outside
 
 Published from `3a17b80`, and then verified the way an installed copy would do

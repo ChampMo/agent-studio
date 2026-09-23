@@ -11,14 +11,74 @@
  * them from the old position to the new one. The same is true of the camera: it
  * looks at a point `cameraTarget` computed, and merely takes a moment to
  * arrive.
+ *
+ * **The first import is why the room appears at all in a shipped build.**
+ * Pixi's WebGL renderer writes its uniform and shader sync routines with
+ * `new Function`, so `Application.init()` throws
+ * `Current environment does not allow unsafe-eval` under any Content Security
+ * Policy that does not grant `'unsafe-eval'` — and this app ships one that
+ * does not. The renderer never existed, so no canvas was ever added and the
+ * scene pane drew its own buttons over nothing.
+ *
+ * The alternative fix is to put `'unsafe-eval'` in the policy, and it is the
+ * wrong one here. This is the app that runs model output and reads fetched web
+ * pages (§2.7); handing the page `eval` to save a few microseconds of uniform
+ * upload is the trade backwards. `pixi.js/unsafe-eval` is Pixi's own answer:
+ * the same routines, interpreted instead of generated.
+ *
+ * It is a side-effect import and it must be evaluated before any renderer is
+ * constructed. Imports are hoisted and run before this module's body, so
+ * sitting at the top of the only file that calls `new Application()` is
+ * exactly the guarantee that needs to hold.
+ *
+ * **Dev could never have caught this.** Vite serves no CSP, so the generated
+ * path works there and every check this project has ever run — including the
+ * packaged-build check in M7, which predates the art — was made somewhere the
+ * policy was absent.
  */
-import { Application, Container, Graphics, Sprite } from "pixi.js";
+import "pixi.js/unsafe-eval";
+
+import {
+  Application,
+  Container,
+  Graphics,
+  Sprite,
+  loadTextures,
+} from "pixi.js";
 
 import type { SceneState, Throw } from "../bindings/sceneState";
 import { playChime } from "../audio";
 import { ActorView } from "../entities/actor";
 import { loadCats } from "../entities/sheet";
 import { loadPictures } from "../entities/picture";
+
+/**
+ * The second half of the same problem, found in the same console.
+ *
+ * Pixi decodes textures in a Web Worker it builds from a `blob:` URL. Tauri
+ * does not ship the policy as written in `tauri.conf.json` — it rewrites it,
+ * turning `default-src 'self'` into an explicit
+ * `script-src 'self' 'sha256-…'` list covering its own injected scripts. A
+ * hash-based `script-src` does not admit a blob worker, and `worker-src` falls
+ * back to it, so `new Worker(blob:…)` is refused.
+ *
+ * The drawn cats never noticed: `artFetch` uses `new Image()` and
+ * `Texture.from(HTMLImageElement)`, which touches no worker. `Assets.load` in
+ * `sheet.ts` does, and that is the sprite-sheet fallback — the path taken
+ * exactly when a cat has no drawing, which is the path nobody exercises until
+ * an old `roster_snapshot` names a breed this build cannot draw (§5.1, §8).
+ * A fallback that fails is worse than no fallback, because it is silent.
+ *
+ * Decoding on the main thread is the cost, and for the handful of textures
+ * this app loads once at startup it is not a cost worth a CSP hole for.
+ *
+ * Worth recording how this was nearly missed: a first test served the policy
+ * as *written*, where `default-src 'self'` alone was enough — Chromium lets a
+ * blob worker inherit the document's origin — and reported ALLOWED. The policy
+ * the app actually runs under is the one Tauri assembles, and only the real
+ * binary could say what that was.
+ */
+if (loadTextures.config) loadTextures.config.preferWorkers = false;
 import { decorSpots, drawRoom } from "../entities/room";
 import { loadRoomArt, pieceFoot, pieceTexture } from "../entities/roomArt";
 import { loadToolArt } from "../entities/toolArt";
