@@ -519,7 +519,7 @@ web tool and a way to change things, and suggests splitting the roles; and
 because the backend on loopback holds the user's keys.
 
 
-**Released: v0.2.1** (2026-09-23). v0.2.0 was the first build that could update
+**Released: v0.2.2** (2026-09-24). v0.2.0 was the first build that could update
 itself and the first that drew no room; it is marked superseded on its own
 release page rather than left to be downloaded.
 
@@ -3290,6 +3290,18 @@ is eaten **from the right**, so the cat goes on the right of it.
 The CSS crop is written once now, in the art's own pixels, with
 `--fish-scale` multiplying every number in it. A second size was otherwise four
 hand-multiplied offsets that can disagree with each other.
+
+**And then the cat went too**, at the artist's request, leaving the fish alone
+at `--fish-scale: 5`. The reason it survives the trim is the reason it was
+there: it is the same drawing the transcript uses for a busy agent, so the app
+has one picture that means *working*. The cat was the second thing on that
+screen and it meant nothing — it sat still while the fish moved.
+
+Caught on the shipped binary rather than read off the source, which is now the
+standard here: poll CDP from the moment the debugging port opens and grab the
+page while it is still waiting on `/health`. Fish present, zero images, and the
+`sr-only` line reading the *packaged* wording — which is `inTauri()` proving
+itself in the only place it matters.
 
 **Then the words went too.** The sentence said what was being waited for, which
 is a fact about this app's internals shown to somebody who has just
