@@ -519,7 +519,9 @@ web tool and a way to change things, and suggests splitting the roles; and
 because the backend on loopback holds the user's keys.
 
 
-**Released: v0.2.0** (2026-09-22), the first build that can update itself.
+**Released: v0.2.1** (2026-09-23). v0.2.0 was the first build that could update
+itself and the first that drew no room; it is marked superseded on its own
+release page rather than left to be downloaded.
 
 **M10 — the new shell: in progress.** Three columns, past runs down the left,
 the run in front of you in the middle, what needs you on the right. 112 vitest +
