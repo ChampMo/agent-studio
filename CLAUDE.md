@@ -519,7 +519,7 @@ web tool and a way to change things, and suggests splitting the roles; and
 because the backend on loopback holds the user's keys.
 
 
-**Released: v0.2.2** (2026-09-24). v0.2.0 was the first build that could update
+**Released: v0.2.3** (2026-09-24). v0.2.0 was the first build that could update
 itself and the first that drew no room; it is marked superseded on its own
 release page rather than left to be downloaded.
 
@@ -3175,6 +3175,35 @@ somebody who did not ask, and Settings carries the endpoint's own words for
 anyone who did. A permanent "Up to date" row is how people learn to stop
 reading the bottom of that column, which is the argument that took `open_desks`
 off the team cards.
+
+### Three of four is not the workflow
+
+`Could not update: Command plugin:updater|download_and_install not allowed by
+ACL`, reported from the app. **The in-app updater had never installed anything**
+— not in v0.2.0, where it was the headline feature, nor in v0.2.1 or v0.2.2.
+
+The capability listed `updater:allow-check`, `updater:allow-download` and
+`updater:allow-install`, which reads like the whole workflow. It is not. The JS
+`downloadAndInstall()` calls a **fourth** command, `download_and_install`,
+which is none of those three, so the page was allowed to ask whether an update
+existed and forbidden from applying it. The plugin ships a `default` set
+containing exactly those four; `updater:default` is used now, because a
+hand-written list of somebody else's commands is a copy that can drift and this
+one already had.
+
+Enumerating was chosen to be minimal and was neither minimal nor correct: it
+granted three permissions that together do nothing.
+
+**Proved where it broke, not where it was written.** Invoking the command on
+the built binary now answers `invalid args onEvent ... missing required key
+onEvent` — the plugin's own validation, which is only reachable past the ACL.
+"Config looks right" would have said the same thing about the version that
+shipped three times.
+
+**Nobody can take this fix through the thing it fixes.** The fault is in the
+build a person is running, so v0.2.0 through v0.2.2 cannot install v0.2.3 — one
+manual install, then the button works. Each of those three now carries a
+warning on its own release page saying so.
 
 ### The dot was not the thing I said it was
 
