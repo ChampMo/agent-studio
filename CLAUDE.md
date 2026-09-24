@@ -3183,6 +3183,43 @@ anyone who did. A permanent "Up to date" row is how people learn to stop
 reading the bottom of that column, which is the argument that took `open_desks`
 off the team cards.
 
+### One possible assignee is not a choice
+
+A run died before it started:
+
+    planning_failed: task t5 writes a file ('implement the DESIGN.md') but
+    seat 3 (Sorrel) cannot: it has read_file, list_dir, glob, grep,
+    send_message. Give it to one of seats [1], who hold write_file or
+    edit_file.
+
+**Seats [1].** One seat. The app had computed the only legal answer, put it in
+the message, spent every attempt asking a model to guess it, and then threw the
+run away — in front of somebody who had done nothing but pick a team and
+describe a job.
+
+`_check_tools` was right to exist and wrong about what to do with what it knew.
+It is split now: **exactly one candidate is repaired**, two or more is a real
+choice and still goes back to the leader, and nobody able to write at all is
+still silent, because a correction that cannot be obeyed burns every attempt.
+
+The move is published as `plan_repaired`, in its own words, and deliberately
+not as `plan_corrected` — nothing was rejected and no attempt was spent, so
+saying "the plan was rejected and retried" would be the log describing
+something that did not happen (§1). It is worth saying at all because *Sorrel
+was handed a writing task and cannot write* is a fact about the team, and the
+person who composed it is the only one who can act on it.
+
+**The general shape, and it has bitten here before:** when a check can name the
+fix precisely enough to print it, ask whether it can just apply it. The
+`leader_only_tool` warning is the honest opposite case — there the fix is a
+judgement about roles and belongs to a person.
+
+**One existing test failed, correctly.** `test_edit_file_alone_counts_as_being_
+able_to_write` asserted the correction fires for a lone editor, which is now
+the repair path. The property is unchanged and is asserted where the code acts
+on it — a test that follows the behaviour rather than one deleted for being
+inconvenient.
+
 ### No installed build had ever finished a mission
 
 `FileNotFoundError: _MEIPASS/agentd/providers/pricing.json`, on the first reply

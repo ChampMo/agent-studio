@@ -33,7 +33,12 @@ from __future__ import annotations
 
 import pytest
 
-from agentd.orchestrator.planner import Plan, _check_tools, _roster_text
+from agentd.orchestrator.planner import (
+    Plan,
+    _check_tools,
+    _repair_tools,
+    _roster_text,
+)
 from agentd.teams.snapshot import RosterSnapshot, SnapshotMember
 from agentd.tools.team import Ambiguous, Mailbox
 
@@ -236,7 +241,14 @@ def test_it_is_silent_when_nobody_can_write():
 
 def test_edit_file_alone_counts_as_being_able_to_write():
     """`edit_file` puts bytes on disk. A team carrying it and not `write_file`
-    is not a team that cannot write."""
+    is not a team that cannot write.
+
+    This used to assert the *correction*, and the correction is no longer what
+    happens here: there is one editor, so there is one legal assignee and
+    `_repair_tools` moves the task rather than asking a model to guess it. The
+    property under test has not changed — `edit_file` still counts — so it is
+    asserted where the code now acts on it.
+    """
     editors = RosterSnapshot(
         [
             member(0, "Lead", ["send_message"], leader=True),
@@ -244,9 +256,13 @@ def test_edit_file_alone_counts_as_being_able_to_write():
             member(2, "Editor", ["read_file", "edit_file"]),
         ]
     )
-    problem = _check_tools(plan(1, "Update NOTES.md with the new numbers."), editors)
-    assert problem is not None
-    assert "[2]" in problem
+    p = plan(1, "Update NOTES.md with the new numbers.")
+    moved = _repair_tools(p, editors)
+
+    assert p.tasks[0].assignee_seat == 2, "the editor should have been given it"
+    assert moved and "Editor" in moved[0]
+    # And nothing is left over to reject the plan for.
+    assert _check_tools(p, editors) is None
 
 
 @pytest.mark.parametrize(

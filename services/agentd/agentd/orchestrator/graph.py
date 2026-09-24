@@ -362,6 +362,23 @@ def _build_graph(
                 )
             )
 
+        # Not the same fact as a rejection, so not the same sentence. Nothing
+        # was rejected and no attempt was spent: there was one teammate who
+        # could do the work, so this side moved it rather than asking a model
+        # to guess the only legal answer and failing the run when it did not.
+        for move in result.repaired:
+            await emit(
+                _draft(
+                    "error",
+                    {
+                        "agentId": leader.agent_id,
+                        "code": "plan_repaired",
+                        "message": f"the plan was corrected without retrying: {move}",
+                        "recoverable": True,
+                    },
+                )
+            )
+
         tasks = [t.model_dump() for t in result.plan.tasks]
         await emit(
             _draft(

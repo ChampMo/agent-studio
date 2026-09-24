@@ -87,7 +87,13 @@ class PlanResult:
     plan: Plan
     usage: Usage = field(default_factory=Usage)
     attempts: int = 1
+    #: Plans the model got wrong and was asked to redo. A fact about the model.
     recovered_from: list[str] = field(default_factory=list)
+    #: Assignments this side moved without asking, because there was exactly
+    #: one teammate who could do the work. A different fact from the above —
+    #: nothing was rejected and no attempt was spent — so it is carried
+    #: separately and said in its own words on the log (§1).
+    repaired: list[str] = field(default_factory=list)
 
 
 SYSTEM = """You are {name}, the leader of a small team. You do not do the work
@@ -242,6 +248,61 @@ _WRITES_A_FILE = re.compile(
 )
 
 
+def _writers(snapshot: RosterSnapshot) -> set[int]:
+    """Seats that can be given a task *and* can write a file."""
+    return {
+        m.seat_index
+        for m in snapshot.members
+        if m.seat_index in _assignable(snapshot)
+        and set(m.tools or ()) & set(FILE_TOOLS)
+    }
+
+
+def _repair_tools(plan: Plan, snapshot: RosterSnapshot) -> list[str]:
+    """Move a writing task to the only teammate who can write, and say so.
+
+    The correction below is well phrased and was still the wrong response to
+    this situation. A real run died with
+    `planning_failed: task t5 writes a file ... Give it to one of seats [1]` —
+    **seats [1]**, one seat. There was nothing to decide. The app knew the only
+    legal answer, spent three attempts asking a model to guess it, and then
+    threw the run away in front of somebody who had done nothing but pick a
+    team and describe a job.
+
+    So: exactly one candidate is not a choice, and this reassigns it. Two or
+    more is a choice, and that still goes back to the model, because picking
+    between people who can both do the work is the leader's job and not ours.
+
+    The move is returned as a sentence rather than done quietly. The plan on
+    the timeline is the plan that will run either way, so it is not untrue
+    without this — but "Sorrel was handed a writing task and cannot write" is
+    worth knowing about your own team, and the person who composed it is the
+    only one who can fix that.
+    """
+    writers = _writers(snapshot)
+    if len(writers) != 1:
+        return []
+    only = next(iter(writers))
+    by_seat = {m.seat_index: m for m in snapshot.members}
+    moved: list[str] = []
+
+    for task in plan.tasks:
+        if task.assignee_seat == only:
+            continue
+        if not _WRITES_A_FILE.search(task.instruction or ""):
+            continue
+        was = by_seat.get(task.assignee_seat)
+        now = by_seat.get(only)
+        task.assignee_seat = only
+        moved.append(
+            f"{task.id} writes a file and went to "
+            f"{was.name if was else f'seat {task.assignee_seat}'}, who cannot; "
+            f"it was given to {now.name if now else f'seat {only}'}, the only "
+            f"teammate on this team who can write files"
+        )
+    return moved
+
+
 def _check_tools(plan: Plan, snapshot: RosterSnapshot) -> str | None:
     """A task that writes a file has to go to somebody who can write files.
 
@@ -270,13 +331,9 @@ def _check_tools(plan: Plan, snapshot: RosterSnapshot) -> str | None:
     the problem. So it fires only when some other assignable seat can actually
     write, which is exactly when reassigning is the fix.
     """
-    writers = {
-        m.seat_index
-        for m in snapshot.members
-        if m.seat_index in _assignable(snapshot)
-        and set(m.tools or ()) & set(FILE_TOOLS)
-    }
-    if not writers:
+    writers = _writers(snapshot)
+    # One writer is repaired rather than argued about; see `_repair_tools`.
+    if len(writers) < 2:
         return None
 
     by_seat = {m.seat_index: m for m in snapshot.members}
@@ -393,13 +450,15 @@ async def make_plan(
                         for e in exc.errors()
                     )
                 else:
-                    problem = (
-                        _check_seats(plan, snapshot)
-                        or _check_deps(plan)
-                        or _check_tools(plan, snapshot)
-                    )
+                    # Seats and dependencies first: a task pointed at a seat
+                    # nobody occupies cannot be repaired, only rejected.
+                    problem = _check_seats(plan, snapshot) or _check_deps(plan)
+                    repaired: list[str] = []
                     if problem is None:
-                        return PlanResult(plan, total, attempt, failures)
+                        repaired = _repair_tools(plan, snapshot)
+                        problem = _check_tools(plan, snapshot)
+                    if problem is None:
+                        return PlanResult(plan, total, attempt, failures, repaired)
 
         failures.append(problem)
         if attempt < max_attempts:
