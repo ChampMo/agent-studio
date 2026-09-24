@@ -526,7 +526,7 @@ web tool and a way to change things, and suggests splitting the roles; and
 because the backend on loopback holds the user's keys.
 
 
-**Released: v0.2.4** (2026-09-24). v0.2.0 was the first build that could update
+**Released: v0.2.5** (2026-09-24). v0.2.0 was the first build that could update
 itself and the first that drew no room; it is marked superseded on its own
 release page rather than left to be downloaded.
 
@@ -3213,6 +3213,15 @@ person who composed it is the only one who can act on it.
 fix precisely enough to print it, ask whether it can just apply it. The
 `leader_only_tool` warning is the honest opposite case — there the fix is a
 judgement about roles and belongs to a person.
+
+**It proved itself on the run that shipped it.** The release check ran the
+four-agent `Build it` team — the one with a single writer — inside the packaged
+build: `repaired 1, planning_failed 0, ended, completed, 70 events`. The model
+mis-assigned again, exactly as before, and the log says
+*"t2 writes a file and went to Moss, who cannot; it was given to Juniper"*
+instead of a dead run. `DESIGN.md` is on disk with the colour read out of
+`NOTES.md`. A fix verified against the failure itself rather than against a
+fixture written from the same guess as the code.
 
 **One existing test failed, correctly.** `test_edit_file_alone_counts_as_being_
 able_to_write` asserted the correction fires for a lone editor, which is now
