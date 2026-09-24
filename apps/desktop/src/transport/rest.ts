@@ -7,15 +7,51 @@
 import { requireHandshake } from "./handshake";
 
 export class ApiError extends Error {
+  /**
+   * The body's `detail`, exactly as it arrived.
+   *
+   * FastAPI's `detail` is often an object — `{message, problems}` when a team
+   * cannot run, `{message, names}` when `@Name` matches two teammates — and
+   * putting an object into `Error.message` turns it into the string
+   * `"[object Object]"`, which is what the composer printed under *This team
+   * cannot run*. Every reason the backend went to the trouble of listing was
+   * thrown away one line into the client.
+   *
+   * So the structure is kept here and `message` is only ever a sentence.
+   */
+  readonly detail: unknown;
+
   /** `0` when the request never reached the backend at all. */
   constructor(
     public status: number,
     message: string,
-    options?: ErrorOptions,
+    options?: ErrorOptions & { detail?: unknown },
   ) {
     super(message, options);
     this.name = "ApiError";
+    this.detail = options?.detail;
   }
+}
+
+/**
+ * A sentence for a `detail` that may be a string, an object, or absent.
+ *
+ * Never `[object Object]`: an object with a `message` reads as that message,
+ * and anything else is stringified as JSON, which is ugly and is at least the
+ * information the backend sent.
+ */
+export function detailMessage(detail: unknown, fallback: string): string {
+  if (typeof detail === "string" && detail) return detail;
+  if (detail && typeof detail === "object") {
+    const message = (detail as { message?: unknown }).message;
+    if (typeof message === "string" && message) return message;
+    try {
+      return JSON.stringify(detail);
+    } catch {
+      return fallback;
+    }
+  }
+  return fallback;
 }
 
 /**
@@ -86,14 +122,16 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 async function unwrap<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    let detail = res.statusText;
+    let detail: unknown = null;
     try {
       const body = await res.json();
-      detail = body.detail ?? detail;
+      detail = body.detail ?? null;
     } catch {
       // A non-JSON error body is still an error; keep the status text.
     }
-    throw new ApiError(res.status, detail);
+    throw new ApiError(res.status, detailMessage(detail, res.statusText), {
+      detail,
+    });
   }
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }

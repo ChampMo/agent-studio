@@ -17,7 +17,7 @@
  * at once, in one textarea, before anything existed.
  */
 import { create } from "zustand";
-import { api, type Team } from "../transport/rest";
+import { ApiError, api, type Team } from "../transport/rest";
 import { useEventStore } from "./eventStore";
 
 export interface SnapshotMember {
@@ -111,6 +111,24 @@ interface MissionState {
   clear: () => void;
 }
 
+/**
+ * Every blocking finding an error carries, or one line saying what went wrong.
+ *
+ * `problems` is a list of sentences the backend went out of its way to send in
+ * full, because fixing a team one rejection at a time is a guessing game
+ * (§5.2). Anything that is not that list degrades to the error's own message,
+ * which `detailMessage` guarantees is a sentence rather than an object.
+ */
+function problemsFrom(err: unknown): string[] {
+  const detail = (err as ApiError | undefined)?.detail;
+  const problems = (detail as { problems?: unknown } | null)?.problems;
+  if (Array.isArray(problems)) {
+    const lines = problems.filter((p): p is string => typeof p === "string");
+    if (lines.length > 0) return lines;
+  }
+  return [(err as { message?: string })?.message ?? String(err)];
+}
+
 export const useMissionStore = create<MissionState>((set, get) => ({
   missionId: null,
   title: "",
@@ -175,7 +193,7 @@ export const useMissionStore = create<MissionState>((set, get) => ({
       await get().loadMission(missionId);
     } catch (err) {
       set({
-        rejected: [(err as { message?: string })?.message ?? String(err)],
+        rejected: problemsFrom(err),
       });
     } finally {
       set({ launching: false });
@@ -196,7 +214,7 @@ export const useMissionStore = create<MissionState>((set, get) => ({
       await get().loadMission(missionId);
     } catch (err) {
       set({
-        rejected: [(err as { message?: string })?.message ?? String(err)],
+        rejected: problemsFrom(err),
       });
     } finally {
       set({ launching: false });
@@ -231,15 +249,12 @@ export const useMissionStore = create<MissionState>((set, get) => ({
       });
       await get().loadMission(missionId);
     } catch (err) {
-      const detail = (err as { message?: string })?.message;
-      let problems: string[] = [detail ?? String(err)];
-      try {
-        const parsed = JSON.parse(detail ?? "");
-        if (Array.isArray(parsed?.problems)) problems = parsed.problems;
-      } catch {
-        // A plain string message is fine; keep it as the single problem.
-      }
-      set({ rejected: problems });
+      // The findings come off `ApiError.detail`, which is the body as it
+      // arrived. This used to `JSON.parse` the *message* — and the message was
+      // built by stringifying that same object, so it read `[object Object]`
+      // and the parse threw. Every blocking finding the backend listed, on
+      // purpose, arrived as one bullet saying nothing.
+      set({ rejected: problemsFrom(err) });
     } finally {
       set({ launching: false });
     }

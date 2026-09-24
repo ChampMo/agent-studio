@@ -519,7 +519,7 @@ web tool and a way to change things, and suggests splitting the roles; and
 because the backend on loopback holds the user's keys.
 
 
-**Released: v0.2.3** (2026-09-24). v0.2.0 was the first build that could update
+**Released: v0.2.4** (2026-09-24). v0.2.0 was the first build that could update
 itself and the first that drew no room; it is marked superseded on its own
 release page rather than left to be downloaded.
 
@@ -3175,6 +3175,58 @@ somebody who did not ask, and Settings carries the endpoint's own words for
 anyone who did. A permanent "Up to date" row is how people learn to stop
 reading the bottom of that column, which is the argument that took `open_desks`
 off the team cards.
+
+### No installed build had ever finished a mission
+
+`FileNotFoundError: _MEIPASS/agentd/providers/pricing.json`, on the first reply
+from the model, in every packaged release from v0.1.0 to v0.2.3. Tokens spent,
+zero tasks done, the row recorded `crashed`.
+
+`pricing.json` is opened with `Path(__file__).with_name(...)` and **nothing
+imports it**, so PyInstaller could not see it. This file already lists that as
+one of the three things a freeze misses, and names Alembic as the example — the
+rule was written down and the next instance of it still shipped, four times.
+
+The rate table is asked for the moment a call finishes, because recording what
+a call cost is part of recording that the call happened. So the crash always
+landed on the first model reply.
+
+Two fixes, and the second is the one that matters next time. The file is
+bundled. And **a missing rate table no longer ends a run**: not knowing a price
+is an ordinary state here — DeepSeek has never been in that table and the app
+says "Not priced" — so a missing file is the same ignorance at a larger scale
+and has no business killing work that is going fine. Our own gap must not be
+written down as a fact about the world (§1.1), and it must not take the work
+down with it either.
+
+**Why four releases missed it.** Everything verified in the packaged build so
+far was a *still frame*: a room drawn, a boot screen caught, a console with no
+errors, a command getting past an ACL. Not one of those needs a mission to
+finish. The check that exists now runs a whole mission inside the packaged app
+through CDP and waits for the row to reach `ended` — and on the first attempt
+it returned `completed`, 22 events, a real `read_file`, an artifact written,
+zero `internal_error`, and the right answer read out of the workspace.
+
+**A screenshot is not a test of a program that does work.** Everything that can
+only be seen while something is *running* was outside every check this project
+had.
+
+### `[object Object]` was every structured error, not one screen
+
+Under *This team cannot run* the composer printed one bullet reading
+`[object Object]`. `unwrap()` did `detail = body.detail` and handed it to
+`Error`, and FastAPI's `detail` is frequently an object — so the message became
+the string an object stringifies to, and `missionStore` then tried to
+`JSON.parse` that message to recover the list it had just destroyed.
+
+The blast radius is every endpoint that answers with a dict: the teammates you
+might have meant when `@Name` matches two, **the three real names when it
+matches none** — which this file specifically celebrates as the thing that
+makes a 404 actionable — and how many attempts a generation took.
+
+`ApiError.detail` keeps the body as it arrived and `message` is only ever a
+sentence. The lesson is narrow and repeatable: **a type that says `string` does
+not make the value a string.** `rejected: string[]` had been holding objects.
 
 ### Three of four is not the workflow
 

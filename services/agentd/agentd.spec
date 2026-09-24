@@ -28,6 +28,11 @@ datas = [
     # (see the comment at the top of the file).
     (str(HERE / "alembic.ini"), "."),
     (str(HERE / "agentd" / "db" / "migrations"), "agentd/db/migrations"),
+    # The published rate table, opened with `Path(__file__).with_name(...)`.
+    # Missing it crashed every packaged run at the first model reply, because
+    # the usage record asks what the call cost. Nothing imports it, so nothing
+    # pulled it in.
+    (str(HERE / "agentd" / "providers" / "pricing.json"), "agentd/providers"),
 ]
 binaries = []
 hiddenimports = [

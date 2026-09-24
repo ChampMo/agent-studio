@@ -17,9 +17,39 @@ from .base import Usage
 _PRICING_FILE = Path(__file__).with_name("pricing.json")
 
 
+#: What a build with no rate table behaves like: every model unpriced, which is
+#: already a state this app renders honestly as "Not priced".
+_NOTHING: dict[str, Any] = {
+    "pricing_as_of": "",
+    "models": {},
+    "cache_read_multiplier": 1.0,
+    "cache_write_multiplier": 1.0,
+}
+
+
 @lru_cache(maxsize=1)
 def _table() -> dict[str, Any]:
-    return json.loads(_PRICING_FILE.read_text(encoding="utf-8"))
+    """The shipped rates, or an empty table when the file is not there.
+
+    **It was not there**, in every packaged build. PyInstaller cannot see a
+    file that nothing imports, and this one is opened by path — so a frozen
+    backend raised `FileNotFoundError` from `_MEIPASS/agentd/providers/
+    pricing.json` on the first usage record, which is the first model reply,
+    which killed the mission with `internal_error` before a single task ran.
+    The spec bundles it now.
+
+    Falling back rather than raising is the other half, and it is the half that
+    matters next time. Not knowing a price is an ordinary state here: DeepSeek
+    has never been in this table, `cost_usd` returns None for it, and the UI
+    says "Not priced". A missing *file* is the same ignorance at a larger
+    scale, and it has no business ending a run that was working. Our own
+    missing data must never be written down as a fact about the world (§1.1) —
+    and it must not take the work down with it either.
+    """
+    try:
+        return json.loads(_PRICING_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return _NOTHING
 
 
 def pricing_as_of() -> str:
