@@ -44,7 +44,14 @@ The app updates itself, so a release is a **signed** build plus one extra asset.
 3. `npm run release:manifest -- --notes-file <your notes>` — copies the
    bundles into `dist/` under their release names and writes
    `dist/latest.json`, reading each `.sig` off disk.
-4. Publish the tag with everything in `dist/`:
+4. **Run a mission in the built app and watch it reach `ended`.** Not a
+   screenshot: four releases were verified on still frames — a room drawn, a
+   boot screen caught, a console with no errors — while no installed build
+   could finish a run at all. `scratchpad/csptest/realrun.mjs` is the shape:
+   launch with `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222`,
+   start a mission through the app's own handshake, and poll until the row
+   says `ended` with no `internal_error` on the log.
+5. Publish the tag with everything in `dist/`:
 
 ```bash
 gh release create v0.2.0 dist/* --notes-file NOTES.md
