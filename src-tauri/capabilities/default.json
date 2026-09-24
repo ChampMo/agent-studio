@@ -1,15 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Everything the shell is allowed to do. Deliberately almost nothing: the window renders the frontend and the frontend talks to the backend over HTTP. `dialog:allow-open` is the folder picker for choosing a workspace (§16.2) - it can only open a chooser, and the path it returns is validated on the backend like any other untrusted input. The shell plugin is registered for Rust only: no permission here lets the page execute anything. The updater's three permissions are the whole of what an in-place update needs - ask, fetch, install - and what it fetches is verified against the public key in tauri.conf.json before anything is written, so this grants the page a way to install an update from whoever holds the private key and no way to install anything else. `process:allow-restart` is what brings the new copy up afterwards; `allow-exit` is deliberately not here, so the page can restart the app and cannot quit it.",
+  "description": "Everything the shell is allowed to do. Deliberately almost nothing: the window renders the frontend and the frontend talks to the backend over HTTP. `dialog:allow-open` is the folder picker for choosing a workspace (§16.2) - it can only open a chooser, and the path it returns is validated on the backend like any other untrusted input. The shell plugin is registered for Rust only: no permission here lets the page execute anything. `updater:default` is the plugin's own set and is used instead of a hand-written list, because the hand-written list was wrong: it granted check, download and install, and the JS `downloadAndInstall()` calls a fourth command, `download_and_install`, which is not any of them. Every build from v0.2.0 to v0.2.2 could therefore check for an update and refuse to apply it, with `not allowed by ACL`. The four commands are the whole update workflow and this app performs the whole workflow, so naming the set is both shorter and the thing that cannot drift. What it fetches is verified against the public key in tauri.conf.json before a byte is written, so this grants the page a way to install an update from whoever holds the private key and no way to install anything else. `process:allow-restart` is what brings the new copy up afterwards; `allow-exit` is deliberately not here, so the page can restart the app and cannot quit it.",
   "windows": ["main", "scene-*"],
   "permissions": [
     "core:default",
     "core:window:allow-close",
     "dialog:allow-open",
-    "updater:allow-check",
-    "updater:allow-download",
-    "updater:allow-install",
+    "updater:default",
     "process:allow-restart"
   ]
 }
