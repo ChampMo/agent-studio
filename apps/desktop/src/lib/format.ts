@@ -13,6 +13,18 @@
  */
 const LOCALE = "en";
 
+/**
+ * A plain count, grouped: `200000` as `200,000`.
+ *
+ * Same reason as the dates. A bare `toLocaleString()` follows the operating
+ * system, and this machine's is Thai — so a context size rendered without a
+ * locale came out with Thai digit grouping in an interface that is otherwise
+ * entirely English.
+ */
+export function formatCount(value: number): string {
+  return value.toLocaleString(LOCALE);
+}
+
 /** A calendar day: "12 Aug", or "4 Nov 2025" once it is not this year. */
 export function formatDay(date: Date, sameYearAs: Date): string {
   return date.toLocaleDateString(LOCALE, {

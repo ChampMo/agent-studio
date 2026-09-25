@@ -904,6 +904,44 @@ export const strings = {
     stepsHint:
       "One per task and one per stage. A run that hits this had a plan longer than it could carry out.",
     seconds: "seconds",
+    //: The four move together or not at all. A run stopped for tokens is told
+    //: "Out of tokens", so the tokens box is the one that gets raised — and
+    //: the next, bigger run hits the clock instead and reports a different
+    //: limit. Saying that here is what makes a step read as a fix rather than
+    //: as tidying.
+    stepsLead:
+      "One choice sets all four. Raising only the one that stopped your last run usually just moves which limit stops the next one.",
+    //: Named for the ceiling, never for the job: this app cannot know what a
+    //: piece of work costs, and "a medium job" would be claiming it can.
+    tierLabel: (tokens: string, time: string) => `${tokens} tokens · ${time}`,
+    tierAside: (calls: number, steps: number) =>
+      `${calls} model calls · ${steps} steps`,
+    tierShipped: "What the app ships with",
+    //: The selection, in words. A mark on its own does not say what being
+    //: selected *does* — the same reason the endpoint rows say "what a new
+    //: agent is created with" rather than drawing a border and leaving it to
+    //: be interpreted.
+    tierChosen: "Every run stops here",
+    //: A measurement, and it says exactly what was measured. A ceiling is four
+    //: numbers and this compares one of them, so the word "tokens" is load-
+    //: bearing — "3 runs fit under this" would be a claim about all four.
+    //:
+    //: Shown **only on a step that some run would have exceeded**. The first
+    //: version put it on every row, and on a machine whose runs all fit it
+    //: printed the identical sentence four times — which is how a reader
+    //: learns that the small grey line is never worth reading, and is the same
+    //: reason the layout id came off the team cards.
+    tierUnder: (under: number, total: number) =>
+      `${under} of your ${total} recorded ${total === 1 ? "run" : "runs"} spent fewer tokens than this`,
+    //: The one number that actually decides the choice, said once under the
+    //: whole group rather than repeated beside each step.
+    tierBiggest: (tokens: string, total: number) =>
+      `Your ${total === 1 ? "one recorded run" : `biggest of ${total} recorded runs`} spent ${tokens} tokens.`,
+    //: Not "0 runs". Nothing has been measured yet, which is a different
+    //: statement from having measured nothing (§1.1).
+    tierNoHistory: "No finished runs to compare against yet.",
+    custom: "Set each one myself",
+    customHint: "The exact numbers, if you have a budget rather than a size in mind.",
     save: "Save limits",
     saving: "Saving…",
     saved: "Saved — the next run uses these",

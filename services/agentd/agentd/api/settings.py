@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from ..core import secrets
+from ..core.spend import spend_by_mission
 from ..core.prefs import (
     AUTONOMY_CHOICES,
     BUDGET_BOUNDS,
@@ -27,7 +28,7 @@ from ..core.prefs import (
     set_app_budget,
     set_autonomy,
 )
-from ..db.models import ProviderProfile
+from ..db.models import Mission, ProviderProfile
 from ..providers import registry
 from ..providers.base import ProviderError
 from ..providers.native_search import describe as native_search_endpoints
@@ -523,6 +524,58 @@ async def write_budget(request: Request, body: BudgetIn) -> dict[str, Any]:
         # By name and with the range, so the field that is wrong is obvious.
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     return await read_budget(request)
+
+
+@router.get("/prefs/budget/spend")
+async def budget_spend(request: Request, limit: int = 30) -> dict[str, Any]:
+    """What the runs on this machine have actually cost, for the screen where
+    a ceiling is chosen.
+
+    Deliberately **not** a forecast. There is no honest way to say what a run
+    will cost before it happens (§1.1) and no provider will tell you, so what
+    is offered is the record: this machine has one run at 12,856 tokens and one
+    at 198,857, fifteen times apart, and nothing on the screen where the
+    ceiling is typed knew either number.
+
+    Tokens only, and the caller says "tokens" when it draws them. A ceiling is
+    four numbers, so "would this run have fitted" is a question about four —
+    and the worked clock subtracts time parked on a question, a derivation that
+    already exists once in `deriveVitals`. Writing it a second time here to
+    make a fuller-sounding claim would be exactly the drift that rule exists to
+    prevent (§2.1), so the claim stays narrow and precise instead.
+
+    Every run that has ended, including the ones a limit stopped: a run killed
+    at the ceiling is the most informative row on this screen, because it is
+    the one that says the job needed more than that.
+    """
+    db = get_db(request)
+    async with db.session() as session:
+        rows = (
+            (
+                await session.execute(
+                    select(Mission)
+                    .where(Mission.status == "ended")
+                    .order_by(Mission.started_at.desc())
+                    .limit(max(1, min(limit, 200)))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        spent = await spend_by_mission(session, [m.id for m in rows])
+
+    return {
+        "runs": [
+            {
+                "id": m.id,
+                "title": m.title,
+                "tokens": spent.get(m.id, 0),
+                "endReason": m.end_reason,
+                "endLimit": m.end_limit,
+            }
+            for m in rows
+        ]
+    }
 
 
 @router.get("/storage")

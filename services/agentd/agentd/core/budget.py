@@ -88,6 +88,35 @@ WRAPUP_SEC = 90.0
 WRAPUP_RATIO = 0.15
 
 
+#: What counts against the token ceiling.
+#:
+#: Cache reads and writes are billed differently and still consume context, so
+#: they count here all the same — and on a long run a cache read is most of the
+#: bill: one measured run was 79% `cacheReadTokens`.
+#:
+#: Named once because **anything drawn as `used / limit` has to count what the
+#: limit counts**, and this app has had to learn that four separate times: the
+#: rail once sat at a quarter full on a run the guard had just stopped for
+#: being over, and the team-history panel needed the same four fields again.
+TOKEN_FIELDS = ("inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens")
+
+
+def tokens_in(usage: dict[str, Any] | None) -> int:
+    """What one `usage` block spent, by the guard's own reckoning."""
+    if not usage:
+        return 0
+    total = 0
+    for field in TOKEN_FIELDS:
+        value = usage.get(field)
+        if isinstance(value, bool):
+            # `isinstance(True, int)` is True in Python, and a usage block is
+            # model output reaching us over a wire.
+            continue
+        if isinstance(value, (int, float)):
+            total += int(value)
+    return total
+
+
 class BudgetExceeded(Exception):
     """Raised when a limit is hit. The mission ends with reason
     `budget_exceeded` — no asking the user to extend, per §10."""
@@ -285,13 +314,7 @@ class BudgetTracker:
     def record_call(self, usage: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         """Book one LLM call plus its real token cost; return any new warnings."""
         self.llm_calls_used += 1
-        if usage:
-            self.tokens_used += int(usage.get("inputTokens") or 0)
-            self.tokens_used += int(usage.get("outputTokens") or 0)
-            # Cache reads and writes are billed differently but still consume
-            # context, so they count against the token ceiling all the same.
-            self.tokens_used += int(usage.get("cacheReadTokens") or 0)
-            self.tokens_used += int(usage.get("cacheWriteTokens") or 0)
+        self.tokens_used += tokens_in(usage)
         return self.warnings()
 
     def record_superstep(self) -> list[dict[str, Any]]:

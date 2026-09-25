@@ -292,6 +292,20 @@ export const api = {
       bounds: Record<keyof BudgetLimits, [number, number]>;
     }>("/prefs/budget"),
 
+  /** What the runs on this machine actually cost. The record, never a
+   *  forecast — there is no honest way to say what a run will cost before it
+   *  happens, and the panel that draws this says so. */
+  budgetSpend: () =>
+    request<{
+      runs: {
+        id: string;
+        title: string | null;
+        tokens: number;
+        endReason: string | null;
+        endLimit: string | null;
+      }[];
+    }>("/prefs/budget/spend"),
+
   setBudget: (value: BudgetLimits) =>
     request<{
       value: BudgetLimits;

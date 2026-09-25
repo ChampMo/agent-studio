@@ -11,6 +11,7 @@ from ..agents.avatar import InvalidAvatar
 from ..core.prefs import validate_overrides
 from ..db.models import Mission, MissionEvent
 from ..core.events import as_utc_iso
+from ..core.spend import spend_by_mission
 from sqlalchemy import select
 from ..teams import layouts
 from ..teams.service import ImportRejected, TeamNotFound, TeamService
@@ -103,31 +104,10 @@ async def team_history(request: Request, team_id: str, limit: int = 5) -> dict[s
             .scalars()
             .all()
         )
+        spent_by = await spend_by_mission(session, [m.id for m in rows])
         out = []
         for mission in rows:
-            events = (
-                (
-                    await session.execute(
-                        select(MissionEvent.payload)
-                        .where(MissionEvent.mission_id == mission.id)
-                        .where(MissionEvent.type.in_(("agent.message", "agent.usage")))
-                    )
-                )
-                .scalars()
-                .all()
-            )
-            spent = 0
-            for payload in events:
-                usage = (payload or {}).get("usage") or {}
-                for field in (
-                    "inputTokens",
-                    "outputTokens",
-                    "cacheReadTokens",
-                    "cacheWriteTokens",
-                ):
-                    value = usage.get(field)
-                    if isinstance(value, int):
-                        spent += value
+            spent = spent_by.get(mission.id, 0)
             out.append(
                 {
                     "id": mission.id,

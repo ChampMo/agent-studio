@@ -10,6 +10,7 @@
  * checks passed" while structured output was failing underneath.
  */
 import type { CheckStatus, ProbeResult } from "../../transport/rest";
+import { formatCount } from "../../lib/format";
 import { strings } from "../../lib/constants/strings.en";
 import { Badge } from "../../components/ui/primitives";
 
@@ -117,7 +118,7 @@ export function ProbeReport({ result }: { result: ProbeResult }) {
               </Badge>
             ) : null}
             {caps.max_input_tokens ? (
-              <Badge>context {caps.max_input_tokens.toLocaleString()}</Badge>
+              <Badge>context {formatCount(caps.max_input_tokens)}</Badge>
             ) : null}
           </div>
         </div>

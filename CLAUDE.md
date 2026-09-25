@@ -3708,6 +3708,94 @@ never be edited" — the two contradict each other. Not fixed here because
 load-bearing; separating "what this run was asked" from "what this round was
 asked" needs a column, not an edit.
 
+### Four boxes were four answers to one question
+
+The limits screen asked, separately, how many tokens, how many seconds, how
+many model calls and how many steps a job is worth. They are not independent,
+and the run that prompted this proves it: **198,857 of 200,000 tokens**, beside
+**3:59 of 15:00**, **22 of 40 calls** and **6 of 60 steps**. One box did
+anything at all.
+
+So being told *Out of tokens* sends you to the tokens box, correctly — and the
+next, bigger run meets the **clock** instead and reports a different limit. The
+app was teaching the coupling one failed run at a time, which is the same
+complaint as `budget_exceeded` being one word for four limits, one layer up.
+
+The ordinary choice is now one step that moves all four together. The boxes are
+still there behind *"set each one myself"*, because a ceiling is sometimes a
+real budget somebody has to type — and this project has already shipped a
+dropdown that locked a field nobody could type into again.
+
+**A step is named for its ceiling, never for the job.** "Small" or "Medium"
+would be the app claiming to know what a piece of work costs, and it cannot:
+the two finished runs on this machine are **12,856 and 198,857** tokens,
+fifteen times apart, with nothing that could have said so in advance (§1.1).
+*"Stop at 200,000 tokens"* is a true statement about the app; *"a medium job"*
+is a guess about the world. The two large steps bracket runs that really
+happened — 605,853 and 1,262,610, both recorded above — rather than being round
+numbers picked for the look of them.
+
+### The evidence line, and the version of it that was noise
+
+What makes a step honest is the measurement beside it: how many runs on *this
+machine* spent fewer tokens than that ceiling. `GET /prefs/budget/spend` reads
+it off `mission_events`, and it is deliberately **not** a forecast — there is
+no honest way to say what a run will cost before it happens, and the panel's
+own words are the record.
+
+The claim is narrow on purpose. **Tokens only, and the label says "tokens".** A
+ceiling is four numbers, so "3 of your runs would have fitted" is a claim about
+four of them — and the worked clock subtracts time parked on a question, a
+derivation that already exists once in `deriveVitals`. Writing it a second time
+in Python to make a fuller-sounding sentence is exactly the drift that rule
+exists to prevent (§2.1).
+
+**The first version printed it on every step**, and on a machine whose runs all
+fit it rendered the identical sentence four times — which is how a reader
+learns the small grey line is never worth reading, and is precisely the
+argument that took `open_desks` off the team cards. Seen immediately on opening
+the page, not reasoned about. It now appears only on a step some recorded run
+would have exceeded, and one line under the whole group gives the number that
+actually decides the choice: what the biggest run spent.
+
+`TOKEN_FIELDS` and `tokens_in()` are one definition now, next to the guard that
+enforces the ceiling, because **anything drawn as `used / limit` has to count
+what the limit counts** — needed a fifth time, and this is the first where the
+counting was shared rather than copied. `team_history` was the second copy and
+now calls the same function.
+
+### A native radio is chrome the design still has to reach
+
+The steps were `<input type="radio">`. Under WebView2 an *unchecked* one renders
+as a solid dark dot on this theme, so every row read as selected and the panel
+said nothing — the scrollbar lesson again, in a control this time.
+
+They are `role="radio"` buttons with a drawn mark, which is what the endpoint
+list already does, and the chosen row **says what being chosen means** —
+*"Every run stops here"* — because a mark on its own is a decoration to
+interpret (§18.3). The unselected ring measured **1.2:1** against the dark panel
+with the hairline token, so it uses `faint`: **5.94:1 dark, 4.30:1 light**,
+both measured in the running app rather than assumed, against the 3:1 WCAG
+1.4.11 asks for a control boundary.
+
+`formatCount` joined `formatDay` and the rest for the same reason the dates did.
+`ProbeReport` had a bare `toLocaleString()` — no locale, so the OS decides, and
+on this machine that is Thai.
+
+**Verified in the app, not read off the source:** picking one step wrote all
+four numbers (`max_tokens 600000, max_llm_calls 120, max_supersteps 150,
+timeout_sec 2700`), a reload came back on that step with the boxes hidden, and
+*Back to the shipped values* moved the mark as well as the numbers. The
+discriminating case for the evidence line is covered by `tiers.test.ts` rather
+than live — every run in the dev database fits under every step.
+
+**Also restored by hand:** PARADOX.ART's row said 0 of 0 after the failed
+retry erased it. Recomputed from its own log — t1 failed, t2–t5 done, t6 never
+started — and written back as 4 of 6. That is recomputing a cache, not editing
+a record. `end_reason` and `end_limit` were left alone: the last round really
+did fail to plan, and the row describing the *round* while the label reads as
+describing the *run* is the open per-round column question, not an erasure.
+
 ---
 
 ## Decisions made while building
