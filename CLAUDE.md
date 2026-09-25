@@ -526,7 +526,7 @@ web tool and a way to change things, and suggests splitting the roles; and
 because the backend on loopback holds the user's keys.
 
 
-**Released: v0.2.5** (2026-09-24). v0.2.0 was the first build that could update
+**Released: v0.2.6** (2026-09-25). v0.2.0 was the first build that could update
 itself and the first that drew no room; it is marked superseded on its own
 release page rather than left to be downloaded.
 
@@ -3218,6 +3218,20 @@ The fourth test is the one worth keeping: it asserts the row is **still
 `ended`, still `completed`, still holding its old goal** after the refusal. A
 refusal that has already restarted the mission leaves it saying `running` with
 nothing driving it, which is the exact condition `reap_orphans` was written for.
+
+**And the video brief was rehearsed rather than handed over on trust.** The
+shot list depends on four things the brief cannot guarantee — the plan gate
+pausing, two cats working at once, `bash` raising its approval, files landing
+on disk — so the exact take was driven inside the packaged build first. All
+four: the plan question with its numbered tasks, peak **2** concurrent tasks,
+`Run bash? { "command": "ls -la && node --version" }`, and `index.html` +
+`styles.css` written. 113 events, `completed`, zero errors, 21 tool calls.
+
+The one thing that failed was the rehearsal harness: it classified the gates by
+matching a payload it had already truncated to 220 characters, so it reported
+"bash approval: NO" about a run that had plainly raised one. **A checker that
+reads a truncated copy is measuring its own truncation** — the same shape as
+the `themeTokens` test matching a comment instead of a declaration.
 
 ### One possible assignee is not a choice
 
