@@ -173,3 +173,45 @@ describe("picking up everything that was left", () => {
     expect(text.split("Write NOTES.md").length - 1).toBe(1);
   });
 });
+
+describe("a round that never got as far as a plan", () => {
+  // The real shape, off the PARADOX.ART log: a 6-task round stopped by the
+  // token limit with two left over, then the retry the app itself offered
+  // died in planning — user.message, agent.status, error, mission.ended, and
+  // not one `mission.progress`.
+  //
+  // Clearing on the first event after the ending, the way the vitals and the
+  // scene do, emptied the list: the button that names those two tasks is the
+  // only retry affordance in the app, so the person was left with no next step
+  // at all, on a run where two tasks really were still unfinished.
+  const round1 = [
+    progress("t1", "Write the UX blueprint", "pending", "Write the blueprint."),
+    progress("t2", "Build the site", "pending", "Build it."),
+    progress("t2", "Build the site", "done"),
+    ev("mission.ended", { reason: "budget_exceeded", limit: "tokens" }),
+  ];
+
+  it("keeps the last real plan when the next round publishes none", () => {
+    const left = unfinishedTasks([
+      ...round1,
+      ev("user.message", { content: "Do them, and only them: ..." }),
+      ev("agent.status", { agentId: "a-1", status: "thinking" }),
+      ev("error", { code: "planning_failed", message: "...", recoverable: false }),
+      ev("mission.ended", { reason: "failed" }),
+    ]);
+
+    expect(left.map((t) => t.title)).toEqual(["Write the UX blueprint"]);
+  });
+
+  it("still lets a round that does plan replace the list", () => {
+    const left = unfinishedTasks([
+      ...round1,
+      ev("user.message", { content: "carry on" }),
+      progress("t9", "Finish the tests", "pending", "Write the tests."),
+    ]);
+
+    // The new round's plan wins the moment there is one — the old behaviour,
+    // which is right; it is only the *timing* of the clear that moved.
+    expect(left.map((t) => t.title)).toEqual(["Finish the tests"]);
+  });
+});

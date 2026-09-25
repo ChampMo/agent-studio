@@ -32,6 +32,7 @@ from ..db.models import Mission, ProviderProfile
 from .deps import get_bus, get_db, get_runner, require_token
 from ..core.events import as_utc_iso
 from ..core.prefs import validate_overrides
+from ..orchestrator.planner import MAX_INSTRUCTION_CHARS, MAX_TASKS
 
 router = APIRouter(dependencies=[Depends(require_token)])
 
@@ -51,6 +52,22 @@ class BudgetIn(BaseModel):
     timeout_sec: int | None = None
 
 
+#: How long a round's message may be.
+#:
+#: Three endpoints start a round and they disagreed: `POST /missions` had no
+#: limit at all, while continuing or forking the same conversation capped the
+#: same text at 4,000 — so a brief that could start a run could not be sent to
+#: carry it on.
+#:
+#: The number is not a taste. "Pick up what the last round did not finish"
+#: hands every unfinished task's instruction back verbatim, so the longest
+#: legal retry is a full plan's worth of them: on a real run two tasks made
+#: 3,846 characters, 96% of the old 4,000, and a third would have been a 422
+#: rendered as a raw validation array under the words "This team cannot run" —
+#: which is a statement about the team, and untrue.
+ROUND_MESSAGE_CHARS = MAX_TASKS * (MAX_INSTRUCTION_CHARS + 200) + 500
+
+
 class MissionIn(BaseModel):
     kind: Literal["chat", "mission"] = "chat"
     #: chat only
@@ -66,7 +83,7 @@ class MissionIn(BaseModel):
     #: What to call this run in the history list. Optional: a run started
     #: without one is listed by what it was asked to do.
     title: str | None = Field(default=None, max_length=200)
-    content: str = Field(min_length=1)
+    content: str = Field(min_length=1, max_length=ROUND_MESSAGE_CHARS)
     budget: BudgetIn | None = None
 
 
@@ -149,7 +166,7 @@ async def cancel_mission(request: Request, mission_id: str) -> dict[str, Any]:
 
 
 class NoteIn(BaseModel):
-    content: str = Field(min_length=1, max_length=4000)
+    content: str = Field(min_length=1, max_length=ROUND_MESSAGE_CHARS)
     #: One teammate, by name or id. Absent means the whole team, which is what
     #: a note has always been — so nothing that already worked changes.
     to: str | None = None
@@ -227,7 +244,7 @@ async def continue_mission(
 
 
 class ForkIn(BaseModel):
-    content: str = Field(min_length=1, max_length=4000)
+    content: str = Field(min_length=1, max_length=ROUND_MESSAGE_CHARS)
     title: str | None = Field(default=None, max_length=120)
     require_approval: bool = False
 

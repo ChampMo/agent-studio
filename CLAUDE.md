@@ -3586,6 +3586,128 @@ the app being untrue about what it holds (§1), and that count is the only clue
 anybody gets that a file wants looking at. Same rule `get_app_budget` already
 follows: a corrupt row falls back rather than taking the others down with it.
 
+### The retry button the app offers could not produce a plan
+
+Reported with a screenshot: a six-task round stopped by the token limit at
+**4 of 6**, the person pressed the app's own *"pick up what was not finished"*
+button, and the round died having done nothing —
+
+    error [planning_failed] the leader could not produce a plan:
+    tasks.0.instruction: String should have at most 2000 characters
+
+The log had already said it once, on the *original* round: `plan_corrected` at
+seq 4 lists six of the first plan's seven instructions over the same limit. The
+six it settled on measure **1819, 1657, 1973, 1496, 1607, 1807** — every one
+pressed against a 2,000 ceiling. So the plan that ran was itself a near miss,
+and the retry hands two of those instructions straight back and asks for them
+again.
+
+**The mechanism was one line, and it is not the cap.** `planner.py` fed the
+rejected plan back as `Message("assistant", text[:2000])` — of roughly eleven
+thousand characters. The model saw one and a half of its own tasks, cut
+mid-string, and was told to try again; with no way to keep what it could not
+see, it rewrote the whole plan from the goal on every attempt and overshot each
+time. Three attempts, three identical failures.
+
+Three things were wrong around it, each its own small lie:
+
+* **The limit was never stated.** It reaches a schema-capable endpoint inside
+  `Plan.model_json_schema()` and is dropped on `json_object`, which is DeepSeek
+  — so the model was being rejected against a number it had never been given.
+* **The rejection named an array index.** `tasks.0.instruction` is a vocabulary
+  that appears nowhere else in the app, and "too long" with no size is not
+  something to edit towards. It says the task's id and title, how long the
+  string was and what the limit is, and — now that the plan is echoed whole —
+  *send every other task back exactly as you wrote it*.
+* **A handed-back instruction was being rewritten.** The prompt says "write it
+  so it stands alone", which is right for a new task and is exactly what pushes
+  a carried-forward one over. It now says to reuse that wording as it stands.
+
+`MAX_INSTRUCTION_CHARS` is one constant enforced in the model, stated in the
+prompt and carried in the schema. **It is a floor, not a preference:** a stored
+instruction is ≤ 2,000 by construction, so a *lower* cap would make the retry
+button impossible rather than tight. A first attempt at deriving it from
+`MAX_TOKENS / MAX_TASKS` gave ~1,097 and would have done precisely that.
+
+**Verified against the failure itself.** The real 3,846-character retry message
+from seq 148, the real frozen roster, the real DeepSeek endpoint: planned on
+the **first attempt, three times out of three, no corrections** — and t1 and t2
+came back at **1819 and 1807 characters**, the stored instructions carried
+through verbatim, which is the prompt clause doing the work.
+
+### What a round that fails to plan is allowed to erase
+
+Pressing that button cost more than the round. Four things, all confirmed in
+the database rather than argued from the code:
+
+**The counts were overwritten with 0/0.** `_save_task_counts` runs in the
+`finally` with whatever the round holds, and a round that never planned holds
+nothing — so `4 of 6` became `0 of 0`, which hides the sidebar's shortfall
+badge and removes that run from the launch form's own evidence about what work
+costs. A round with no plan now says nothing rather than saying zero (§5.1).
+
+**The retry button then vanished for good.** `unfinished.ts` cleared its list on
+the first event after an ending, the same rule the vitals and the scene follow
+— and that rule is wrong here, because a round that dies before planning
+publishes no plan to replace it with. Two unfinished tasks before, none after,
+and no next step of any kind on screen. The list now waits for a
+`mission.progress` before clearing, which is also the truer reading: until
+something else is planned, those tasks are still the unfinished ones.
+
+**Three planning attempts cost real money and were recorded nowhere.**
+`PlanningFailed` has carried its usage since it was written and nothing ever
+read it, so the rail said `Tokens used 0` over fifty seconds of a reasoning
+model. Same gap `agent.usage` was added to close for a round that called tools
+and said nothing. Worth recording how nearly this was got wrong: `exc.usage` is
+the **total** across attempts, so booking it once per attempt would have trebled
+it — the tokens go on once and the remaining attempts are booked as calls with
+no usage.
+
+**And the ending was a Pydantic field path, shown twice**, which was also only
+the *last* of three attempts — `str(exc)` is `attempts[-1]` and the other two
+were discarded. The summary is now a sentence naming the leader, the number of
+attempts and what usually fixes it; every attempt's reason goes on the error
+event, where whoever is debugging will look.
+
+### The handover was cut in half, mid-word, and that is what the next round reads
+
+Found while reading the same run. The leader's handover is **3,837 characters**
+and `mission.ended.summary` is `body[:2000]` — cut at
+
+    **All of Test Plan sections 2+**, an
+
+That string is the ending on the timeline, the text of `final-answer.md`, and,
+through `earlier_rounds`, **the only thing the next round's planner is told
+about what happened**. Nearly half of a document whose entire purpose is to say
+what is missing and what to do first was being dropped, silently, and the
+sentence it stopped in the middle of reads as the app having broken rather than
+having abbreviated.
+
+`SUMMARY_CHARS` is sized to what `earlier_rounds` already reads back, so the
+next round gets the same text this one recorded rather than a shorter copy of
+it (§2.1), and `shorten()` cuts at a word and **says that it cut**. A real
+handover now survives whole.
+
+### Two ceilings on one sentence, and the lower one was 154 characters away
+
+`POST /missions` bounded its message not at all; `continue` and `fork` bounded
+the same text at 4,000. So a brief that could *start* a run could not be sent to
+*carry it on* — and the retry button, which quotes every unfinished task's
+instruction verbatim, measured **3,846 characters for two tasks**. A third would
+have been a 422, rendered as a raw validation array under the words *"This team
+cannot run"*, which is a statement about the team and untrue.
+
+`ROUND_MESSAGE_CHARS` is one bound on all three, derived from the worst legal
+retry — a whole plan's worth of instructions — rather than picked.
+
+**Still open:** `continue_mission` overwrites `missions.goal` with each round's
+message, so an untitled run is renamed in the sidebar by whatever was last
+typed. `rename_mission`'s own docstring says the goal "is a record and must
+never be edited" — the two contradict each other. Not fixed here because
+`resolve_request` resumes a gated round from `mission.goal`, so the column is
+load-bearing; separating "what this run was asked" from "what this round was
+asked" needs a column, not an edit.
+
 ---
 
 ## Decisions made while building

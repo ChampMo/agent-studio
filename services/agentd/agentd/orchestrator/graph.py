@@ -336,14 +336,50 @@ def _build_graph(
             _draft("agent.status", {"agentId": leader.agent_id, "status": "thinking"})
         )
         provider, caps = provider_for(leader)
-        result = await make_plan(
-            provider=provider,
-            caps=caps,
-            model=leader.model or "",
-            snapshot=snapshot,
-            goal=state["goal"],
-            earlier=earlier,
-        )
+        try:
+            result = await make_plan(
+                provider=provider,
+                caps=caps,
+                model=leader.model or "",
+                snapshot=snapshot,
+                goal=state["goal"],
+                earlier=earlier,
+            )
+        except PlanningFailed as exc:
+            # Three attempts against a reasoning model is real money, and it
+            # was landing nowhere: `PlanningFailed` has carried its usage all
+            # along and nothing read it, so a round that failed to plan
+            # recorded zero tokens on a log that is the only account of what
+            # was spent. The rail truthfully read `Tokens used 0` over a
+            # 50-second planning failure.
+            #
+            # This is the same gap `agent.usage` was added to close for a round
+            # that called tools and said nothing: the cost is real whether or
+            # not there is a message to hang it on (§1).
+            await emit(
+                _draft(
+                    "agent.usage",
+                    {
+                        "agentId": leader.agent_id,
+                        "messageId": f"plan-{mission_id}-failed",
+                        "usage": exc.usage.to_event_usage(),
+                    },
+                )
+            )
+            # `exc.usage` is the **total** across every attempt, not one
+            # attempt's — so the tokens go on once, and the remaining attempts
+            # are booked as calls with no usage. Counting the total per attempt
+            # would treble it, which is the kind of made-up number the budget
+            # panel exists not to show (§1.1).
+            #
+            # The call ceiling counts requests, and three were made.
+            # `record_call` only increments and returns warnings — it cannot
+            # raise — so the ending below is reached either way.
+            for index, _attempt in enumerate(exc.attempts):
+                usage = exc.usage.to_event_usage() if index == 0 else None
+                for warning in budget.record_call(usage):
+                    await emit(warning)
+            raise
         for warning in budget.record_call(result.usage.to_event_usage()):
             await emit(warning)
 

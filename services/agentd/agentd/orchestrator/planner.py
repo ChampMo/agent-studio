@@ -53,12 +53,27 @@ TOKENS_PER_RETRY = 8192
 MAX_ATTEMPTS = 3
 MAX_TASKS = 12
 
+#: The longest a single task instruction may be.
+#:
+#: **A floor, not a preference.** An instruction that a round already ran is
+#: handed straight back when a stopped round is picked up again, so a ceiling
+#: below what the last plan stored makes the retry button impossible rather
+#: than merely tight. The longest on the run this was measured against is
+#: 1,819 characters, which leaves 181 to re-emit it in.
+#:
+#: Stated to the model as well as enforced here. It reaches a schema-capable
+#: endpoint inside `Plan.model_json_schema()`, and is dropped on a
+#: `json_object` endpoint — which is where this failed: six of the first
+#: plan's seven instructions were over a number the model had never been
+#: given.
+MAX_INSTRUCTION_CHARS = 2000
+
 
 class Task(BaseModel):
     id: str = Field(min_length=1, max_length=40)
     title: str = Field(min_length=1, max_length=120)
     assignee_seat: int = Field(ge=0)
-    instruction: str = Field(min_length=1, max_length=2000)
+    instruction: str = Field(min_length=1, max_length=MAX_INSTRUCTION_CHARS)
     #: Task ids that must finish first. **Absent and empty are different.**
     #:
     #: `None` — the field was not written — means "after the one before it",
@@ -124,11 +139,58 @@ Rules:
 - assignee_seat must be one of the teammate seats listed above.{leader_note}
 - Give every teammate at least one task. You have them for a reason.
 - One task per distinct piece of work. Do not pad. At most {max_tasks}.
+- `instruction` must be at most {max_chars} characters. Aim well under it.
+- If the message hands you an instruction from an earlier round, reuse its
+  wording as it stands. Do not restate the goal around it — it was written to
+  stand alone already, and rewriting it is what pushes it over the limit.
 - Give a task to someone who can do it. A task that writes a file goes to a
   teammate with write_file or edit_file; one that runs a command goes to one
   with bash. They cannot borrow each other's tools.
 - List them in the order they make sense; `depends_on` decides what waits.
 """
+
+
+def _problem_from(exc: ValidationError, payload: Any) -> str:
+    """A rejection the model can act on, built from a Pydantic error.
+
+    The raw join reads `tasks.0.instruction: String should have at most 2000
+    characters`: an array index, where the plan, the log and the prompt all
+    speak in task ids; no statement of how long the string actually was, so
+    "shorter" has no size; and nothing to say the other tasks were accepted.
+
+    A model answered that three times on a real run by writing the whole plan
+    again from scratch and overshooting again, and the round died having done
+    nothing. Naming the task and the overshoot costs one function and turns
+    "try again" into an edit.
+
+    The offending text itself is deliberately **not** quoted back — the model
+    has its own reply above this message, whole, and repeating a 2,000
+    character instruction inside the correction is paying for it twice.
+    """
+    tasks = payload.get("tasks") if isinstance(payload, dict) else None
+    parts: list[str] = []
+    for err in exc.errors():
+        loc = err.get("loc", ())
+        named = ".".join(str(p) for p in loc)
+        if err.get("type") != "string_too_long" or len(loc) != 3 or loc[0] != "tasks":
+            parts.append(f"{named}: {err['msg']}")
+            continue
+        index, field = loc[1], loc[2]
+        task = tasks[index] if isinstance(tasks, list) and index < len(tasks) else {}
+        who = task.get("id") if isinstance(task, dict) else None
+        title = task.get("title") if isinstance(task, dict) else None
+        limit = (err.get("ctx") or {}).get("max_length")
+        actual = len(err["input"]) if isinstance(err.get("input"), str) else None
+        where = f"task {who}" if who else f"task {index + 1}"
+        if title:
+            where += f" ({title})"
+        over = f" — it is {actual} characters and the limit is {limit}" if actual else ""
+        parts.append(f"the {field} for {where} is too long{over}")
+    joined = "; ".join(parts)
+    return (
+        f"{joined}. Shorten only what is named here and send every other task "
+        "back exactly as you wrote it above."
+    )
 
 
 def _roster_text(snapshot: RosterSnapshot) -> str:
@@ -383,6 +445,7 @@ async def make_plan(
         name=leader.name if leader else "the leader",
         roster=_roster_text(snapshot),
         max_tasks=MAX_TASKS,
+        max_chars=MAX_INSTRUCTION_CHARS,
         leader_note=(
             f" Do not assign anything to seat {leader.seat_index} — that is you."
             if leader and leader.seat_index not in assignable
@@ -445,10 +508,7 @@ async def make_plan(
                 try:
                     plan = Plan.model_validate(payload)
                 except ValidationError as exc:
-                    problem = "; ".join(
-                        f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']}"
-                        for e in exc.errors()
-                    )
+                    problem = _problem_from(exc, payload)
                 else:
                     # Seats and dependencies first: a task pointed at a seat
                     # nobody occupies cannot be repaired, only rejected.
@@ -463,7 +523,15 @@ async def make_plan(
         failures.append(problem)
         if attempt < max_attempts:
             messages = messages + [
-                Message("assistant", text[:2000]),
+                # Whole, not clipped. A plan is ~11,000 characters and this
+                # used to feed back the first 2,000 of it — one and a half
+                # tasks, cut mid-string — so "keep the others as they are"
+                # asked the model to preserve text it could no longer see, and
+                # it rewrote everything from the goal on every attempt,
+                # overshooting the same limit each time. The reply is already
+                # bounded by the `max_tokens` we set on it, so echoing it whole
+                # is bounded too.
+                Message("assistant", text),
                 Message(
                     "user",
                     f"That plan was rejected: {problem}. Return corrected JSON only.",

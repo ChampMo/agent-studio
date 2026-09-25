@@ -38,26 +38,35 @@ export function unfinishedTasks(events: SequencedEntry[]): UnfinishedTask[] {
   let order: string[] = [];
   let byId = new Map<string, UnfinishedTask>();
   let states = new Map<string, string>();
-  let endedAt = -1;
+  let roundOver = false;
 
-  events.forEach(({ event }, index) => {
+  events.forEach(({ event }) => {
     const type = event.draft.type;
     const p = event.draft.payload as unknown as Record<string, unknown>;
 
-    // A new round replaces the previous one's plan entirely, on the same rule
-    // the vitals and the scene follow: the first event after an ending opens
-    // the next round.
-    if (endedAt >= 0 && type !== "mission.ended") {
-      order = [];
-      byId = new Map();
-      states = new Map();
-      endedAt = -1;
-    }
     if (type === "mission.ended") {
-      endedAt = index;
+      roundOver = true;
       return;
     }
     if (type !== "mission.progress") return;
+    // A new round replaces the previous one's plan — but only once it has one.
+    //
+    // The vitals and the scene clear theirs on the *first event* after an
+    // ending, which is right for a counter and wrong for this: a round that
+    // dies before it plans publishes no `mission.progress` at all, so there is
+    // nothing to replace the list with and clearing it leaves the person with
+    // no retry button and no next step. Seen on a real run — two unfinished
+    // tasks before the retry, and none after the retry failed to plan, which
+    // took away the one affordance that could have been pressed again.
+    //
+    // Holding the list until a plan arrives is also the truer reading: until
+    // another round plans something, those tasks are still the unfinished ones.
+    if (roundOver) {
+      order = [];
+      byId = new Map();
+      states = new Map();
+      roundOver = false;
+    }
 
     const id = String(p.taskId ?? "");
     if (!id) return;

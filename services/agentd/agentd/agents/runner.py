@@ -118,6 +118,37 @@ class MissionRejected(ValueError):
         self.problems = problems
 
 
+#: How much of the leader's closing message becomes the ending's summary.
+#:
+#: Sized to what `earlier_rounds` already reads back, so the next round is
+#: handed the same text this one recorded rather than a shorter copy of it
+#: (§2.1). The old 2,000 cut a real 3,837-character handover clean in half,
+#: mid-word, at *"All of Test Plan sections 2+**, an"* — and that string is
+#: the ending on the timeline, the text of `final-answer.md`, and the only
+#: thing the next round's planner can read about what happened.
+SUMMARY_CHARS = 4000
+
+
+def shorten(text: str, limit: int = SUMMARY_CHARS) -> str:
+    """`text`, cut at a word boundary and **saying** that it was cut.
+
+    A summary is a label on a row, and the leader's own `agent.message` carries
+    the whole thing on the log — so shortening is legitimate and losing the end
+    of a sentence silently is not. A record that stops mid-word reads as the
+    app having broken rather than having abbreviated (§1).
+    """
+    if len(text) <= limit:
+        return text
+    mark = " … (shortened — the whole message is on the timeline)"
+    cut = text[: limit - len(mark)].rstrip()
+    space = cut.rfind(" ")
+    # Only back up to a word boundary if one is near the end; a single
+    # enormous token must still be cut somewhere.
+    if space > len(cut) - 120:
+        cut = cut[:space]
+    return f"{cut.rstrip()}{mark}"
+
+
 def ending_for(
     reason: str, summary: str, task_states: dict[str, str]
 ) -> tuple[str, str]:
@@ -961,7 +992,7 @@ class MissionRunner:
                         # achieved, and it was becoming the whole summary.
                         body = item["payload"]["content"]
                         if not leaked_tool_call(body):
-                            summary = body[:2000]
+                            summary = shorten(body)
                     elif item["type"] in ("agent.tool.start", "agent.tool.end"):
                         await self._note_written(mission_id, item, written)
                     elif item["type"] == "mission.progress":
@@ -995,8 +1026,31 @@ class MissionRunner:
             limit_kind = exc.kind
             summary = f"stopped at the {exc.kind} limit ({exc.used}/{exc.limit})"
         except PlanningFailed as exc:
-            reason, summary = "failed", f"the leader could not produce a plan: {exc}"
-            await self._publish_error(mission_id, "planning_failed", summary, False)
+            # Said in this app's words, not Pydantic's. The person saw
+            # `tasks.0.instruction: String should have at most 2000 characters`
+            # — twice, once as the error and once as the ending — which names
+            # an array index, uses a vocabulary that appears nowhere else in
+            # the app, and gives nothing to do about it. It was also only the
+            # **last** of three attempts: `str(exc)` is `attempts[-1]` and the
+            # other two were discarded.
+            reason = "failed"
+            who = roster.leader.name if roster.leader else "The leader"
+            tried = len(exc.attempts) or 1
+            summary = (
+                f"{who} could not produce a workable plan — {tried} attempts, "
+                "each one rejected, so no task was started. Asking for less in "
+                "one round, or splitting the work, is usually what fixes it."
+            )
+            # Every attempt, on the log, where the detail belongs: a person
+            # reads the sentence and whoever is debugging reads the reasons,
+            # and neither has to make do with the other's.
+            await self._publish_error(
+                mission_id,
+                "planning_failed",
+                f"{summary} What was wrong each time: "
+                + "; ".join(f"({i}) {why}" for i, why in enumerate(exc.attempts, 1)),
+                False,
+            )
         except ProviderError as exc:
             reason, summary = "failed", exc.message
             # The endpoint has just told us something true about its model.
@@ -1168,6 +1222,14 @@ class MissionRunner:
         # its whole reason for existing is that one caller kept titles and the
         # other did not.
         states = _states(task_states)
+        if not states:
+            # A round that never got as far as a plan has nothing to say about
+            # how far the plan got, and `0 of 0` is not that — it erases what
+            # the round before it achieved. Seen on a real run: a retry that
+            # died in planning overwrote `4 of 6`, which took the sidebar's
+            # shortfall badge and the launch form's own budget evidence with it.
+            # Saying nothing keeps the last true reading (§5.1).
+            return
         done = sum(1 for state, _title in states if state == "done")
         async with self._db.session() as session:
             mission = (
