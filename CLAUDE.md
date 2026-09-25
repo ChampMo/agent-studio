@@ -3183,6 +3183,42 @@ anyone who did. A permanent "Up to date" row is how people learn to stop
 reading the bottom of that column, which is the argument that took `open_desks`
 off the team cards.
 
+### Deleting an endpoint broke every run that had used it
+
+    error [no_provider] Pepper has no usable provider profile
+
+Reported from the app, over a run recorded `crashed` with **0 tokens, 0:00**,
+after a long brief had been typed. The row had already been reopened and the
+plan message already published before the first call discovered the problem.
+
+The data said it plainly. Four saved snapshots name
+`prov-279ac324-da08-4129-8f8f-d5f0cb0f5937`; the provider table holds
+`prov-1200a8db-…`. A DeepSeek profile had been deleted and re-created at some
+point, and the agents table was updated with it while **the frozen snapshots
+were not** — which is not a bug, it is §5.1 working: `provider_id` is never
+re-read past the launch boundary, because who did the earlier rounds must not
+change retroactively.
+
+So the behaviour was right and the moment was wrong. `_refuse_missing_providers`
+runs **before the row is reopened and before a single event is published**, on
+a continued round and on a new run alike — an agent can point at an endpoint
+somebody deleted, so a brand-new run had the same hole. It raises
+`MissionRejected`, which is the 409 the composer already lists in full, and the
+sentence says what to do rather than what failed: *this run remembers the
+endpoint it started with and never swaps it for another one — start a new run
+with the same team.*
+
+**Deliberately not repaired by falling back to today's endpoint.** That is the
+one repair this file's previous entry would seem to license, and it is the
+opposite case: a single legal assignee is arithmetic, while silently swapping
+the endpoint a run is made of rewrites what the record means. The snapshot
+exists precisely so that cannot happen.
+
+The fourth test is the one worth keeping: it asserts the row is **still
+`ended`, still `completed`, still holding its old goal** after the refusal. A
+refusal that has already restarted the mission leaves it saying `running` with
+nothing driving it, which is the exact condition `reap_orphans` was written for.
+
 ### One possible assignee is not a choice
 
 A run died before it started:

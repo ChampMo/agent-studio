@@ -325,6 +325,56 @@ class MissionRunner:
         self._track(mission_id, task)
         return mission_id
 
+    async def _refuse_missing_providers(self, roster: RosterSnapshot) -> None:
+        """Refuse before the round starts if a member's endpoint is gone.
+
+        A snapshot is frozen on purpose: who did the earlier rounds must not
+        change retroactively (§5.1), so `provider_id` is never re-read from the
+        agents table. The honest consequence is that **deleting a model
+        endpoint makes every older run impossible to continue** — the id on the
+        snapshot names a row that is not there any more.
+
+        That was already true and was discovered the worst way: the round
+        opened, the row went back to `running`, the plan message was published,
+        and the first call died with
+        `no_provider: Pepper has no usable provider profile` — an internal
+        sentence, after a paragraph had been typed, over a run recorded
+        `crashed` with `0 tokens`.
+
+        So it is a refusal rather than a crash. Nothing is reopened, nothing is
+        published, and the caller gets the same 409 shape the team validator
+        uses, which the composer already lists in full.
+
+        Deliberately **not** repaired by falling back to whatever endpoint that
+        agent points at today. That would quietly rewrite what the run is made
+        of, and the snapshot exists precisely so it cannot be (§5.1). The way
+        forward is a new run, and the message says so.
+        """
+        wanted = {m.provider_id for m in roster.members if m.provider_id}
+        async with self._db.session() as s:
+            rows = (
+                await s.execute(
+                    select(ProviderProfile).where(ProviderProfile.id.in_(wanted))
+                )
+                if wanted
+                else None
+            )
+            have = {p.id for p in rows.scalars().all()} if rows is not None else set()
+
+        gone = [m for m in roster.members if (m.provider_id or "") not in have]
+        if not gone:
+            return
+        names = ", ".join(sorted({m.name for m in gone}))
+        raise MissionRejected(
+            [
+                f"the model endpoint this run was made with no longer exists, so "
+                f"{names} cannot think. A run remembers the endpoint it started "
+                f"with and never swaps it for another one, so this run cannot be "
+                f"continued — start a new run with the same team to use the "
+                f"endpoint you have now."
+            ]
+        )
+
     async def start_mission(
         self,
         *,
@@ -419,6 +469,9 @@ class MissionRunner:
             # be able to say what the run began with.
             autonomy=await get_autonomy(self._db),
         )
+        # An agent can point at an endpoint that has since been deleted, so a
+        # brand-new run has the same hole a continued one does.
+        await self._refuse_missing_providers(roster)
         # The app default is read here rather than baked in, so the number a
         # run is stopped at is the one the settings panel shows.
         limits = resolve_limits(
@@ -681,6 +734,10 @@ class MissionRunner:
                 mission=mission.budget, app_default=await get_app_budget(self._db)
             )
             earlier = await self.earlier_rounds(mission_id, mission.goal)
+            # Before the row is reopened and before a single event is
+            # published: a refusal that has already restarted the mission is a
+            # run left saying `running` over nothing.
+            await self._refuse_missing_providers(roster)
             # Reopened, and the row says so before the first event of the round.
             mission.status = "running"
             mission.end_reason = None
