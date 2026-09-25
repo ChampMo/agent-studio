@@ -526,7 +526,7 @@ web tool and a way to change things, and suggests splitting the roles; and
 because the backend on loopback holds the user's keys.
 
 
-**Released: v0.2.6** (2026-09-25). v0.2.0 was the first build that could update
+**Released: v0.2.7** (2026-09-26). v0.2.0 was the first build that could update
 itself and the first that drew no room; it is marked superseded on its own
 release page rather than left to be downloaded.
 
@@ -3795,6 +3795,51 @@ started — and written back as 4 of 6. That is recomputing a cache, not editing
 a record. `end_reason` and `end_limit` were left alone: the last round really
 did fail to plan, and the row describing the *round* while the label reads as
 describing the *run* is the open per-round column question, not an erasure.
+
+### v0.2.7, and what the release check caught this time
+
+Both stages run inside the packaged binary, against the real endpoint.
+
+**A — a whole mission to `ended`**, which is the standing rule since four
+releases were signed off on still frames. `completed`, 3 of 3 tasks, 81 events,
+zero internal errors, `DESIGN.md` on disk with the right colour and font — and
+a **real `bash` approval answered mid-run**, which was worth having: the run sat
+at 42 events for ten minutes and looked hung. It was not. It was waiting on a
+person, exactly as designed, with the clock paused. *A harness that never
+answers cannot tell a pause from a hang*, and the first reading of that screen
+was wrong.
+
+**B — the retry shape, at a length the previous release refused.** A
+**5,563-character** message of three whole task instructions quoted verbatim:
+accepted (202) where v0.2.6 answered 422 at 4,000, then `planFail 0`,
+`plan_corrected 0`, no length rejection anywhere, and the round ended
+`completed` with the right answer. 121 events across two rounds.
+
+`getVersion()` could not be read through CDP — the dynamic import path is not
+what the bundle serves — so the version was checked on the artifact instead:
+the exe's own `ProductVersion` reads **0.2.7**. That number is what an installed
+copy compares against, and a build reporting the old one would offer itself an
+update for ever.
+
+### A backend that outlived its app, once, and did not reproduce
+
+Before the build could start, `npm run package` would have failed: the v0.2.6
+app had been open for 134 minutes, and closing its window left an `agentd.exe`
+behind. Worth being precise about what it was, because the obvious reading is
+wrong. It had **no listening socket** — uvicorn had stopped, so the watchdog
+had fired — and the process simply never exited. aiosqlite starts a
+**non-daemon** thread per connection, so anything holding a connection open
+keeps the process alive after the server stops.
+
+The new build does not do it: closed the window, and nothing was left. So this
+is recorded as seen once and not reproduced rather than fixed or dismissed. It
+matters because a lingering `agentd.exe` locks the file an installer has to
+overwrite — which is how this family was found the first time, as an `EBUSY`
+during a build.
+
+And it is the reason the app was closed with `CloseMainWindow()` rather than
+`taskkill`: a force-kill of a process mid-write is the likeliest cause of the
+database corruption earlier in the same session.
 
 ---
 
