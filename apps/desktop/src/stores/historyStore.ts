@@ -14,6 +14,8 @@ import { useMissionStore } from "./missionStore";
 
 interface HistoryState {
   missions: MissionSummary[];
+  /** Rows `GET /missions` could not read at all. Zero every ordinary day. */
+  unreadable: number;
   loading: boolean;
   openId: string | null;
   artifacts: Artifact[];
@@ -39,6 +41,7 @@ interface HistoryState {
 
 export const useHistoryStore = create<HistoryState>((set, get) => ({
   missions: [],
+  unreadable: 0,
   loading: false,
   openId: null,
   artifacts: [],
@@ -48,8 +51,8 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
   load: async () => {
     set({ loading: true, error: null });
     try {
-      const { missions } = await api.listMissions();
-      set({ missions });
+      const { missions, unreadable } = await api.listMissions();
+      set({ missions, unreadable: unreadable ?? 0 });
     } catch (err) {
       set({ error: (err as Error).message });
     } finally {

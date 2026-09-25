@@ -50,38 +50,106 @@ async def resolve_request(
     return {"missionId": mission_id, "resumed": True}
 
 
+def _mission_row(m: Mission, running: bool) -> dict[str, Any]:
+    return {
+        "id": m.id,
+        "kind": m.kind,
+        "title": m.title,
+        "goal": m.goal,
+        "status": m.status,
+        "endReason": m.end_reason,
+        "endLimit": m.end_limit,
+        "tasksDone": m.tasks_done,
+        "tasksTotal": m.tasks_total,
+        "startedAt": as_utc_iso(m.started_at),
+        "endedAt": as_utc_iso(m.ended_at),
+        "pendingRequest": m.pending_request,
+        "memberCount": len(m.roster_snapshot or []),
+        "running": running,
+    }
+
+
+async def _readable_missions(db, limit: int) -> tuple[list[Mission], int]:
+    """Every mission the database can still describe, newest first.
+
+    The ordinary read is one query, and it is all-or-nothing: SQLAlchemy builds
+    every row before handing any of them back, so a single value the column's
+    type cannot parse raises out of `execute()` itself. The row never reaches
+    application code, which is why guarding the thing that formats a row is no
+    guard at all.
+
+    A database that cannot answer that query is read one row at a time instead,
+    so one bad row costs one entry rather than all of them. The ordering stays
+    in SQL, where a corrupt timestamp is only a string to sort, and the ids come
+    back because `Mission.id` is text — the ids survive even when the rows they
+    name do not.
+
+    Only the data-shaped errors are caught. An `AttributeError` here is our bug
+    and should still be a 500: degrading quietly to "every row is unreadable"
+    would be a worse lie than the crash.
+    """
+    newest_first = Mission.started_at.desc()
+    async with db.session() as s:
+        try:
+            rows = await s.execute(select(Mission).order_by(newest_first).limit(limit))
+            return list(rows.scalars().all()), 0
+        except (ValueError, TypeError):
+            # No rollback: the statement ran and the failure is Python-side, in
+            # the row the driver's own bytes are turned into. Rolling back here
+            # would expire every instance this session goes on to load.
+            pass
+
+        ids = (
+            await s.execute(select(Mission.id).order_by(newest_first).limit(limit))
+        ).scalars().all()
+
+        readable: list[Mission] = []
+        unreadable = 0
+        for mission_id in ids:
+            try:
+                row = (
+                    await s.execute(select(Mission).where(Mission.id == mission_id))
+                ).scalar_one_or_none()
+            except (ValueError, TypeError):
+                unreadable += 1
+                continue
+            if row is not None:
+                readable.append(row)
+        return readable, unreadable
+
+
 @router.get("/missions")
 async def list_missions(request: Request, limit: int = 50) -> dict[str, Any]:
-    """The mission history, for reopening an old run (§12 M6)."""
-    db = get_db(request)
-    async with db.session() as s:
-        rows = await s.execute(
-            select(Mission).order_by(Mission.started_at.desc()).limit(limit)
-        )
-        missions = list(rows.scalars().all())
+    """The mission history, for reopening an old run (§12 M6).
+
+    **One unreadable row must not take the whole list with it.** A corrupted
+    database left a mission whose `started_at`, `title` and `end_reason` were
+    NUL bytes, `GET /missions` answered 500, and the sidebar went completely
+    empty over a database holding five perfectly good runs — including the one
+    the person had started a minute earlier and was asking about. Every run was
+    invisible because of one that was not.
+
+    So a row that cannot be read is left out and counted. `unreadable` is on the
+    response rather than swallowed, because a list quietly missing an entry is
+    the app being untrue about what it holds (§1) — and the number is the only
+    clue anybody gets that a database wants looking at.
+
+    Same rule `get_app_budget` already follows: a corrupt row falls back rather
+    than taking the others down with it.
+    """
+    missions, unreadable = await _readable_missions(get_db(request), limit)
 
     runner = get_runner(request)
-    return {
-        "missions": [
-            {
-                "id": m.id,
-                "kind": m.kind,
-                "title": m.title,
-                "goal": m.goal,
-                "status": m.status,
-                "endReason": m.end_reason,
-                "endLimit": m.end_limit,
-                "tasksDone": m.tasks_done,
-                "tasksTotal": m.tasks_total,
-                "startedAt": as_utc_iso(m.started_at),
-                "endedAt": as_utc_iso(m.ended_at),
-                "pendingRequest": m.pending_request,
-                "memberCount": len(m.roster_snapshot or []),
-                "running": runner.is_running(m.id),
-            }
-            for m in missions
-        ]
-    }
+    described: list[dict[str, Any]] = []
+    for m in missions:
+        try:
+            described.append(_mission_row(m, runner.is_running(m.id)))
+        except (ValueError, TypeError):
+            # A row SQLAlchemy could build and this cannot describe: a
+            # `roster_snapshot` holding something that is not a list, say.
+            unreadable += 1
+
+    return {"missions": described, "unreadable": unreadable}
 
 
 class RenameIn(BaseModel):

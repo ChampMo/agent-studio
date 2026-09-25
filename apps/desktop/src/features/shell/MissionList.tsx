@@ -53,6 +53,7 @@ export function MissionList({
 }) {
   const missions = useHistoryStore((s) => s.missions);
   const loading = useHistoryStore((s) => s.loading);
+  const unreadable = useHistoryStore((s) => s.unreadable);
   const load = useHistoryStore((s) => s.load);
   const openMission = useHistoryStore((s) => s.openMission);
   const remove = useHistoryStore((s) => s.remove);
@@ -145,6 +146,18 @@ export function MissionList({
     </section>
   ) : null;
 
+  // A row the database could not hand back. It belongs at the foot of the
+  // list and in the empty state alike — a database whose every row is damaged
+  // would otherwise read "Nothing yet. Start a run to see it here.", which is
+  // the app being untrue about what it holds (§1).
+  const damaged =
+    unreadable > 0 ? (
+      <p className="px-2 py-2 text-[11px] text-faint">
+        <span className="text-stop">{strings.sidebar.unreadable(unreadable)}</span>{" "}
+        {strings.sidebar.unreadableHint(unreadable)}
+      </p>
+    ) : null;
+
   if (loading && missions.length === 0)
     return (
       <div className="space-y-3">
@@ -162,6 +175,7 @@ export function MissionList({
         <p className="px-2 py-3 text-xs text-faint">
           {query.trim() ? strings.sidebar.noMatches : strings.sidebar.empty}
         </p>
+        {damaged}
       </div>
     );
 
@@ -344,6 +358,7 @@ export function MissionList({
           </ul>
         </section>
       ))}
+      {damaged}
     </div>
   );
 }

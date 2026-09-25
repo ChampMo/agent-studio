@@ -3535,6 +3535,57 @@ nobody running the packaged app can follow, since it starts its own backend and
 has no terminal. `inTauri()` is exported from `popout.ts` rather than copied,
 and there are two sentences because there are two things that start it.
 
+### One damaged row emptied the whole sidebar
+
+Reported as *"I made a run, sent a command, pressed stop, and the chat
+disappeared"*. Everything was still there: `GET /missions` was answering **500**,
+so the list rendered nothing at all, over a database holding five perfectly good
+runs — including the one the person had started a minute earlier and was asking
+about.
+
+One row had NUL bytes where its `started_at`, `title`, `end_reason`,
+`workspace_root` and `result_summary` should have been. The file was damaged,
+and the likeliest cause is mine: a day of release checks that ended in
+`taskkill /F /T` on the app, over and over, against an open SQLite file.
+`PRAGMA integrity_check` found it, the good rows were copied out, and the
+original is kept beside the live one as `agent-studio.db.corrupt-<date>`.
+
+**The recovery carried the bad row forward**, which is how it was still 500ing
+afterwards — worth knowing that a row-by-row rebuild copies corruption faithfully
+unless something reads each value.
+
+### The guard was in the wrong place, and the first version of it guarded nothing
+
+The obvious fix is a `try` around the thing that formats a row — `as_utc_iso`
+cannot parse four NUL bytes, so that is where it must break. It is not.
+**SQLAlchemy builds every row before handing any of them back**, so the failure
+is inside `execute()` itself:
+
+    File "agentd/api/hitl.py", line 93, in list_missions
+    ValueError: Invalid isoformat string: '    '
+
+The bad row never reaches application code, so a loop with a `try` in it is a
+loop that never runs. The first version of this fix was written, read twice and
+believed, and only a test that inserts a real corrupt row showed that the
+`except` could not fire.
+
+So the ordinary read stays one query, and a database that cannot answer it is
+read **one row at a time**: the ids come back first, because `Mission.id` is
+text and survives what the row does not, and the ordering stays in SQL where a
+corrupt timestamp is only a string to sort. Two details cost a cycle each —
+`rollback()` on the failed read expires every instance the session goes on to
+load (and is not needed: the statement ran, the failure is Python-side), and
+only `ValueError`/`TypeError` are caught, because an `AttributeError` here is
+our own bug and degrading quietly to "every row is unreadable" is a worse lie
+than a crash.
+
+`unreadable` is on the response, and the sidebar prints it — including in the
+empty state, since a database whose every row is damaged would otherwise read
+*"Nothing yet. Start a run to see it here."* A list quietly missing an entry is
+the app being untrue about what it holds (§1), and that count is the only clue
+anybody gets that a file wants looking at. Same rule `get_app_budget` already
+follows: a corrupt row falls back rather than taking the others down with it.
+
 ---
 
 ## Decisions made while building

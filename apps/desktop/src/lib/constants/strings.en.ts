@@ -49,6 +49,16 @@ export const strings = {
     soloChat: "Solo chat",
     spentThisMonth: "Spent this month",
     empty: "Nothing yet. Start a run to see it here.",
+    //: Rows the database could not hand back. Said rather than swallowed: a
+    //: list quietly missing an entry is the app being untrue about what it
+    //: holds (§1), and this is the only clue anybody gets that the file wants
+    //: looking at.
+    unreadable: (n: number) =>
+      n === 1 ? "1 run could not be read" : `${n} runs could not be read`,
+    unreadableHint: (n: number) =>
+      n === 1
+        ? "Its row in the database is damaged. Every other run here is intact."
+        : "Their rows in the database are damaged. Every other run here is intact.",
     noMatches: "No past run matches that.",
     notStarted: "Not started",
     cancel: "Keep it",

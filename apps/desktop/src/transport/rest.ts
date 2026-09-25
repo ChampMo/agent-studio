@@ -474,8 +474,14 @@ export const api = {
 
   // ---- history and artifacts ---------------------------------------------
 
+  /** `unreadable` counts rows the database could not hand back at all — a
+   *  damaged file, in the one case this has happened. Optional because a
+   *  backend older than the field is a real thing to meet in dev, and a type
+   *  saying `number` would not make the value one. */
   listMissions: (limit = 50) =>
-    request<{ missions: MissionSummary[] }>(`/missions?limit=${limit}`),
+    request<{ missions: MissionSummary[]; unreadable?: number }>(
+      `/missions?limit=${limit}`,
+    ),
 
   /** Keep a finished run going in the same conversation (§7.1). The roster,
    *  the workspace and the whole timeline carry over. */
