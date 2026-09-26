@@ -3837,13 +3837,22 @@ not exiting. The second one still had **12 threads** alive. A build closed
 immediately after starting does *not* do it, which is why it read as
 non-reproducing the first time.
 
-Narrowed, and the narrowing rules out the obvious answer. A harness that starts
-the backend, hits `/missions`, `/teams`, `/agents` and `/providers` to open pool
-connections and then closes stdin gets **exit 0 in 0.7 seconds** — so ordinary
-database work is not it. And the team path does close its provider clients:
-`_finish` closes every one it opened, `_park` closes them when a run stops for a
-person. What the two zombies had in common is that a **mission** had run, with
-approvals in it.
+Narrowed by three experiments, and two of them ruled out the answer I had
+already written down:
+
+* a harness that starts the backend, hits `/missions`, `/teams`, `/agents` and
+  `/providers` to open pool connections, then closes stdin — **exit 0 in 0.7
+  seconds**. Ordinary database work is not it;
+* the team path does close its provider clients. `_finish` closes every one it
+  opened and `_park` closes them when a run stops for a person;
+* and **a five-minute session that ran a whole mission exited cleanly**. That
+  one was written here as "both after real missions had run" before it was
+  tested, and testing it took the claim away: a mission is not sufficient.
+
+What is left is duration. The two that lingered had been open 134 and 46
+minutes; the one that did not was five. So the next thing to look at is what
+accumulates over a session rather than what one run does — a periodic task, a
+socket reconnect, something per-window.
 
 Left unfixed rather than guessed at: a hard `os._exit` after `server.run()`
 returns would certainly end the process, and shipping that without knowing which
