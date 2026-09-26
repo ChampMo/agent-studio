@@ -4145,6 +4145,76 @@ tell. Deliberately **not** a skip: `depends_on` is absent on most plans, where
 it means "after the one before it", so cancelling every later task on a
 failure would throw away work that has nothing to do with it.
 
+### A question with no answers offered is the person doing the thinking twice
+
+Reported with a screenshot: a dense paragraph from Willow and an empty text
+box under it. The agent had spent a whole turn working out what the choice
+was, written it out as prose, and then handed the decision over with nothing
+to press.
+
+`options` had existed on `agent.request` since M6 and only approvals ever
+filled it. `parseAsk` read choices back out of prose, which is a *reading* and
+refuses anything it is not sure of, so a question written as a paragraph -
+the case this was reported for - offered nothing at all. So the asker fills
+the field: `ask_user` takes `options` and `recommended`, both carried through
+untouched, and `AskRowView` prefers them over the prose reading, keeping that
+for runs recorded before the field existed (§8).
+
+**`options` is a check and `recommended` is not, and the asymmetry is the
+design.** A description is a request; this project has already paid for that
+difference, when the generator was asked not to reuse a name and did. So a
+bare question is refused with a correction naming what to send - one round
+trip, against a paused run and an empty box. It closes nothing, because the
+written reply is always there underneath, which is what makes *always*
+defensible: offering the two decisions you can see is never wrong when the
+person can still say a third thing.
+
+A recommendation cannot work that way. It is drawn as **"Rowan suggests"**,
+named rather than a bare *Recommended*, because the app is in no position to
+have an opinion about somebody's own decision (§1.1) - and a model made to
+produce one it does not hold would put that name against an opinion nobody
+had. So it is asked for and never forced, and the frontend drops a
+`recommended` that is not one of the options rather than pointing at a button
+nobody drew.
+
+### The live run found it in the one place the tests could not
+
+Both fields reached the stream on the first real run, and `GET
+/requests/pending` returned `recommended: None` over an event whose payload
+carried it. `_last_request` copied the payload **field by field** - four
+names, written before there was a fifth.
+
+Invisible while a window stays open: `approvalStore` has two sources, and the
+live one is the stream, which was complete. The route is for the other case -
+a question asked before this window existed, which is the whole of the M6
+criterion - so the newest field was missing exactly where the promise lives,
+and only there. The payload is returned whole now; it is already published to
+the same client on the same question, so copying it cannot leak anything and
+cannot fall behind the schema again.
+
+Verified against a real DeepSeek run rather than the fixture: two options and
+`recommended: "Leave it as prose"` off `/requests/pending`, the suggested row
+drawn with the heavier edge in both themes, and pressing it answered the
+question and carried the run to `completed`, 2 of 2.
+
+**And the model's judgement is left alone.** A second run on the same question
+offered two options and *no* recommendation, and nothing invented one. That is
+the field working: a suggestion is only there when somebody made it.
+
+### A test double missing a field does not fail the test
+
+`FakeServer` in `test_parent_watchdog.py` carried `should_exit` alone, under a
+docstring saying that was the only field the watchdog touches. It stopped
+being true when the force-exit escalation landed a few hours earlier, and the
+watchdog then raised `AttributeError` on `started` **inside its own thread** -
+so three tests stayed green over a handler that died one line past the
+assertion they make. pytest reported it as a warning at the bottom of a
+721-test run.
+
+The fix is one line of double. The thing worth keeping is the shape: a double
+that is short a field silently stops covering everything downstream of it, and
+the failure surfaces as a warning rather than a red test.
+
 ---
 
 ## Decisions made while building

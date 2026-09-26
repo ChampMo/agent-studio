@@ -247,13 +247,44 @@ SPECS: tuple[ToolSpec, ...] = (
         description=(
             "Ask the person running this mission a question and wait for their "
             "answer. Use it when a choice is theirs to make, not when you could "
-            "find out by looking."
+            "find out by looking.\n\n"
+            "Always offer `options` — the answers you can actually see — and "
+            "name the one you would take in `recommended`. They are reading a "
+            "paused run and deciding something you have spent a turn thinking "
+            "about; a bare question makes them do that thinking again. They "
+            "can still write anything instead, so a short list costs them "
+            "nothing and usually saves them the typing."
         ),
         risk="safe",
         handler=team.ask_user,
         input_schema=_schema(
-            {"question": {"type": "string", "description": "What to ask."}},
-            ["question"],
+            {
+                "question": {"type": "string", "description": "What to ask."},
+                "options": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "The answers you can see, each a short phrase that "
+                        "stands on its own — not 'yes'/'no' to a question they "
+                        "would have to scroll back up to re-read. Two to four "
+                        "is usually right."
+                    ),
+                },
+                "recommended": {
+                    "type": "string",
+                    "description": (
+                        "The option you would take, copied exactly from "
+                        "`options`. Say why in the question itself. Leave it "
+                        "out when you genuinely have no preference — a "
+                        "recommendation you did not mean is worse than none."
+                    ),
+                },
+            },
+            # `options` is required, and the handler checks it as well. A
+            # schema-capable endpoint is stopped here for free; DeepSeek and
+            # anything else in `json_object` mode never sees this schema at
+            # all, which is exactly why the check exists too (see team.py).
+            ["question", "options"],
         ),
     ),
     ToolSpec(

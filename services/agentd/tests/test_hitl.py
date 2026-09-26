@@ -185,6 +185,51 @@ async def test_a_restarted_frontend_can_find_what_is_waiting(
     assert pending[0]["options"] == ["approve", "reject"]
 
 
+async def test_a_recommendation_survives_the_route_a_restarted_client_uses(db, bus):
+    """`approvalStore` has two sources and only one of them was complete.
+
+    A live window hears `agent.request` off the stream, so a recommendation
+    showed up there whatever this route did. The route is for the other case -
+    the question asked before this window existed - and it was copying the
+    payload field by field, so the newest field was silently missing exactly
+    where the milestone's promise lives (§12 M6).
+    """
+    mission_id = "m-rec"
+    async with db.session() as s:
+        s.add(
+            Mission(
+                id=mission_id,
+                kind="mission",
+                team_id=None,
+                goal="Decide.",
+                status="running",
+                pending_request="req-1",
+                started_at=datetime.now(UTC),
+            )
+        )
+        await s.commit()
+
+    await bus.publish(
+        mission_id,
+        {
+            "type": "agent.request",
+            "payload": {
+                "agentId": "a1",
+                "requestId": "req-1",
+                "kind": "question",
+                "question": "Table or prose?",
+                "options": ["As a table", "As prose"],
+                "recommended": "As prose",
+            },
+        },
+    )
+
+    pending = await MissionRunner(db, bus).pending_requests()
+    assert len(pending) == 1
+    assert pending[0]["options"] == ["As a table", "As prose"]
+    assert pending[0]["recommended"] == "As prose"
+
+
 async def test_rejecting_the_plan_ends_the_mission_as_a_decision(
     db, bus, saver, monkeypatch
 ):

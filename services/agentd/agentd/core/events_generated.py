@@ -196,7 +196,18 @@ class PayloadAgentRequest(BaseModel):
         ),
     ]
     question: str
-    options: list[str] | None = None
+    options: Annotated[
+        list[str] | None,
+        Field(
+            description='The answers the asker offered, in its own words. For an approval these are approve/reject; for a question they are whatever the agent listed, and they never close the question — a written answer is always allowed.'
+        ),
+    ] = None
+    recommended: Annotated[
+        str | None,
+        Field(
+            description="The one of `options` the asker would pick. Its recommendation, not the app's, and absent when it did not make one — a suggestion nobody made is not a suggestion."
+        ),
+    ] = None
 
 
 class PayloadAgentRequestResolved(BaseModel):

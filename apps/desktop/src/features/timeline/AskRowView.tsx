@@ -94,7 +94,18 @@ export function AskRowView({
         : parseAsk(row.question ?? ""),
     [isApproval, row.question],
   );
-  const picks = parsed.choices;
+  // **Structured first, prose second.** An agent that filled in `options` said
+  // exactly what it meant; `parseAsk` is a *reading* of prose and refuses
+  // anything it is not sure of, which is why a question written as a
+  // paragraph — the case this was reported for — offered nothing at all. The
+  // reading is kept for runs recorded before the field existed (§8).
+  const offered = useMemo(
+    () =>
+      !isApproval && row.options?.length
+        ? row.options.map((text) => ({ text, marker: null as string | null }))
+        : parsed.choices.map((c) => ({ text: c.text, marker: c.marker })),
+    [isApproval, row.options, parsed.choices],
+  );
 
   /** Finished cards start shut. */
   const [open, setOpen] = useState(false);
@@ -201,32 +212,54 @@ export function AskRowView({
                     `choices.ts`). The reply box is always here underneath:
                     a list of options is not the same as a closed set, and the
                     agent asked in prose for a reason. */}
-                {picks.length > 0 ? (
+                {offered.length > 0 ? (
                   <ul className="space-y-1">
-                    {picks.map((choice) => (
-                      <li key={choice.marker}>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          // What is sent is the label, not the letter: "a" on
-                          // the log is unreadable a week later, and this is
-                          // the record (§9.3).
-                          onClick={() =>
-                            void answer(row.requestId, choice.text)
-                          }
-                          className={cn(
-                            "flex w-full min-h-[36px] items-start gap-2 rounded-card px-3 py-2 text-left",
-                            "border border-attn-edge bg-attn-soft text-xs leading-snug text-text",
-                            "hover:border-attn disabled:opacity-40",
-                          )}
-                        >
-                          <span className="shrink-0 font-mono text-[11px] text-attn">
-                            {choice.marker})
-                          </span>
-                          <span className="min-w-0 flex-1">{choice.text}</span>
-                        </button>
-                      </li>
-                    ))}
+                    {offered.map((choice, i) => {
+                      const suggested = row.recommended === choice.text;
+                      return (
+                        <li key={choice.marker ?? `${i}-${choice.text}`}>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            // What is sent is the label, not the letter: "a" on
+                            // the log is unreadable a week later, and this is
+                            // the record (§9.3).
+                            onClick={() =>
+                              void answer(row.requestId, choice.text)
+                            }
+                            className={cn(
+                              "flex w-full min-h-[36px] items-start gap-2 rounded-card px-3 py-2 text-left",
+                              "border bg-attn-soft text-xs leading-snug text-text",
+                              "hover:border-attn disabled:opacity-40",
+                              // The suggested one is a heavier edge, not a
+                              // different colour: amber already means "this
+                              // is waiting on you" all over this card, and
+                              // spending a second colour here would make both
+                              // mean less.
+                              suggested
+                                ? "border-attn border-2"
+                                : "border-attn-edge",
+                            )}
+                          >
+                            {choice.marker ? (
+                              <span className="shrink-0 font-mono text-[11px] text-attn">
+                                {choice.marker})
+                              </span>
+                            ) : null}
+                            <span className="min-w-0 flex-1">{choice.text}</span>
+                            {/* Named, because it is the agent's view and not
+                                the app's. A bare "Recommended" reads as the
+                                app having an opinion it is in no position to
+                                have (§1.1). */}
+                            {suggested ? (
+                              <span className="shrink-0 text-[10px] text-attn">
+                                {strings.approval.suggests(row.name)}
+                              </span>
+                            ) : null}
+                          </button>
+                        </li>
+                      );
+                    })}
                   </ul>
                 ) : null}
 

@@ -71,23 +71,114 @@ async def test_an_agent_with_no_team_says_so():
 
 
 async def test_ask_user_waits_for_the_answer_and_returns_it():
-    asked: list[tuple[str, str]] = []
+    asked: list[tuple] = []
 
-    async def asker(agent_id: str, question: str) -> str:
-        asked.append((agent_id, question))
+    async def asker(agent_id, question, options=(), recommended=None) -> str:
+        asked.append((agent_id, question, options, recommended))
         return "use the second one"
 
-    result = await team.ask_user(ctx_with(ask=asker), question="Which source?")
-    assert asked == [("a-1", "Which source?")]
+    result = await team.ask_user(
+        ctx_with(ask=asker), question="Which source?", options=["the first", "the second"]
+    )
+    assert asked == [("a-1", "Which source?", ("the first", "the second"), None)]
     assert "use the second one" in result.content
 
 
+async def test_the_options_and_the_recommendation_are_carried_through_untouched():
+    """Both are the asker's, and nothing here writes either of them.
+
+    A question arrived as a dense paragraph with a free-text box under it, and
+    the person had to re-derive a decision the agent had already spent a turn
+    on. The answer is to let the agent offer its own choices — but only its
+    own: a list the app invented would look identical on screen to one an
+    agent thought about (§1.1).
+    """
+    seen: list[tuple] = []
+
+    async def asker(agent_id, question, options=(), recommended=None) -> str:
+        seen.append((options, recommended))
+        return "two flows"
+
+    await team.ask_user(
+        ctx_with(ask=asker),
+        question="One checkout flow or two?",
+        options=["one flow", "two flows"],
+        recommended="two flows",
+    )
+    assert seen == [(("one flow", "two flows"), "two flows")]
+
+
+async def test_a_recommendation_that_is_not_on_offer_is_refused():
+    # Pointing at something that is not on screen is worse than pointing at
+    # nothing: the person looks for a button that was never drawn.
+    async def asker(agent_id, question, options=(), recommended=None) -> str:
+        return "x"
+
+    with pytest.raises(ToolFailed) as caught:
+        await team.ask_user(
+            ctx_with(ask=asker), question="Which?",
+            options=["one flow", "two flows"], recommended="three flows",
+        )
+    assert caught.value.code == "unknown_recommendation"
+    # And it names what was actually on offer, so the model can correct itself.
+    assert "one flow" in caught.value.message
+
+
+async def test_blank_and_duplicate_options_are_dropped():
+    # A button with no label and two buttons reading the same thing are both
+    # unanswerable.
+    seen: list[tuple] = []
+
+    async def asker(agent_id, question, options=(), recommended=None) -> str:
+        seen.append(options)
+        return "keep"
+
+    await team.ask_user(
+        ctx_with(ask=asker), question="Which?",
+        options=["keep", "  ", "keep", "drop", ""],
+    )
+    assert seen == [("keep", "drop")]
+
+
+async def test_a_question_with_no_options_is_refused():
+    """The description asks for options; a description is a request.
+
+    Reported from the app as a dense paragraph with an empty box under it, and
+    nothing on screen to press. The refusal costs one round trip and the model
+    is told what to send; a bare question costs the person the whole decision
+    again. Nothing is closed by it - the reply box is always there, so a list
+    is a shortcut past typing rather than the set of legal answers.
+    """
+    async def asker(agent_id, question, options=(), recommended=None) -> str:
+        raise AssertionError("the question should never have been published")
+
+    with pytest.raises(ToolFailed) as caught:
+        await team.ask_user(ctx_with(ask=asker), question="What should I do?")
+    assert caught.value.code == "no_options"
+    # The correction has to say what to send, not merely that something is
+    # missing, or the next attempt is a guess.
+    assert "recommended" in caught.value.message
+
+
+async def test_options_that_are_all_blank_count_as_none():
+    async def asker(agent_id, question, options=(), recommended=None) -> str:
+        raise AssertionError("the question should never have been published")
+
+    with pytest.raises(ToolFailed) as caught:
+        await team.ask_user(
+            ctx_with(ask=asker), question="Which?", options=["", "   "]
+        )
+    assert caught.value.code == "no_options"
+
+
 async def test_a_question_nobody_answered_is_a_failure_not_an_answer():
-    async def asker(agent_id: str, question: str) -> None:
+    async def asker(agent_id, question, options=(), recommended=None) -> None:
         return None  # the mission ended while it was on screen
 
     with pytest.raises(ToolFailed) as caught:
-        await team.ask_user(ctx_with(ask=asker), question="Which one?")
+        await team.ask_user(
+            ctx_with(ask=asker), question="Which one?", options=["a", "b"]
+        )
     assert caught.value.code == "unanswered"
 
 

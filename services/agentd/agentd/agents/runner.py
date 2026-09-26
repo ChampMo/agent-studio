@@ -876,12 +876,23 @@ class MissionRunner:
         self._mailboxes[mission_id] = mailbox
 
 
-        async def ask(agent_id: str, question: str) -> str | None:
+        async def ask(
+            agent_id: str,
+            question: str,
+            options: tuple[str, ...] = (),
+            recommended: str | None = None,
+        ) -> str | None:
             """`ask_user`, using M6's request end to end (§16.7).
 
             The runner publishes and the runner waits, because the runner is
             what owns the bus and the routing. Same event, same endpoint and
             same modal as an approval - only `kind` differs.
+
+            `options` and `recommended` are the asker's own, carried through
+            untouched. Nothing here invents either: a question with no answers
+            offered is published with none, because a choice the app made up
+            would be indistinguishable on screen from one the agent thought
+            about (§1.1).
             """
             request_id = f"req-{uuid.uuid4()}"
             waiting = self.open(mission_id, request_id)
@@ -894,6 +905,8 @@ class MissionRunner:
                         "requestId": request_id,
                         "kind": "question",
                         "question": question,
+                        **({"options": list(options)} if options else {}),
+                        **({"recommended": recommended} if recommended else {}),
                     },
                 },
             )
@@ -1572,6 +1585,15 @@ class MissionRunner:
         """The question itself, read back off the append-only log.
 
         The log is the record; `pending_request` is only the index into it.
+
+        **The payload is returned whole rather than field by field.** It used to
+        name four keys, and `recommended` — added beside `options` in the same
+        change — reached the stream and not this route. That is invisible while
+        a window stays open, because `approvalStore` has two sources and the
+        live one carried it; it shows up on the case this route exists for,
+        a question asked before this window did (§12 M6). The payload is
+        already published to the same client on the same question, so copying
+        it whole leaks nothing and cannot fall behind the schema again (§8).
         """
         if not request_id:
             return None
@@ -1581,12 +1603,10 @@ class MissionRunner:
                 draft["type"] == "agent.request"
                 and draft["payload"].get("requestId") == request_id
             ):
-                return {
-                    "question": draft["payload"].get("question", ""),
-                    "kind": draft["payload"].get("kind", "question"),
-                    "options": draft["payload"].get("options"),
-                    "agentId": draft["payload"].get("agentId"),
-                }
+                payload = dict(draft["payload"])
+                payload.setdefault("question", "")
+                payload.setdefault("kind", "question")
+                return payload
         return None
 
     async def _credit_missions(self, roster: RosterSnapshot) -> None:

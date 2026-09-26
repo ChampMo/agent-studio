@@ -18,6 +18,14 @@ from .base import ToolContext, ToolFailed, ToolResult
 MAX_MESSAGE_CHARS = 4000
 MAX_QUESTION_CHARS = 2000
 
+#: A button has to fit on one line and be readable a week later on the log.
+MAX_OPTION_CHARS = 120
+
+#: How many answers may be offered. Past a handful a list of buttons is a
+#: second thing to read rather than a shortcut past reading, and the written
+#: reply underneath already covers everything else.
+MAX_OPTIONS = 6
+
 
 async def send_message(ctx: ToolContext, *, to: str, content: str) -> ToolResult:
     """Leave a message for a teammate, delivered when their turn comes."""
@@ -55,8 +63,41 @@ async def send_message(ctx: ToolContext, *, to: str, content: str) -> ToolResult
     )
 
 
-async def ask_user(ctx: ToolContext, *, question: str) -> ToolResult:
-    """Ask the person a question and wait for their answer."""
+async def ask_user(
+    ctx: ToolContext,
+    *,
+    question: str,
+    options: list[str] | None = None,
+    recommended: str | None = None,
+) -> ToolResult:
+    """Ask the person a question and wait for their answer.
+
+    `options` and `recommended` are carried through exactly as given. Nothing
+    here invents them and nothing rewrites them: a suggestion has to be one
+    somebody made, or the person cannot tell whose it is (§1.1).
+
+    **`options` is a check, not a request.** The description asks for them and
+    a description is a request; this project has already paid for that
+    difference once, when the generator was asked not to reuse a name and did.
+    A question with no answers offered is a paused run and an empty box, and
+    the person is then doing again the thinking the agent has just spent a turn
+    on. Refusing costs one round trip, which is less than that.
+
+    It closes nothing: the written reply is always there underneath, so a list
+    is a shortcut past typing rather than the set of legal answers. That is
+    what makes "always" defensible here - offering the two decisions you can
+    see is never wrong, because the person can still say a third thing.
+
+    `recommended` is deliberately **not** checked the same way. A suggestion
+    the agent did not mean would be shown as "<name> suggests", which is an
+    opinion attributed to somebody who did not hold it (§1.1).
+
+    The rest are the ones a person would notice being wrong. Blank and
+    duplicate options are dropped, because a button with no label and two
+    buttons with the same one are both unanswerable. And a `recommended` that
+    is not one of the options is refused rather than shown - pointing at
+    something that is not on screen is worse than pointing at nothing.
+    """
     asker = ctx.extras.get("ask")
     if asker is None:
         raise ToolFailed(
@@ -66,7 +107,32 @@ async def ask_user(ctx: ToolContext, *, question: str) -> ToolResult:
     if not body:
         raise ToolFailed("empty_question", "there is no question to ask")
 
-    answer = await asker(ctx.agent_id, body[:MAX_QUESTION_CHARS])
+    seen: list[str] = []
+    for raw in options or []:
+        text = str(raw).strip()[:MAX_OPTION_CHARS]
+        if text and text not in seen:
+            seen.append(text)
+    if not seen:
+        raise ToolFailed(
+            "no_options",
+            "offer `options`: the answers you can actually see, two to four "
+            "short phrases that each stand on their own. They do not close the "
+            "question - the person can still write anything instead - so a "
+            "list costs them nothing and usually saves them the typing. Name "
+            "the one you would take in `recommended`, or leave it out if you "
+            "genuinely have no preference.",
+        )
+    picked = (recommended or "").strip()[:MAX_OPTION_CHARS] or None
+    if picked and picked not in seen:
+        raise ToolFailed(
+            "unknown_recommendation",
+            f"{picked!r} is recommended but is not one of the options offered "
+            f"({', '.join(seen) or 'none'})",
+        )
+
+    answer = await asker(
+        ctx.agent_id, body[:MAX_QUESTION_CHARS], tuple(seen[:MAX_OPTIONS]), picked
+    )
     if answer is None:
         raise ToolFailed("unanswered", "the question was not answered")
 

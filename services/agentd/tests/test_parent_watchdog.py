@@ -19,10 +19,24 @@ from agentd.__main__ import watch_parent
 
 
 class FakeServer:
-    """Just the one field the watchdog touches."""
+    """The shape the watchdog reads, all of it.
+
+    It used to carry `should_exit` alone, with a docstring saying that was the
+    only field touched. It stopped being true when the escalation landed, and
+    the watchdog then raised `AttributeError` on `started` **inside its own
+    thread** - so these tests stayed green over a handler that died one line
+    after the assertion they make. A double that is missing a field does not
+    fail the test; it silently stops covering everything past it.
+
+    `started` is False here, which is a server that has already stopped: the
+    watchdog returns and never escalates. `test_shutdown_escalates` owns the
+    other direction.
+    """
 
     def __init__(self) -> None:
         self.should_exit = False
+        self.started = False
+        self.force_exit = False
 
 
 def wait_for_exit(server: FakeServer, timeout: float = 2.0) -> bool:

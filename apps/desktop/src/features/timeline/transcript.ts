@@ -263,6 +263,9 @@ export interface AskRow extends Base {
   /** "approval" gets buttons; anything else gets a box to type in. */
   ask: string;
   options: string[] | null;
+  /** Which of `options` the asker would take. Its recommendation, never the
+   *  app's, and null when it did not make one. */
+  recommended: string | null;
   name: string | null;
   /** So the renderer can draw the asker's face with the `avatarOf` it holds. */
   agentId: string | null;
@@ -518,6 +521,15 @@ export function buildTranscript(
         question: typeof p.question === "string" ? p.question : "",
         ask: typeof p.kind === "string" ? p.kind : "question",
         options: Array.isArray(p.options) ? (p.options as string[]) : null,
+        // Only when it is genuinely one of the options: a run recorded before
+        // this field existed has none, and a value naming something not on
+        // offer would point at a button nobody drew (§8).
+        recommended:
+          typeof p.recommended === "string" &&
+          Array.isArray(p.options) &&
+          (p.options as string[]).includes(p.recommended)
+            ? p.recommended
+            : null,
         name: asker ? nameOf(asker) : null,
         agentId: asker,
       });

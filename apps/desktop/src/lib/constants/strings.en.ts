@@ -359,6 +359,10 @@ export const strings = {
       approve: "Start the work",
       reject: "Do not run this",
     } as Record<string, string>,
+    //: Whose suggestion it is. A bare "Recommended" reads as the app having
+    //: an opinion about the person's own decision, which it is in no position
+    //: to have — the agent made the suggestion and the agent is named (§1.1).
+    suggests: (who: string | null) => (who ? `${who} suggests` : "suggested"),
     replyPlaceholder: "Your answer…",
     send: "Send",
     sending: "Sending…",
