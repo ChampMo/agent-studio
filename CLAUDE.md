@@ -426,7 +426,7 @@ timeline is for, and the file itself is not in the database.
 
 ### A shell that exists is not a shell that runs
 
-`bash` on Windows PATH is usually `System32ash.exe`, WSL's launcher, and on a
+`bash` on Windows PATH is usually `System32\bash.exe`, WSL's launcher, and on a
 machine with no distribution installed it fails every command with
 `CreateProcessEntryCommon`. The agent discovered this three approvals in a row,
 and each failure read like the model's fault.
@@ -3562,7 +3562,7 @@ cannot parse four NUL bytes, so that is where it must break. It is not.
 is inside `execute()` itself:
 
     File "agentd/api/hitl.py", line 93, in list_missions
-    ValueError: Invalid isoformat string: '    '
+    ValueError: Invalid isoformat string: '\x00\x00\x00\x00'
 
 The bad row never reaches application code, so a loop with a `try` in it is a
 loop that never runs. The first version of this fix was written, read twice and
@@ -3828,7 +3828,7 @@ listening port, so the watchdog had fired and `server.run()` had returned —
 and the process simply never exited. On the day it was finally caught there
 were **five of them**, four from the installed copy, and they surfaced the way
 this family always does: an installer stopped with *"Error opening file for
-writing: ...\Agent Studiogentd.exe"* in the middle of an in-app update.
+writing: ...\Agent Studio\agentd.exe"* in the middle of an in-app update.
 
 **Two wrong diagnoses were written here first, and both were written before
 anything was measured.** The first said it followed a mission. The second said
@@ -4348,6 +4348,14 @@ the forward-compat test points.
 - **A long heredoc gets truncated in this harness**, and bash then dies with
   `unexpected EOF while looking for matching '`. Twice, both around 200 lines.
   Write long files with the editor tooling; keep heredocs to a few dozen lines.
+- **A heredoc in this harness eats backslashes, and the damage is silent.**
+  Not only the documented truncation: `\\a` written inside a quoted
+  `<<'PY'` heredoc arrives as `\a`, which Python turns into **BEL**. Three control
+  bytes had been written into this file that way — `System32\bash.exe` had been
+  reading as `System32<BEL>ash.exe` since M8, and the NUL-byte example from the
+  corrupt-row entry contained four real NULs, which is why `grep` began calling
+  CLAUDE.md a binary file. Build the character instead: `BS = chr(92)`, or write
+  the file with the editor tooling.
 - **A `@dataclass` is unhashable by default** (`eq=True` sets `__hash__ = None`), so
   `Subscriber` needs `eq=False` to live in a set.
 
