@@ -166,10 +166,27 @@ sections in place, short placeholder content - and then edit_file each section
 in its own turn. Three small turns finish; one enormous turn gets cut off and
 you have nothing. Do not try to think the whole file through before writing:
 plan briefly, write the skeleton, then improve it.
+
+**Write before you finish investigating.** You get about {rounds} tool calls in
+this turn and then it stops, wherever you are. Reading the workspace spends
+them, and one look-up suggests the next: what you have read is gone when the
+turn ends, and a file on disk is not. So read the few things you need to start,
+write the skeleton, and look the rest up while you fill it in.
 """.strip()
 
 #: Tools that put something in the workspace.
 WRITERS = {"write_file", "edit_file"}
+
+
+def file_deliverable_rule() -> str:
+    """The rule as the model receives it, with the round budget filled in.
+
+    A function rather than a formatted constant so the number reaches the
+    model from the same place the loop enforces it. The template is left with
+    its placeholder visible on purpose: anything comparing against the raw
+    string is comparing against something no agent is ever sent.
+    """
+    return FILE_DELIVERABLE_RULE.format(rounds=MAX_TOOL_ROUNDS)
 
 
 SUMMARY_FIRST_RULE = """
@@ -196,7 +213,7 @@ def system_addendum(specs: list[ToolSpec]) -> str | None:
         rule
         for applies, rule in (
             (ids & UNTRUSTED_SOURCES, UNTRUSTED_CONTENT_RULE),
-            (ids & WRITERS, FILE_DELIVERABLE_RULE),
+            (ids & WRITERS, file_deliverable_rule()),
             # Everyone, whatever they hold. A reply that opens with its own
             # outcome is what lets the transcript show one line and keep the
             # rest behind it — without it, folding a report means choosing the

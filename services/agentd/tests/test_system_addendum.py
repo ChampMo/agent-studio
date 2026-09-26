@@ -11,6 +11,7 @@ from __future__ import annotations
 from agentd.tools import registry as tool_registry
 from agentd.tools.execution import (
     FILE_DELIVERABLE_RULE,
+    file_deliverable_rule,
     UNTRUSTED_CONTENT_RULE,
     system_addendum,
 )
@@ -70,7 +71,7 @@ def test_a_writer_is_told_to_write_the_file_rather_than_paste_it():
 def test_edit_file_alone_counts_as_writing():
     rule = system_addendum(specs("edit_file"))
     assert rule is not None
-    assert FILE_DELIVERABLE_RULE in rule
+    assert file_deliverable_rule() in rule
 
 
 def test_an_agent_that_does_both_gets_both_rules():
@@ -80,7 +81,7 @@ def test_an_agent_that_does_both_gets_both_rules():
     rule = system_addendum(specs("web_fetch", "write_file"))
     assert rule is not None
     assert UNTRUSTED_CONTENT_RULE in rule
-    assert FILE_DELIVERABLE_RULE in rule
+    assert file_deliverable_rule() in rule
 
 
 def test_the_rules_come_in_a_stable_order():
@@ -89,3 +90,29 @@ def test_the_rules_come_in_a_stable_order():
     first = system_addendum(specs("web_fetch", "write_file"))
     second = system_addendum(specs("write_file", "web_fetch"))
     assert first == second
+
+
+def test_the_agent_is_told_how_many_rounds_it_has():
+    """The number is enforced by the loop and stated to the model.
+
+    From the real `PARADOX.ART` run: the agent building `index.html` spent its
+    whole turn grepping an existing `app.js` for the ids it had to match —
+    eight rounds of it — and was stopped before writing a byte. It was being
+    cut off against a budget nobody had told it about, which is the same shape
+    as the planner rejecting plans over an instruction ceiling the model had
+    never been given.
+    """
+    from agentd.tools.execution import MAX_TOOL_ROUNDS, file_deliverable_rule
+
+    rule = file_deliverable_rule()
+    assert str(MAX_TOOL_ROUNDS) in rule
+    assert "{rounds}" not in rule, "the placeholder must not reach a model"
+
+
+def test_the_raw_template_is_never_what_an_agent_gets():
+    # Guards the trap this change walked into: two tests compared against the
+    # unformatted constant and passed for as long as it had nothing to format.
+    from agentd.tools.execution import FILE_DELIVERABLE_RULE, file_deliverable_rule
+
+    assert "{rounds}" in FILE_DELIVERABLE_RULE
+    assert FILE_DELIVERABLE_RULE != file_deliverable_rule()

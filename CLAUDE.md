@@ -3958,9 +3958,17 @@ the sidebar showed a green *6 of 7 tasks done*.
 
 `ending_for` could not save it. It turns a run `failed` when a **task** failed
 — so with every task claiming success it had nothing to correct. The task
-states lied first, and the whole of that lie was `bool(answer.strip())`: both
-build agents replied with prose describing the file they were about to write
-and never called a tool.
+states lied first, and the whole of that lie was `bool(answer.strip())`.
+
+**Correction to the first version of this entry**, which said both build
+agents "replied with prose describing the file they were about to write and
+never called a tool". That was written before the turns were read and it is
+wrong. Basil called eight tools — `bash`, `bash`, `bash`, `read_file`,
+`bash`… — every one of them a `grep` against the existing `js/app.js`, hunting
+the element ids the new markup had to match. It hit `tool_rounds_exhausted` at
+seq 423 **before writing a byte**, and seq 425 recorded the task `done`. The
+failure is not a model that described its work instead of doing it; it is a
+model that spent its whole turn finding out what to write.
 
 So a third turn of a rule this file has now stated twice. *A task that produced
 nothing is not done.* *A turn that was cut off did not finish either.* And now:
@@ -4026,6 +4034,41 @@ the whole section is **absent on a run with one round**: there is no history
 yet, and a control that can only ever say "Round 1" teaches the reader that the
 bottom of that column is not worth reading — the argument that took the layout
 id off the team cards.
+
+### The turn was spent finding out what to write
+
+Reading those eight rounds changes what the fix has to be, and it explains the
+run's other 1.4 million tokens. Round 1's plan built the **behaviour** —
+`js/app.js`, 36KB, `done` — while "Build semantic HTML + CSS shell" `failed`.
+So round 2 inherited a workspace where the JavaScript existed and the markup it
+addressed did not, and the only way to write conforming HTML was to
+reverse-engineer the contract out of 36KB of selectors. That is what Basil was
+doing when the round cap stopped it.
+
+`FILE_DELIVERABLE_RULE` already said *"Do not try to think the whole file
+through before writing"* — and it does not cover this, because Basil was not
+thinking. It was **investigating**, which is unbounded in a way thinking is
+not: every `grep` suggests the next one, and nothing about the workspace tells
+you when you have read enough.
+
+So the rule gains the ordering, in the terms that actually run out: *write
+before you finish investigating — reading spends the turn, what you have read
+is gone when it ends, and a file on disk is not.* And it is **told the
+number**. The agent was being cut off against a budget nobody had mentioned to
+it, which is the same shape as the planner rejecting plans over an instruction
+ceiling the model had never been given — one constant, enforced by the loop and
+stated in the prompt, through `file_deliverable_rule()` so the two cannot drift.
+
+Writing that formatter immediately caught its own trap: two existing tests
+asserted `FILE_DELIVERABLE_RULE in rule` and had been correct only for as long
+as the constant had nothing to format. They compare against the rendered text
+now, and a test asserts the raw template is never what an agent gets.
+
+**What is actually proven, and what is not.** The false `done` is fixed and its
+tests fail on the old code. The round cap was measurably the wall — seven turns
+at exactly twelve — and is now 24. The prompt change is reasoning from one run,
+not a measurement: whether it makes the page get built can only be settled by
+running the brief again.
 
 ---
 
