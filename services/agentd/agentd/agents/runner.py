@@ -182,8 +182,9 @@ def ending_for(
     what you had asked for.
 
     Named separately, because they are different failures with different fixes:
-    a task that **never started** ran out of room, and a task that **produced
-    nothing** ran and came back empty.
+    a task that **never started** ran out of room, a task that was **stopped
+    partway** was doing the work when the run was killed, and a task that
+    **produced nothing** ran and came back empty.
     """
     # Normalised first. The map carries `(state, title)` now and read the tuple
     # as a state for one commit, which turned every finished run into a failed
@@ -232,8 +233,29 @@ def unfinished_note(task_states: dict[str, tuple[str, str]] | dict[str, str]) ->
     done = sum(1 for state, _ in entries if state == "done")
     parts = [f"{done} of {len(entries)} tasks done"]
 
-    never = [label for state, label in entries if state not in {"done", "failed"} and label]
+    # **`running` is not `pending`, and saying so was worth 55KB of work.**
+    # These used to share a bucket - anything that was not `done` or `failed`
+    # was reported as "never started". A round killed by the token limit
+    # leaves whatever was in flight sitting at `running`, so on a real run two
+    # tasks that had written `app.js` (38KB) and `CONTRACT_AUDIT.md` (16KB)
+    # were both announced to the person as never having begun. They read that,
+    # reasonably, as three rounds having produced almost nothing.
+    #
+    # What a task stopped partway produced is not knowable from its state, so
+    # nothing here claims it produced anything. It says the true thing - the
+    # work was under way when the run stopped - and that is the sentence that
+    # sends somebody to look in the folder rather than away from it.
+    never = [label for state, label in entries if state == "pending" and label]
+    cut = [label for state, label in entries if state == "running" and label]
     empty = [label for state, label in entries if state == "failed" and label]
+    # Anything this build has not heard of is grouped with `pending` rather
+    # than dropped: an unnamed leftover is worse than one filed imprecisely
+    # (§8).
+    known = {"done", "pending", "running", "failed"}
+    never += [label for state, label in entries if state not in known and label]
+
+    if cut:
+        parts.append("stopped partway: " + "; ".join(cut))
     if never:
         parts.append("never started: " + "; ".join(never))
     if empty:

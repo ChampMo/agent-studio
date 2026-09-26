@@ -87,7 +87,51 @@ def test_a_cancelled_run_says_what_was_outstanding_too():
         states(("t1", "done", "A"), ("t2", "running", "B")),
     )
     assert "1 of 2 tasks done" in summary
-    assert "never started: B" in summary
+    # B was being worked on when the user pressed stop. This test asserted
+    # "never started: B" until a real run showed what that costs.
+    assert "stopped partway: B" in summary
+
+
+def test_a_task_cut_off_mid_flight_is_not_reported_as_never_started():
+    """The real states from a real round, and what the person was told.
+
+    PARADOX.ART round 2, off the log: five tasks planned, three reached
+    `running`, one of those later `failed`, and the token limit killed the
+    round with the other two still going. Between them those two had already
+    published `CONTRACT_AUDIT.md` (16,099 bytes) and `app.js` (38,793 bytes) -
+    both on disk, both announced as `artifact.created` at seq 370 and 375.
+
+    The ending said `0 of 5 tasks done. never started: ...; Implement app.js
+    interactions; ...`. Two tasks that had just written 55KB of the
+    deliverable were reported to the person as never having begun, which is
+    exactly the shape of untruth §1 exists to forbid - and it is why three
+    rounds of real work read as three rounds of nothing.
+    """
+    note = unfinished_note(
+        states(
+            ("t1", "running", "Audit the frozen DOM + token contract"),
+            ("t2", "running", "Implement app.js interactions"),
+            ("t3", "failed", "Write TEST_PLAN.md"),
+            ("t4", "pending", "Execute TEST_PLAN and write QA_REPORT.md"),
+            ("t5", "pending", "Fix critical and major defects"),
+        )
+    )
+    assert "0 of 5 tasks done" in note
+    assert "stopped partway: Audit the frozen DOM + token contract; Implement app.js interactions" in note
+    assert "never started: Execute TEST_PLAN and write QA_REPORT.md; Fix critical and major defects" in note
+    assert "produced nothing: Write TEST_PLAN.md" in note
+    # The two that were mid-flight must not be filed under either of the
+    # other two headings - those are claims about them that are not true.
+    started, _, rest = note.partition("never started:")
+    assert "Implement app.js interactions" not in rest
+    assert "Implement app.js interactions" not in note.split("produced nothing:")[-1]
+
+
+def test_a_state_this_build_does_not_know_is_still_named():
+    # Filed with the least specific bucket rather than dropped: an unnamed
+    # leftover is worse than one filed imprecisely (§8).
+    note = unfinished_note(states(("t1", "wedged", "Something new")))
+    assert "Something new" in note
 
 
 def test_a_chat_with_no_tasks_gets_no_note():

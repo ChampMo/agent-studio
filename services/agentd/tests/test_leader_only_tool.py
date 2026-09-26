@@ -145,3 +145,44 @@ async def test_it_is_a_warning_not_a_launch_gate(agents, teams):
     found = await teams.validate(team.id)
     assert finding(found, "leader_only_tool").severity == "warn"
     assert can_run(found) is True
+
+
+async def test_write_file_without_edit_file_is_reported(agents, teams):
+    """The pair that cost a real run most of its budget.
+
+    PARADOX.ART's QA agent held `write_file` and not `edit_file`. `write_file`
+    refuses to overwrite - deliberately, since overwriting is deleting work
+    nobody saw a diff of - so once it had put down the first 22KB of a test
+    plan there was no tool left that could add to it. It finished the file
+    through `cat >> ... <<EOF` heredocs, two of which were truncated by the
+    command size limit and repaired with `sed -i`.
+
+    The sharpest part is that `write_file`'s own failure message says "use
+    edit_file to change a file that is there" - a correction naming a tool the
+    agent does not have.
+    """
+    lead = await make_agent(agents, "Coordinator", ["send_message"])
+    qa = await make_agent(agents, "Rowan", ["write_file", "read_file", "bash"])
+    team = await make_team(teams, [lead, qa])
+    found = await teams.validate(team.id)
+
+    assert "write_without_edit" in codes(found)
+    message = finding(found, "write_without_edit").message
+    assert "Rowan" in message
+    # Names the fix, not just the fault.
+    assert "edit_file" in message
+
+
+async def test_holding_both_says_nothing(agents, teams):
+    lead = await make_agent(agents, "Coordinator", ["send_message"])
+    dev = await make_agent(agents, "Basil", ["write_file", "edit_file", "read_file"])
+    team = await make_team(teams, [lead, dev])
+    assert "write_without_edit" not in codes(await teams.validate(team.id))
+
+
+async def test_a_reader_that_writes_nothing_says_nothing(agents, teams):
+    # No write_file, so there is no half of a pair to be missing.
+    lead = await make_agent(agents, "Coordinator", ["send_message"])
+    reader = await make_agent(agents, "Poppy", ["read_file", "grep", "glob"])
+    team = await make_team(teams, [lead, reader])
+    assert "write_without_edit" not in codes(await teams.validate(team.id))

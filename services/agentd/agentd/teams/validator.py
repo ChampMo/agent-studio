@@ -229,6 +229,35 @@ def validate(
         if agent is None:
             continue
         held = set(_effective_tools(member, agent))
+
+        # **`write_file` alone can create a file and can never come back to
+        # it.** It refuses to overwrite on purpose - overwriting is deleting
+        # work nobody saw a diff of - so the only way to revise is
+        # `edit_file`. An agent holding one without the other can put a file
+        # down once and is then stuck, and `write_file`'s own failure message
+        # tells it to "use edit_file", which it does not have.
+        #
+        # Seen on a real run: a QA agent with exactly this pair wrote the
+        # first 22KB of a test plan with `write_file`, then built the
+        # remaining 42KB through `cat >> ... <<EOF` heredocs because nothing
+        # else was available to it. Two of those were truncated by the command
+        # size limit and repaired with `sed -i`, and every one of those extra
+        # rounds re-sent the whole conversation. It is a warning rather than an
+        # error because a team that only ever creates new files is a real
+        # thing to want - but it is almost never what somebody meant.
+        if "write_file" in held and "edit_file" not in held:
+            findings.append(
+                Finding(
+                    "write_without_edit",
+                    "warn",
+                    f"{agent.name} has write_file but not edit_file, so it can create a "
+                    "file and never change one — write_file refuses to overwrite. "
+                    "Anything it cannot finish in a single call it will have to "
+                    "append to with bash, or not at all. Give it edit_file.",
+                    member.agent_id,
+                )
+            )
+
         reads_web = held & WEB_TOOLS
         changes_things = held & WRITE_TOOLS
         if reads_web and changes_things:
