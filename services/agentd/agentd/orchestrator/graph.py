@@ -796,10 +796,16 @@ def _build_graph(
                         {
                             "agentId": leader.agent_id,
                             "code": "work_stopped_for_summary",
+                            # `used` is what has been spent. It was printed as
+                            # "the {kind} left ({used} of {limit})", which
+                            # reads as the opposite of what it is - on a real
+                            # run, "the tokens left (1350000 of 1500000)" over
+                            # a round with 150,000 left. The number was right
+                            # and the word in front of it was not (§1).
                             "message": (
-                                f"the {kind} left ({used:.0f} of {limit:.0f}) is "
-                                "being kept for the summary, so no further tasks "
-                                "were started"
+                                f"{used:.0f} of {limit:.0f} {kind} used; what "
+                                "is left is being kept for the summary, so no "
+                                "further tasks were started"
                             ),
                             "recoverable": True,
                         },

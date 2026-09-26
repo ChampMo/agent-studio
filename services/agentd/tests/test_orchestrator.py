@@ -450,11 +450,20 @@ async def test_running_out_stops_the_work_and_keeps_the_summary():
     assert budget.stopped_early is not None
     assert budget.stopped_early[0] == "llm_calls"
     # It said so on the log, at the moment it decided.
-    assert any(
-        i["type"] == "error"
-        and i["payload"]["code"] == "work_stopped_for_summary"
+    stops = [
+        i
         for i in items
-    )
+        if i["type"] == "error"
+        and i["payload"]["code"] == "work_stopped_for_summary"
+    ]
+    assert stops
+    # And said it the right way round. The number is what has been *spent*,
+    # and it used to be printed as "the llm_calls left (2 of 2)" — the true
+    # figure under a word that inverts it (§1).
+    message = stops[0]["payload"]["message"]
+    assert "used" in message
+    assert "left is being kept for the summary" in message
+    assert "left (" not in message
     # And the summary turn actually ran, which is the whole point of the reserve.
     assert any(i["type"] == "agent.message" for i in items)
 
