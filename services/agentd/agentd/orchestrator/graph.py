@@ -197,6 +197,47 @@ class Paused(Exception):
         self.ask = ask
 
 
+def team_transcript(results: list[dict[str, Any]]) -> str:
+    """What the team reported, as the leader is shown it before summarising.
+
+    Each task contributes its title, **the files that actually landed**, and
+    the agent's own reply. A task that produced nothing says so rather than
+    leaving a blank the leader has to guess at — guessing is how a summary
+    comes to describe work that never happened.
+
+    The `wrote:` line is the one that had to be added, and the reason is a
+    real handover. The leader used to be shown titles and replies and nothing
+    else, so it opened with
+
+        Two of five workstreams produced anything. Both were documentation.
+        Nothing executable exists yet. ... No `.html` or `.js` file is named
+        anywhere in the record.
+
+    over a workspace holding `index.html`, `product.html`, `checkout.html`,
+    `css/brutal.css`, `js/cart.js` and `js/checkout.js` — and over its own
+    task state marking the markup `done`. An agent that writes files and then
+    describes its work loosely is ordinary. The app holding the filenames and
+    not passing them on is not, and this document is both what the user reads
+    and what `earlier_rounds` hands the next round's planner.
+
+    Kept on a separate line and labelled, because it is a different kind of
+    claim from the prose beside it: a file on disk is a fact, and a sentence
+    in a reply is a report.
+    """
+    out: list[str] = []
+    for result in results:
+        head = f"[{result['task']['title']}]"
+        if files := (result.get("files") or []):
+            head += "\nwrote: " + ", ".join(files)
+        body = (
+            result["answer"]
+            if result.get("ok", True)
+            else "(no answer was produced)"
+        )
+        out.append(f"{head}\n{body}")
+    return "\n\n".join(out)
+
+
 def _draft(event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
     return {"type": event_type, "payload": payload}
 
@@ -637,7 +678,11 @@ def _build_graph(
             #: same way the runner watches for artifacts -- `agent.tool.end`
             #: carries the outcome and only the start carries the tool name.
             wrote = False
-            writing: set[str] = set()
+            #: callId -> the path that call is writing, so a success can be
+            #: turned into a *name* and not just a boolean.
+            writing: dict[str, str] = {}
+            #: What actually landed on disk this turn, in the order written.
+            made: list[str] = []
             async for item in run_agent_turn(
                 provider=provider,
                 caps=caps,
@@ -656,10 +701,16 @@ def _build_graph(
                     answer = payload["content"]
                 elif kind == "agent.tool.start":
                     if payload.get("tool") in FILE_TOOLS:
-                        writing.add(str(payload.get("callId") or ""))
+                        raw = payload.get("input")
+                        path = str(raw.get("path") or "") if isinstance(raw, dict) else ""
+                        writing[str(payload.get("callId") or "")] = path
                 elif kind == "agent.tool.end":
-                    if str(payload.get("callId") or "") in writing and payload.get("ok"):
+                    call = str(payload.get("callId") or "")
+                    if call in writing and payload.get("ok"):
                         wrote = True
+                        path = writing[call]
+                        if path and path not in made:
+                            made.append(path)
                 elif kind == "error":
                     code = payload["code"]
                     cut_off = cut_off or code == "output_truncated"
@@ -724,6 +775,16 @@ def _build_graph(
                 "agent_id": member.agent_id,
                 "answer": answer,
                 "ok": produced,
+                # Carried so the summariser can be told what is on disk. It
+                # used to be given the task titles and the agents' own replies
+                # and nothing else, and it wrote handovers accordingly: on a
+                # real run it reported "nothing executable exists yet" and
+                # "no .html or .js file is named anywhere in the record" over
+                # a workspace holding index.html, product.html, checkout.html,
+                # brutal.css, cart.js and checkout.js. An agent that writes a
+                # file and then describes its work loosely is ordinary; the
+                # app knowing the filenames and not passing them on is not.
+                "files": made,
             }
             finished += 1
             await emit(
@@ -844,14 +905,23 @@ def _build_graph(
         budget.check()
 
         results = state.get("results") or []
+
         # A task that produced nothing is reported as such rather than left as a
         # blank the leader has to guess at -- and guessing is how a summary ends
         # up describing work that never happened.
-        transcript = "\n\n".join(
-            f"[{r['task']['title']}]\n"
-            + (r["answer"] if r.get("ok", True) else "(no answer was produced)")
-            for r in results
-        )
+        #
+        # **And what is on disk comes from the log, not from the agent's
+        # prose.** The transcript used to be titles plus replies, so the one
+        # document the user reads - and that `earlier_rounds` feeds to the
+        # next planner - was written by a leader with no idea what had
+        # actually been written. On a real run it opened "Nothing executable
+        # exists yet ... no .html or .js file is named anywhere in the record"
+        # over six files including the markup its own record marked `done`.
+        #
+        # On its own line and labelled as the record, so the leader can tell
+        # it from what a teammate *said*: a file on disk is a fact, a claim in
+        # a reply is a claim.
+        transcript = team_transcript(results)
         provider, caps = provider_for(leader)
         request = ChatRequest(
             model=leader.model or "",
