@@ -4318,6 +4318,149 @@ that deletes silently is worse than one that does not delete. Proved by
 putting a fake 0.2.9 bundle and a `somebodys-notes.txt` in the folder - the
 first went, the second stayed.
 
+### Three rounds, 4.5M tokens, and the app under-reporting its own work
+
+Reported as a screenshot: garbled text in the transcript, `Tokens used
+4,037,533`, and *"three rounds and this is all the work I got"*. Three
+separate faults, and the most damaging one was the app describing itself
+wrongly.
+
+**The garbled text was ours, and the log was clean.** The transcript printed
+`**Del**Del**Deliveriveriverable:** \`TEST_Pable:** ...` over 44
+`agent.message` rows without a single repeat in them. Every fragment appeared
+exactly three times and the text measured **2.84x** its true length — three
+copies of one delta stream interleaved, not a parser going wrong.
+
+`close()` only begins the handshake, so a replaced socket keeps delivering;
+`onmessage` had no idea it had been replaced. Then its `onclose` ran the
+*live* socket's bookkeeping — nulling `this.ws`, which pointed at the
+replacement, and reading a `closedByUs` that `connect()` had already reset —
+so it treated a socket it had itself closed as a dropped connection and
+opened another. One extra `attach` left three sockets alive. `attach` is
+called from six places.
+
+Stored events survived because `onmessage` dedupes sequenced frames on their
+id. **Ephemeral deltas have no id and are deduped by nothing**, so the one
+channel with no protection was the only place the fault could show. `ws.ts`
+had no test at all; it has five now and three fail on the old code.
+
+### "never started", about two tasks that had just written 55KB
+
+This is the one that answers the complaint. PARADOX.ART round 2, off its own
+log:
+
+    229  t1 running  Audit the frozen DOM + token contract
+    231  t2 running  Implement app.js interactions
+    370  artifact.created  CONTRACT_AUDIT.md   16,099 bytes
+    375  artifact.created  app.js              38,793 bytes
+    401  mission.ended  0 of 5 tasks done. never started: Audit the frozen
+         DOM + token contract; Implement app.js interactions; ...
+
+The token limit killed the round with both still in flight, so they sat at
+`running` — and `unfinished_note` bucketed everything that was not `done` or
+`failed` as "never started". Three buckets now: `pending` never started,
+`running` was **stopped partway**, `failed` produced nothing. Nothing claims
+what a cut-off task produced, because that is not knowable from its state —
+but "stopped partway" sends the reader to the folder rather than away from it.
+
+An existing test asserted the old behaviour on a `running` task. It follows
+the behaviour now, and the new one is built from this round's five real
+states: on the old code it fails by reproducing, word for word, the sentence
+the person read.
+
+### Two agents, one job, and the toolbox was the only variable
+
+Rowan held `write_file` and **not** `edit_file`. `write_file` refuses to
+overwrite, so once it had put down the first 22KB of TEST_PLAN.md nothing
+left to it could add a line. It finished the file with `cat >> ... <<EOF` —
+32 shell calls, two cut off mid-heredoc, repaired by deleting the ruined
+lines with `sed -i`.
+
+The controlled comparison is inside the same run:
+
+    Willow   write_file 2   edit_file 11   bash  0   ->  DESIGN_SPEC.md 68,143 b
+    Rowan    write_file 1   edit_file  0   bash 32   ->  TEST_PLAN.md   64,915 b
+
+Same model, same round, same kind of job, and Willow's file is *larger* for a
+third of the rounds. Every extra round re-sends the whole conversation, and
+**88.8% of this run's 4.5M tokens were cache reads**.
+
+And the agent was not being careless — it was following instructions.
+`FILE_DELIVERABLE_RULE` says "write_file a working skeleton first ... and
+then edit_file each section in its own turn", and `system_addendum` attaches
+it on `ids & WRITERS`, so either tool qualifies. **The app described a
+strategy the agent could not carry out**, and it carried it out with the only
+tool it had.
+
+Two fixes, at the two places it can be caught: the strategy paragraph is now
+chosen by what the agent holds, and `write_without_edit` says so where the
+team is assembled. `file_deliverable_rule` takes its tools as a **required**
+argument — a default is one particular toolbox, and a caller that forgot to
+pass one would get a rule written for a different agent, which is this same
+bug one layer up.
+
+### Two sentences that inverted their own numbers
+
+`work_stopped_for_summary` printed *"the tokens left (1350000 of 1500000) is
+being kept for the summary"*. `used` is what has been **spent**. The figure
+was right and the word in front of it turned it into its opposite.
+
+And `earlier_rounds` applied a bare `[:4000]` to an ending that `shorten` had
+already capped at 4,000 — to which `_finish` then prefixed the reason,
+measured at **4,045 characters**. The slice removed the last 45, which is
+exactly where `shorten` had put " … (shortened …)". So the next round's
+planner read a handover stopping mid-table with nothing saying it was cut,
+and what it lost was the section headed *What the next round should do
+first*. Two readers of one bound (§2.1), and CLAUDE.md already records sizing
+`SUMMARY_CHARS` to "what `earlier_rounds` already reads back" — the prefix is
+what broke the match.
+
+### What the adversarial pass was worth
+
+Four read-only investigations, then every finding handed to an agent told to
+refute it: **31 raised, 17 confirmed, 14 refuted.**
+
+Three of the four dimensions independently claimed `task_allowance` /
+`spend_ceiling` are inert inside a parallel wave, so a wave of three could be
+handed 3x the budget. It is exactly the kind of claim that gets acted on. It
+is false: `runtime.py:174` snapshots `budget.tokens_used` off the **shared**
+tracker and line 177 compares the delta, so siblings count each other's
+spend — and the refutation found the decisive counter-example in the same
+run, since round 3 was strictly sequential and behaved identically. Without
+the refute pass this session would have shipped a rewrite of the budget code
+for a bug that does not exist.
+
+The Anthropic finding is the other shape: **confirmed, and its number
+demolished.** `cache_control` appears nowhere in this repository, so an
+Anthropic profile gets no prompt caching and both counters stay 0 — real, and
+latent, since this machine runs DeepSeek. But "roughly 10x on 89% of the
+bill" conflates token share with dollar share: priced with this repo's own
+multipliers the whole-bill difference is ~3.1x, and even that is an upper
+bound because it prices cache writes at zero. The proposed verification
+("cacheWriteTokens stops being absent") cannot verify anything — it is absent
+in all 555 events of a run where caching demonstrably worked, because
+`openai_compatible._usage()` never populates it. And the fix names a "system
+block" that does not exist; `system` is passed as a plain string, which takes
+no `cache_control`.
+
+**So it is recorded and not fixed.** There is no Anthropic endpoint on this
+machine to verify against, a malformed `cache_control` 400s every request,
+and turning "expensive" into "broken" on the money path is the wrong trade to
+make blind.
+
+### What was not wrong
+
+The 133KB of specification. The brief asked for a full design contract and an
+executable test plan, the planner commissioned both, and reading them they
+are substantive rather than padded. `cacheWriteTokens = 0` is not a misparse
+either — DeepSeek's caching is automatic and reports no creation count, and
+the reads are demonstrably real: at Rowan seq 485 a 56,239-token prompt was
+charged 175 fresh input tokens.
+
+**And the rounds did compound.** No file was produced twice; each round read
+the last one's output. What restarted was the app's account of it — which is
+what the person saw, and why three rounds of real work read as three rounds
+of nothing.
 ---
 
 ## Decisions made while building
@@ -4673,6 +4816,25 @@ the forward-compat test points.
   round.** The mission has no id until that message creates it, so the upload lands
   after the round has started. Said in the composer's hint rather than hidden, and
   the fix is `POST /missions` taking attachments, or a create-without-starting mode.
+- **Anthropic endpoints get no prompt caching.** `cache_control` appears
+  nowhere in this repository, so an Anthropic profile re-sends its whole
+  prompt as fresh input on every tool round and both cache counters stay 0.
+  Latent — this machine runs DeepSeek, which caches automatically. Priced
+  with `pricing.json`'s own multipliers the whole-bill difference on a run
+  shaped like PARADOX.ART is roughly **3.1x**, and that is an upper bound
+  because it prices cache writes at zero. Not fixed: there is no Anthropic
+  endpoint here to verify against, a malformed `cache_control` 400s every
+  request, and the obvious fix does not apply as written — `system` is passed
+  as a plain string at `anthropic_provider.py:101`, which takes no
+  `cache_control`, so it has to become a block list first.
+- **Nothing trims a turn's conversation.** Every tool result stays in the
+  prompt for every later round of that turn, so reading a 68KB document once
+  is paid for on each of the next twenty rounds. On PARADOX.ART that was 40%
+  of a 4.5M-token run. Nothing accumulates *across* tasks — each starts
+  fresh — so this is a per-turn cost, and the cheaper lever is probably
+  `read_file` (its 2000-line default makes "the whole document" the default)
+  rather than trimming the conversation, which would change what the model
+  has been told without telling it.
 - **The installers are unsigned.** Windows SmartScreen will warn on first run, and macOS
   would refuse outright without notarisation. Nothing to fix in the code — it needs a
   certificate — but anyone handing the MSI to someone else should expect the warning and
