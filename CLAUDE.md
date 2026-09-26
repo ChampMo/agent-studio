@@ -3874,6 +3874,38 @@ screen all the time read *"Ask on risky"* — the only one of the three that nam
 nothing, and a fourth word for an idea the app already had two of. It names the
 tools now.
 
+### The six-seat room had a hole in the middle of it
+
+Reported with a circle drawn on the empty centre of the floor and the sixth cat
+sitting below everyone else: *can the bottom one move into the circle?*
+
+Read as depth — `gx + gy`, which is how far forward a desk sits — the six-seat
+arrangement was **0, 3, 3, 9, 9, 12**. Nothing at all at 6, and one desk two
+rows out in front of everybody. That is the hole.
+
+`workshop` had already met this and written the answer down in its own comment:
+it fills the middle `(3, 3)` and leaves the near corner `(6, 6)` open, because
+*"a ring with an empty middle read as a hole in the room"*. `open_desks` was
+doing the exact opposite of a rule already in the file three lines above it. The
+sixth desk moves to `(3, 3)` and the rows become **0, 3, 3, 6, 9, 9** — four
+evenly spaced rows, symmetric about the middle, and the floor is the same size
+because seats 3 and 4 still reach 6.
+
+A five-person team is untouched, which matters: the comment already called that
+the common case, and the only desk that moved is the one a five-person team
+does not use.
+
+**The first version of the test proved nothing.** It asserted the moved desk was
+no longer "on the floor's front edge" — and passed on the old arrangement too,
+because at `(6, 6)` the floor is nine tiles a side and there were two clear
+tiles beyond it. The desk was never off the floor; it was two rows further
+forward than anything else, which is a different claim. Both the test and the
+comment say the true one now, and both new assertions fail on the old
+arrangement.
+
+Verified in the app on a real six-member team, not just in numbers: head at the
+back, a pair, one in the middle, a pair at the front.
+
 ---
 
 ## Decisions made while building

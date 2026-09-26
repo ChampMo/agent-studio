@@ -77,16 +77,29 @@ export function toScreen(gx: number, gy: number): Point {
  * they are. To rearrange a room, edit the list — the order is the seat order.
  */
 const ARRANGEMENTS: Record<string, Point[]> = {
-  // A ring of six: head at the far corner, a pair in front of it, a wider
-  // pair below, a foot at the near corner. Five of them is the ring without
-  // the foot, which is symmetric — a five-person team is the common case.
+  // Head at the far corner, a pair in front of it, one in the middle, a wider
+  // pair below. Read as depth (`gx + gy`) that is 0, 3, 3, 6, 9, 9 — four
+  // evenly spaced rows.
+  //
+  // The sixth desk used to sit at the near corner, at depth 12 with the next
+  // deepest at 9 and **nothing at all at depth 6** — a ring with a hole through
+  // the middle of it and one cat two rows out in front of everybody. (Not off
+  // the floor: at (6,6) the floor is nine tiles a side, so there were two clear
+  // tiles beyond it. The hole is the part that showed.)
+  //
+  // `workshop` had already met this and written the answer down — it fills the
+  // middle and leaves the near corner open — so the six-seat room was the one
+  // arrangement still doing the opposite of its own note.
+  //
+  // Five of them is this without the middle, which is symmetric — and a
+  // five-person team is the common case, so that stays true.
   open_desks: [
     { x: 0, y: 0 },
     { x: 3, y: 0 },
     { x: 0, y: 3 },
     { x: 6, y: 3 },
     { x: 3, y: 6 },
-    { x: 6, y: 6 },
+    { x: 3, y: 3 },
   ],
   // A diamond of four.
   war_room: [
