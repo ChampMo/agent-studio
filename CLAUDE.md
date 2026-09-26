@@ -51,14 +51,19 @@ The app updates itself, so a release is a **signed** build plus one extra asset.
    launch with `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222`,
    start a mission through the app's own handshake, and poll until the row
    says `ended` with no `internal_error` on the log.
-5. Publish the tag with everything in `dist/`:
+5. Publish the tag with everything in `dist/`, **naming the commit**:
 
 ```bash
-gh release create v0.2.0 dist/* --notes-file NOTES.md
+gh release create v0.2.0 dist/* --target "$(git rev-parse HEAD)" --notes-file NOTES.md
 ```
 
 One command decides both the name in the manifest and the name of the uploaded
 file, so the url in `latest.json` cannot point at a 404.
+
+`--target` is not optional. Without it `gh` tags the **default branch**, and
+v0.2.7 through v0.3.0 each tagged a commit that does not contain the code they
+shipped. `release:manifest` now clears the previous release's installers out
+of `dist/` itself, so the glob cannot carry them onto the new page.
 
 The endpoint is `releases/latest/download/latest.json`, so the asset has to be on
 whichever release GitHub calls latest. A draft or a pre-release is not it.
@@ -526,7 +531,7 @@ web tool and a way to change things, and suggests splitting the roles; and
 because the backend on loopback holds the user's keys.
 
 
-**Released: v0.3.0** (2026-09-26). v0.2.0 was the first build that could update
+**Released: v0.3.1** (2026-09-26). v0.2.0 was the first build that could update
 itself and the first that drew no room; it is marked superseded on its own
 release page rather than left to be downloaded.
 
@@ -4214,6 +4219,104 @@ assertion they make. pytest reported it as a warning at the bottom of a
 The fix is one line of double. The thing worth keeping is the shape: a double
 that is short a field silently stops covering everything downstream of it, and
 the failure surfaces as a warning rather than a red test.
+
+### Every tag since v0.2.7 points at a commit that was not released
+
+Noticed while cutting v0.3.1, from `git ls-remote --tags`: v0.2.7, v0.2.8,
+v0.2.9 and v0.3.0 all name **be45f61**, which is `origin/main` - while every
+one of those builds was made from the working tree on a feature branch
+fourteen or more commits ahead of it.
+
+`gh release create <tag>` with no `--target` creates the tag at the **default
+branch**, and the release step written in this file has never carried one. So
+the installers are right, the manifest is right, the signatures verify - and
+the git history says four releases came from code that does not contain them.
+Nothing downstream broke, which is exactly why it went four releases: a tag is
+only consulted when somebody tries to rebuild, and nobody had.
+
+`--target` from here. The releases already published are left alone, because
+retagging moves a ref people may already have fetched, and a wrong tag that is
+written down beats a tag that changed under someone.
+
+### A pre-release audit, and the thing it found that had shipped nine times
+
+Five read-only passes over the tree before publishing, each finding then handed
+to an agent told to *refute* it. Eleven raised, eight confirmed, three refuted -
+and the refutations earned their place: one correctly killed a claim that the
+`.sig` check was unsound, by extracting strings from the actual bundler rather
+than reasoning about what it probably does.
+
+**Attached images have been blank in every packaged build since they landed.**
+The CSP is `img-src 'self' data:`, and both image paths build a `blob:` URL -
+the composer thumbnail, and the transcript's attachment, which is a blob
+deliberately because a plain URL would carry the session token (§9.1). A
+`blob:` URL has an empty host, so `'self'` does not match it.
+
+Confirmed the only way this project now accepts, on the shipped binary over
+CDP, in its own words:
+
+    Loading the image 'blob:http://tauri.localhost/...' violates the following
+    Content Security Policy directive: "img-src 'self' data:".
+
+A `data:` image loaded in the same breath, which is what makes that a policy
+result rather than a broken harness. **Third time the same scar has opened** -
+Pixi's `unsafe-eval`, the blob texture worker, the IPC origin - and it keeps
+proving the same rule: dev has no CSP, so anything reachable only through the
+policy has never been exercised until somebody drives the installer.
+
+### Two defects in the feature being released, both found before it shipped
+
+**A recommendation was checked against a list that was then truncated.**
+`ask_user` built `seen` unbounded, validated `recommended` against it, and
+published `seen[:MAX_OPTIONS]` - so seven options with the seventh recommended
+passed the check and were published beside six that did not include it, into
+an append-only table, which is precisely what the docstring above it says must
+not happen. Bounded as it is built now: one list cannot disagree with itself.
+The frontend had been catching it, so it would have been silent loss rather
+than a phantom button - and a guard downstream is not a reason to write
+something untrue into the record.
+
+**The question was losing the agent's reasons.** `parseAsk` lifts an option
+list out of the prose, and `choices.ts` states the licence for doing so:
+*every word taken out is on a button, verbatim*. That held only while the
+buttons **were** the strings it removed. The moment they came from `options`
+the two were different lists - and what was being stripped was the prose the
+agent writes its reasoning into, one line per choice, deleted from the one
+screen where somebody is deciding.
+
+Fixed by shape rather than by a condition: `offerFor` returns the printed text
+and the buttons together, so nothing can strip text that no button carries. A
+pure function, because this codebase has no component tests and does not want
+any - the renderer stays dumb and the decision is what gets tested. On the old
+behaviour that test fails with the whole argument gone: *"I can fix this three
+ways: Which do you want?"*
+
+### `npm test` was the only thing that could not catch a type error
+
+`npm run package` stopped at `tsc --noEmit` on a test file written an hour
+earlier - `buildTranscript` handed `() => null` where it wants a streaming
+map. 463 vitest had been green over it, and so had `npm run test`, because
+`test:web` is `vitest run` and vitest transpiles without typechecking.
+
+So the only thing in the project that could ever have caught it was building
+the installer: the last step before publishing, and the worst place to find
+out. `test` is `tsc --noEmit && vitest run` now.
+
+### `dist/` was never cleared, and nine releases depended on remembering
+
+`release-manifest.mjs` stages under version-keyed names and removes nothing,
+while the release step here says `gh release create vX.Y.Z dist/*`. So the
+previous release's installers would go onto the new release page, where the
+top link hands somebody a build one version behind the notes they just read.
+
+It had never fired, because the folder was being emptied by hand - a
+load-bearing step written down in no script and in no document, which is the
+kind that survives right up until the day somebody is tired. The prune is
+narrow on purpose: only names this script itself writes, only for a version
+other than the one staging, and it prints what it removes, because a script
+that deletes silently is worse than one that does not delete. Proved by
+putting a fake 0.2.9 bundle and a `somebodys-notes.txt` in the folder - the
+first went, the second stayed.
 
 ---
 
