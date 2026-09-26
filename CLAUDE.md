@@ -3841,6 +3841,39 @@ And it is the reason the app was closed with `CloseMainWindow()` rather than
 `taskkill`: a force-kill of a process mid-write is the likeliest cause of the
 database corruption earlier in the same session.
 
+### The setting had not changed; the work had
+
+Asked why a continued round started asking for approval when the first round
+had not, on a run set to *Ask on risky*. The app was right and the inference
+was reasonable, which is the interesting part.
+
+`app_settings` holds **no `autonomy` row at all** on this machine, so it has
+been the `ask_dangerous` default throughout — the same value in both rounds,
+and the one the composer was displaying. What differed is what the rounds did:
+
+    round 1   list_dir 6, glob 5, read_file 9, write_file 1, edit_file 29, grep 4
+    round 2   read_file 8, list_dir 2, glob 4, grep 2, bash 15
+
+`ask_dangerous` gates exactly two tools — `bash` and `web_fetch`. `write_file`
+and `edit_file` are `guarded`, which it does not gate. So a round that wrote
+thirty files asked **once** (the plan gate) and a round that ran fifteen
+commands asked **fifteen times**, under one unchanged setting.
+
+**And this will keep happening, structurally.** This file already records that
+the verification tasks are last in every plan and so are always what gets cut —
+which means the retry button picks up precisely the tasks that verify things,
+and verifying means *running commands*. Build rounds are quiet; the round that
+checks the build is the one full of questions. Nobody pressing "pick up what
+was not finished" expects to be the person who then answers fifteen approvals.
+
+Not fixed by predicting it — what a plan will call is not knowable before it is
+written (§1.1). What was wrong was the vocabulary. **The same category had three
+names on one screen**: a `bash` badge reads *"asks first"*, the menu item reads
+*"Ask before running commands and fetching pages"*, and the chip that is on
+screen all the time read *"Ask on risky"* — the only one of the three that names
+nothing, and a fourth word for an idea the app already had two of. It names the
+tools now.
+
 ---
 
 ## Decisions made while building

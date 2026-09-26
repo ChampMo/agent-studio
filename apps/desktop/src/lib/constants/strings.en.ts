@@ -320,9 +320,18 @@ export const strings = {
     } as Record<string, string>,
     //: What the chip says. The full sentence above is the menu row; a chip has
     //: room for the mode, not for the explanation of it.
+    //: The chip names the tools, because "risky" was a fourth word for a
+    //: category the app already describes twice — a `bash` badge reads "asks
+    //: first" and the menu item reads "running commands and fetching pages".
+    //:
+    //: And it is the question people actually arrive with. A round that wrote
+    //: thirty files and asked nothing, followed by one that asked fifteen
+    //: times, reads as the setting having changed; it had not. The first round
+    //: wrote files, which this does not gate, and the second ran commands,
+    //: which is the whole of what it does gate.
     autonomyShort: {
       ask_always: "Ask always",
-      ask_dangerous: "Ask on risky",
+      ask_dangerous: "Ask on commands, web",
       trusted: "Never ask",
     } as Record<string, string>,
     trustedWarning:
