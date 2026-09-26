@@ -111,8 +111,11 @@ describe("what a round did not finish", () => {
     const never = retryMessage({
       id: "t2", title: "x", instruction: "y", state: "pending",
     });
-    expect(ran).toContain("produced nothing usable");
+    expect(ran).toContain("ran and did not finish");
     expect(never).toContain("never started");
+    // Not "produced nothing": the client cannot see the workspace, and the
+    // backend said exactly that about a task that had written a 14KB file.
+    expect(ran).not.toContain("produced nothing");
   });
 });
 
@@ -162,8 +165,9 @@ describe("picking up everything that was left", () => {
       { id: "t1", title: "Review", instruction: "", state: "failed" },
       { id: "t2", title: "Build", instruction: "", state: "pending" },
     ]);
-    expect(text).toContain("ran and produced nothing usable");
+    expect(text).toContain("ran and did not finish");
     expect(text).toContain("never started");
+    expect(text).not.toContain("produced nothing");
   });
 
   it("does not repeat a title that is all the task has", () => {

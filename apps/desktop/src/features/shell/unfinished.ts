@@ -103,9 +103,14 @@ export function unfinishedTasks(events: SequencedEntry[]): UnfinishedTask[] {
  * message and ending is — so the thing missing was the instruction itself.
  */
 export function retryMessage(task: UnfinishedTask): string {
+  // "produced nothing" is a claim about output, and the client cannot see
+  // the workspace. On a real run the backend said it about a task that had
+  // just written a 14KB stylesheet before running out of budget; `failed`
+  // means the turn ended without delivering what it was asked for, not that
+  // nothing came of it. So: what is known, and no more.
   const why =
     task.state === "failed"
-      ? "This task ran and produced nothing usable. Do it again"
+      ? "This task ran and did not finish. Pick it up — check what is already on disk before redoing it"
       : "This task was planned and never started. Do it now";
   const what = task.instruction.trim();
   // The title on its own when there is no instruction to add. A round recorded
@@ -134,7 +139,7 @@ export function retryAllMessage(tasks: UnfinishedTask[]): string {
     const what = task.instruction.trim();
     const state =
       task.state === "failed"
-        ? "ran and produced nothing usable"
+        ? "ran and did not finish — check what is already on disk"
         : "never started";
     const body = what && what !== task.title ? `\n   ${what}` : "";
     return `- ${task.title} (${state})${body}`;
