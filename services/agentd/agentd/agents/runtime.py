@@ -56,6 +56,7 @@ from ..providers.base import (
     ToolCall,
     ToolCallChunk,
     ToolOutcome,
+    was_truncated,
 )
 from ..providers.leaks import leaked_tool_call
 from ..providers.pricing import cost_usd
@@ -101,6 +102,34 @@ def _parse_arguments(raw: str) -> dict[str, Any] | None:
     return parsed if isinstance(parsed, dict) else None
 
 
+#: How many times one turn may buy its way out of a round that came back
+#: empty. One: a second failure is the model doing the same thing again, and
+#: paying a third time is how a turn quietly costs four times what it should.
+EMPTY_ROUND_RETRIES = 1
+
+#: What that attempt is given. The planner's `TOKENS_PER_RETRY` is the same
+#: idea and the same size, for the same reason: it is room, and room is the
+#: thing that ran out.
+TOKENS_PER_EMPTY_ROUND = 8192
+
+#: Said to the model between the two attempts.
+#:
+#: More room on its own would be the same attempt again — the previous one did
+#: not know it had a ceiling, because nothing ever told it. On a real run two
+#: agents each spent 16,384 tokens reasoning about a 728-line spec and emitted
+#: no text and no tool call, while the mission still had 1.2 million tokens and
+#: 22 of its 24 tool rounds in hand.
+NOTHING_CAME_BACK = (
+    "Your last reply came back completely empty: you used the whole budget for "
+    "one reply before writing anything, so nothing was said and no tool ran. "
+    "That budget is per reply, and thinking spends it.\n\n"
+    "Do not plan this turn. Take the smallest useful action now — if the task "
+    "is to produce a file, call write_file with a skeleton you can improve "
+    "afterwards; you have more turns, and a file on disk survives while "
+    "thinking does not."
+)
+
+
 async def run_agent_turn(
     *,
     provider: LLMProvider,
@@ -134,6 +163,12 @@ async def run_agent_turn(
     spent_at_start = budget.tokens_used
     overspent = False
 
+    #: Extra room bought by a round that came back with nothing at all. See
+    #: `EMPTY_ROUND_RETRIES` below; zero on every turn that does not need it.
+    extra_room = 0
+    #: How many times this turn has already paid for that.
+    empty_rounds = 0
+
     for _round in range(MAX_TOOL_ROUNDS):
         # Before anything is spent: a limit already reached must stop the turn
         # rather than start a call it cannot pay for.
@@ -151,7 +186,7 @@ async def run_agent_turn(
         call = ChatRequest(
             model=request.model,
             messages=messages,
-            max_tokens=budget.clamp_max_tokens(request.max_tokens),
+            max_tokens=budget.clamp_max_tokens(request.max_tokens + extra_room),
             system=request.system,
             tools=offered,
             sampling=request.sampling,
@@ -275,6 +310,36 @@ async def run_agent_turn(
             yield warning
 
         if not calls:
+            # **A round that said nothing, called nothing, and was cut off at
+            # the cap spent the whole turn thinking.** That is a distinct
+            # outcome and it used to be treated exactly like a clean finish:
+            # break, and the task is recorded `failed` on the spot.
+            #
+            # Seen twice in one run, identically — `agent.message` with 0
+            # characters and `outputTokens` equal to the whole cap, for both
+            # build tasks. The mission had 1.2 million tokens left and had
+            # used 2 of its 24 tool rounds: nothing was short except the room
+            # inside that one reply, and the conversation that already held
+            # the 728-line contract was thrown away with it.
+            #
+            # The planner has had the answer to this since it hit the same
+            # wall: `TOKENS_PER_RETRY` buys more room, and **only** for a
+            # truncated attempt, because a reply that was rejected for some
+            # other reason does not need a bigger budget to fix it. This is
+            # that, for a work turn — which had one attempt and no escalation.
+            #
+            # The model is told what happened, because a second attempt that
+            # is handed nothing but more room is the same attempt again.
+            if (
+                not text.strip()
+                and done is not None
+                and was_truncated(done.stop_reason)
+                and empty_rounds < EMPTY_ROUND_RETRIES
+            ):
+                empty_rounds += 1
+                extra_room += TOKENS_PER_EMPTY_ROUND
+                messages = messages + [Message("user", NOTHING_CAME_BACK)]
+                continue
             break
 
         # ---- the tools this round asked for --------------------------------

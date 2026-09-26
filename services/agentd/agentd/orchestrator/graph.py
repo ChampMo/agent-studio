@@ -571,6 +571,41 @@ def _build_graph(
             # is only advice worth taking if the two can actually hand work
             # over.
             instruction = task["instruction"]
+            # **What earlier tasks failed to produce.**
+            #
+            # A worker is handed its own instruction and nothing else, so a
+            # task running after a failure had no way to know one had happened.
+            # On a real run that meant QA agents spending a turn each on a site
+            # that was never built: both build tasks failed, the plan carried
+            # on regardless, and the run reached 2,159,380 tokens with `docs/`
+            # as the only thing on disk.
+            #
+            # The fact, in one line, and the agent decides what to do with it —
+            # which is already how they behave when they can tell. The QA agent
+            # that *could* see the empty workspace opened its report with
+            # "neither file exists, the pass is unmeasurable" rather than
+            # inventing a result.
+            #
+            # Deliberately not a skip. `depends_on` is absent on most plans,
+            # where it means "after the one before it", so cancelling every
+            # later task on a failure would throw away work that has nothing to
+            # do with it.
+            if lost := [
+                r["task"]["title"]
+                for _index, r in sorted(landed.items())
+                if not r.get("ok", True)
+            ]:
+                instruction = "\n\n".join(
+                    [
+                        "Before you start, from earlier in this plan: "
+                        + "; ".join(f"{t!r} failed and produced nothing" for t in lost)
+                        + ". Do not assume anything those tasks were meant to"
+                        " produce exists — check, and say plainly if what you"
+                        " need is missing.",
+                        "---",
+                        instruction,
+                    ]
+                )
             # The user's own files, in front of the task. Before the mailbox
             # block below, because "here is what you were given" reads ahead of
             # "here is what a teammate said about it".

@@ -4068,6 +4068,83 @@ at exactly twelve — and is now 24. The prompt change is reasoning from one run
 not a measurement: whether it makes the page get built can only be settled by
 running the brief again.
 
+### A reply that came back completely empty
+
+Reported as *"failed again"*, and the plan panel said it plainly: two red
+tasks out of seven. Both build agents, identically:
+
+    seq 74  Basil  agent.message   0 chars, outputTokens = 16384
+    seq 76  error  output_truncated
+    seq 77  progress  "Build index.html and css/brutal.css" -> failed
+
+No text and no tool call. The whole per-reply budget went somewhere invisible
+while the mission still had **1.2 million tokens** and **22 of its 24 tool
+rounds** in hand. The run ended at 2,159,380 tokens with `docs/` as the only
+thing on disk.
+
+`run_agent_turn` treated that exactly like a clean finish: `if not calls:
+break`. One attempt, no escalation — while `make_plan`, which hit the same
+wall first, has had the answer since: **more room, and only for a truncated
+attempt**, because a reply rejected for any other reason does not need a
+bigger budget to fix it. A work turn now gets that too, once, with a sentence
+saying what happened — more room on its own is the same attempt again.
+
+**Verified against the failure rather than a fixture.** Basil's real
+instruction, the real 65,875-byte spec, the real model, run end to end through
+`run_agent_turn` at **16,384 — the ceiling that failed in production**:
+
+    replies 3, two of them empty, 2 writes, index.html = 17,214 bytes
+
+Two rounds still came back empty and the turn recovered anyway. The "before"
+is production failing twice at that ceiling rather than a lab control with the
+retry switched off, and that distinction is worth keeping: the contexts are
+close but not identical.
+
+### Two measurements that were against the wrong thing
+
+Both nearly went into this file as findings, and neither was true.
+
+**The model was not the one I was measuring.** Every probe used the provider
+profile's model, `deepseek-v4-flash`. The agents run `deepseek-flash` — the
+snapshot says so for all six — because an agent carries its own model and the
+profile's is only a default. This file already recorded the two names drifting
+apart months ago and it still cost an hour. *When an agent has a model, that
+is the model; the profile's is what a new agent starts with.*
+
+**And a 400 that was my own harness.** Replaying Basil's round by hand got
+`The reasoning_content in the thinking mode must be passed back to the API` —
+on every shape, streaming or not, on both models, and through the app's own
+adapter. The obvious reading was a real bug: the app never reads
+`reasoning_content`, so it drops the model's chain of thought between rounds.
+
+It was wrong. Driving a genuine two-round tool turn through the app captured
+the difference: the app echoes the tool-call id **the model issued**
+(`call_00_ET_JFNOT0yMeMMFhPyd077A4098`) and I had invented `"c1"`. DeepSeek
+refuses an id it never issued, and says so in a message about something else
+entirely. The app's tool loop is correct and 108 tool calls in that run prove
+it.
+
+*An error message names what the endpoint noticed, not necessarily what is
+wrong.* Two hours went into a reasoning bug that does not exist.
+
+### The plan marched on over the hole
+
+The sharper half of the report, and it was a fair complaint: *the AI planned
+it, could not do it, and then what?* Nothing. A failed task had no retry, no
+effect on the tasks after it, and no way of reaching them — a worker is handed
+its own instruction and nothing else. `ok` is set on every result and was read
+in **exactly one place**: assembling the leader's closing summary.
+
+So two QA agents inspected a site that was never built, which is the second
+time that has happened — the run before produced a 10KB report whose first
+line was that the files did not exist.
+
+A task now carries what failed before it, as a fact and not an instruction
+about what to do with it, because agents already behave well when they can
+tell. Deliberately **not** a skip: `depends_on` is absent on most plans, where
+it means "after the one before it", so cancelling every later task on a
+failure would throw away work that has nothing to do with it.
+
 ---
 
 ## Decisions made while building
