@@ -37,7 +37,9 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -85,6 +87,36 @@ const ALSO = [
     asset: `AgentStudio-${version}-x64.msi`,
   },
 ];
+
+/**
+ * Take the previous release's installers out of `dist/` before staging this
+ * one's.
+ *
+ * Every asset name carries its version, so nothing here is ever overwritten -
+ * each run added two files and removed none, and the documented publish step
+ * is `gh release create vX.Y.Z dist/*`. That glob would have put the previous
+ * release's installers on the new release page, where somebody clicking the
+ * top link downloads a build one version behind the notes they just read.
+ *
+ * It had never actually happened, because the folder was being emptied by
+ * hand - a load-bearing step written down in no script and in no document.
+ *
+ * Narrow on purpose: only files this script itself would have written, and
+ * only for a version that is not the one being staged now. Anything else in
+ * the folder is somebody's and is left alone. What goes is printed, because a
+ * script that deletes silently is worse than one that does not delete.
+ */
+function pruneOldAssets(keep) {
+  if (!existsSync(DIST)) return;
+  const ours = /^AgentStudio-\d+\.\d+\.\d+.*\.(exe|msi)$/;
+  for (const name of readdirSync(DIST)) {
+    if (!ours.test(name) || keep.has(name)) continue;
+    rmSync(resolve(DIST, name));
+    console.log(`[manifest] removed stale ${name}`);
+  }
+}
+
+pruneOldAssets(new Set([...TARGETS, ...ALSO].map((t) => t.asset)));
 
 const platforms = {};
 const missing = [];

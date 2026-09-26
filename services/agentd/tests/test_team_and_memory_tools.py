@@ -140,6 +140,43 @@ async def test_blank_and_duplicate_options_are_dropped():
     assert seen == [("keep", "drop")]
 
 
+async def test_the_recommendation_is_checked_against_what_is_actually_published():
+    """The list validated and the list published have to be the same list.
+
+    The first version built `seen` unbounded, checked `recommended` against
+    it, and only then published `seen[:MAX_OPTIONS]`. So an agent offering
+    seven answers and naming the seventh passed the check and was published
+    beside six options that did not contain it - written into an append-only
+    table, and the exact thing the refusal exists to prevent.
+    """
+    seen: list[tuple] = []
+
+    async def asker(agent_id, question, options=(), recommended=None) -> str:
+        seen.append((options, recommended))
+        return "ok"
+
+    many = [f"option {i}" for i in range(1, 9)]
+
+    # Naming one that survives the cap is fine, and still capped.
+    await team.ask_user(
+        ctx_with(ask=asker), question="Which?", options=many, recommended="option 2"
+    )
+    published, picked = seen[0]
+    assert len(published) == team.MAX_OPTIONS
+    assert picked in published
+
+    # Naming one the cap drops is refused, rather than published beside a
+    # list that does not hold it.
+    with pytest.raises(ToolFailed) as caught:
+        await team.ask_user(
+            ctx_with(ask=asker), question="Which?", options=many, recommended="option 8"
+        )
+    assert caught.value.code == "unknown_recommendation"
+    # And the correction says why, so the next attempt is not a guess.
+    assert str(team.MAX_OPTIONS) in caught.value.message
+    assert len(seen) == 1, "the refused question must not have been published"
+
+
 async def test_a_question_with_no_options_is_refused():
     """The description asks for options; a description is a request.
 

@@ -40,8 +40,11 @@
 
 export interface Choice {
   /** `a`, `b`, `1` — shown small, so the agent's own numbering is still there
-   *  to match against the question above. */
-  marker: string;
+   *  to match against the question above. Null when the agent gave its
+   *  options as a field rather than writing a numbered list: there is no
+   *  numbering in the question to match against, so printing one would be
+   *  this build inventing it. */
+  marker: string | null;
   /** The agent's words. This is the label and this is what gets sent. */
   text: string;
 }
@@ -155,4 +158,45 @@ export function parseAsk(question: string): Ask {
     };
   }
   return { text: question, choices: [] };
+}
+
+/** What a question card shows, and what it offers. */
+export interface Offer {
+  /** The question text, as the card should print it. */
+  asked: string;
+  /** The buttons, in order. `marker` is the letter or number a prose list
+   *  carried, and is null for options the agent gave as a field. */
+  offered: Choice[];
+}
+
+/**
+ * The two halves of a question, decided together — because they are one
+ * decision and were briefly two.
+ *
+ * `parseAsk` lifts a list *out* of the prose, and the paragraph above explains
+ * why that is safe: every word it removes reappears on a button, verbatim.
+ * That held for as long as the buttons *were* the strings it removed.
+ *
+ * Then `ask_user` gained a structured `options` field, the buttons started
+ * coming from there, and the two lists stopped being the same list. The text
+ * being stripped was whatever the agent had *also* written out in prose —
+ * which is where it puts its reasons, one line per option — and the buttons
+ * replacing it are short labels. So the agent's argument for each choice was
+ * being deleted from the one screen where somebody is choosing, and left
+ * nowhere but the raw event.
+ *
+ * Hence one function. A structured question is shown exactly as written and
+ * its buttons come from the field; only a question this build had to *read*
+ * has anything lifted out of it. Nothing can strip text that no button
+ * carries, because one return decides both.
+ */
+export function offerFor(question: string, options: string[] | null): Offer {
+  if (options?.length) {
+    return {
+      asked: question,
+      offered: options.map((text) => ({ marker: null, text })),
+    };
+  }
+  const parsed = parseAsk(question);
+  return { asked: parsed.text, offered: parsed.choices };
 }

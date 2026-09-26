@@ -18,6 +18,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { EventEnvelope } from "../../transport/events.generated";
+import { offerFor } from "./choices";
 import { buildTranscript, type AskRow } from "./transcript";
 
 let seq = 0;
@@ -91,5 +92,49 @@ describe("the answers an agent offered", () => {
     expect(row.options).toBeNull();
     expect(row.recommended).toBeNull();
     expect(row.question).toBe("One checkout flow or two?");
+  });
+});
+
+describe("what the card prints, beside what it offers", () => {
+  // The agent writes its reasons into the prose, one line per option, and
+  // *also* fills in `options` — which is exactly what the tool description
+  // now asks it to do. `parseAsk` would lift that prose list out, on the
+  // promise that every word it removes is on a button. The buttons are the
+  // short structured labels, so that promise is not kept, and what goes
+  // missing is the agent's argument.
+  const REASONED =
+    "I can fix this three ways: 1. rename the column, which is a breaking " +
+    "change for anyone reading it. 2. add a view over it, which costs a " +
+    "migration but nothing downstream. 3. leave it and document the quirk. " +
+    "Which do you want?";
+
+  it("prints a structured question whole, reasons and all", () => {
+    const { asked, offered } = offerFor(REASONED, [
+      "rename",
+      "view",
+      "document",
+    ]);
+    expect(asked).toBe(REASONED);
+    expect(asked).toContain("breaking change");
+    expect(asked).toContain("costs a migration");
+    expect(offered.map((o) => o.text)).toEqual(["rename", "view", "document"]);
+  });
+
+  it("still lifts the list out when the options were only prose", () => {
+    // Unchanged for every run recorded before the field existed: the buttons
+    // are the very strings removed, so nothing is lost by moving them.
+    const { asked, offered } = offerFor(REASONED, null);
+    expect(offered.map((o) => o.text.slice(0, 6))).toEqual([
+      "rename",
+      "add a ",
+      "leave ",
+    ]);
+    expect(asked).not.toContain("rename the column");
+    expect(asked).toContain("I can fix this three ways");
+  });
+
+  it("gives a structured option no marker, because the question has none", () => {
+    const { offered } = offerFor("Table or prose?", ["a table", "prose"]);
+    expect(offered.map((o) => o.marker)).toEqual([null, null]);
   });
 });

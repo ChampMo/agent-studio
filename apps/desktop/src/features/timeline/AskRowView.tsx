@@ -22,7 +22,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { strings } from "../../lib/constants/strings.en";
-import { parseAsk } from "./choices";
+import { offerFor } from "./choices";
 import { cn } from "../../lib/cn";
 import { Portrait } from "../../components/ui/Portrait";
 import { useApprovalStore } from "../../stores/approvalStore";
@@ -85,35 +85,21 @@ export function AskRowView({
 
   const options = row.options?.length ? row.options : ["approve", "reject"];
   const isApproval = row.ask === "approval";
-  //: Parsed from the question the agent wrote. Memoised on the text, because
-  //: the text is the only thing it depends on.
-  const parsed = useMemo(
-    () =>
-      isApproval
-        ? { text: row.question ?? "", choices: [] }
-        : parseAsk(row.question ?? ""),
-    [isApproval, row.question],
-  );
-  // **Structured first, prose second.** An agent that filled in `options` said
-  // exactly what it meant; `parseAsk` is a *reading* of prose and refuses
-  // anything it is not sure of, which is why a question written as a
-  // paragraph — the case this was reported for — offered nothing at all. The
-  // reading is kept for runs recorded before the field existed (§8).
-  const offered = useMemo(
-    () =>
-      !isApproval && row.options?.length
-        ? row.options.map((text) => ({ text, marker: null as string | null }))
-        : parsed.choices.map((c) => ({ text: c.text, marker: c.marker })),
-    [isApproval, row.options, parsed.choices],
-  );
+  // **What is printed and what is offered are one decision**, so they come
+  // back from one function (`offerFor`). They were briefly two, and the two
+  // disagreed: the buttons started coming from the structured `options` while
+  // the text was still having its *prose* list stripped out — deleting the
+  // agent's reasons for each choice from the one screen where somebody is
+  // choosing. An approval is neither: it carries a command, verbatim.
+  const { asked, offered } = useMemo(() => {
+    if (isApproval) return { asked: row.question ?? "", offered: [] };
+    const q = row.question ?? "";
+    const offer = offerFor(q, row.options);
+    return { asked: shellCommand(q) ?? offer.asked, offered: offer.offered };
+  }, [isApproval, row.question, row.options]);
 
   /** Finished cards start shut. */
   const [open, setOpen] = useState(false);
-  // The question as shown: an approval keeps its exact command, and an
-  // `ask_user` has its option list lifted out into the buttons below. Nothing
-  // is hidden — every word taken out is on a button, and the untouched text is
-  // on the log either way.
-  const asked = shellCommand(row.question) ?? parsed.text;
 
   return (
     // Marked so the bar above the scroll can find it: a question held at the

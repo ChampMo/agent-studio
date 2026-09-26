@@ -107,8 +107,16 @@ async def ask_user(
     if not body:
         raise ToolFailed("empty_question", "there is no question to ask")
 
+    # Bounded as it is built, not afterwards. The first version validated
+    # `recommended` against the whole list and then published `seen[:6]`, so an
+    # agent offering seven answers and naming the seventh passed the check and
+    # was published beside six options that did not contain it - the exact
+    # thing the docstring says must not happen, written into an append-only
+    # table. Two lists cannot disagree if there is only one.
     seen: list[str] = []
     for raw in options or []:
+        if len(seen) >= MAX_OPTIONS:
+            break
         text = str(raw).strip()[:MAX_OPTION_CHARS]
         if text and text not in seen:
             seen.append(text)
@@ -127,12 +135,11 @@ async def ask_user(
         raise ToolFailed(
             "unknown_recommendation",
             f"{picked!r} is recommended but is not one of the options offered "
-            f"({', '.join(seen) or 'none'})",
+            f"({', '.join(seen) or 'none'}). At most {MAX_OPTIONS} options are "
+            "carried, so name one of those or offer a shorter list.",
         )
 
-    answer = await asker(
-        ctx.agent_id, body[:MAX_QUESTION_CHARS], tuple(seen[:MAX_OPTIONS]), picked
-    )
+    answer = await asker(ctx.agent_id, body[:MAX_QUESTION_CHARS], tuple(seen), picked)
     if answer is None:
         raise ToolFailed("unanswered", "the question was not answered")
 
