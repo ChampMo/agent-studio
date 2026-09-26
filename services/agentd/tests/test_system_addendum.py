@@ -56,7 +56,7 @@ def test_a_writer_is_told_to_write_the_file_rather_than_paste_it():
     the next agent found the workspace empty and asked the user where the page
     was.
     """
-    rule = system_addendum(specs("write_file"))
+    rule = system_addendum(specs("write_file", "edit_file"))
     assert rule is not None
     assert "write_file" in rule
     # The reason, not just the instruction: a reply is capped and a file is not.
@@ -68,10 +68,53 @@ def test_a_writer_is_told_to_write_the_file_rather_than_paste_it():
     assert "edit_file" in rule
 
 
+def test_the_way_out_is_one_the_agent_can_actually_take():
+    """The strategy has to match the toolbox, or it sends the agent into a wall.
+
+    `PARADOX.ART`: Rowan held `write_file` and not `edit_file`, and was told
+    "write_file a working skeleton first ... and then edit_file each section
+    in its own turn". It could not do the second half. It did that strategy
+    with the only tool it had — `cat >> TEST_PLAN.md <<EOF`, thirty-two shell
+    calls, two of them cut off mid-heredoc and repaired with `sed -i`.
+
+    The controlled comparison is inside the same run. Willow had `edit_file`
+    and no `bash`, and built a *larger* document — 68,143 bytes against
+    64,915 — with two `write_file` calls, eleven `edit_file` calls and no
+    shell at all. Same model, same round, same kind of job. The toolbox was
+    the variable.
+    """
+    both = file_deliverable_rule({"write_file", "edit_file"})
+    write_only = file_deliverable_rule({"write_file"})
+    edit_only = file_deliverable_rule({"edit_file"})
+
+    # The skeleton-then-revise plan needs both halves, so it is offered only
+    # when both halves exist.
+    assert "edit_file each section" in both
+    assert "edit_file each section" not in write_only
+    assert "edit_file each section" not in edit_only
+
+    # A write-only agent is told the true shape of its constraint, and told
+    # not to reach for the shell to get around it. Compared on one line,
+    # because the source is hard-wrapped and a wrapped phrase is still the
+    # phrase.
+    flat = " ".join(write_only.split())
+    assert "a file gets one call and cannot be revised afterwards" in flat
+    assert "split it across several files rather than trying to grow one" in flat
+    assert "shell redirection" in flat
+
+    # An edit-only agent is not told to write_file anything.
+    assert "write_file" not in edit_only.split("You have edit_file")[0]
+
+    # And no variant instructs a tool the agent has not got. Naming one to say
+    # it is absent is the point; telling it to use one is the bug.
+    assert "with write_file or edit_file" not in write_only
+    assert "with write_file or edit_file" not in edit_only
+
+
 def test_edit_file_alone_counts_as_writing():
     rule = system_addendum(specs("edit_file"))
     assert rule is not None
-    assert file_deliverable_rule() in rule
+    assert file_deliverable_rule({"edit_file"}) in rule
 
 
 def test_an_agent_that_does_both_gets_both_rules():
@@ -81,7 +124,7 @@ def test_an_agent_that_does_both_gets_both_rules():
     rule = system_addendum(specs("web_fetch", "write_file"))
     assert rule is not None
     assert UNTRUSTED_CONTENT_RULE in rule
-    assert file_deliverable_rule() in rule
+    assert file_deliverable_rule({"write_file"}) in rule
 
 
 def test_the_rules_come_in_a_stable_order():
@@ -104,9 +147,10 @@ def test_the_agent_is_told_how_many_rounds_it_has():
     """
     from agentd.tools.execution import MAX_TOOL_ROUNDS, file_deliverable_rule
 
-    rule = file_deliverable_rule()
+    rule = file_deliverable_rule({"write_file", "edit_file"})
     assert str(MAX_TOOL_ROUNDS) in rule
     assert "{rounds}" not in rule, "the placeholder must not reach a model"
+    assert "{strategy}" not in rule and "{tools}" not in rule
 
 
 def test_the_raw_template_is_never_what_an_agent_gets():
@@ -115,4 +159,4 @@ def test_the_raw_template_is_never_what_an_agent_gets():
     from agentd.tools.execution import FILE_DELIVERABLE_RULE, file_deliverable_rule
 
     assert "{rounds}" in FILE_DELIVERABLE_RULE
-    assert FILE_DELIVERABLE_RULE != file_deliverable_rule()
+    assert FILE_DELIVERABLE_RULE != file_deliverable_rule({"write_file", "edit_file"})

@@ -149,8 +149,8 @@ UNTRUSTED_SOURCES = {"web_fetch", "web_search"}
 #: gives the model the actual reason rather than a style preference.
 FILE_DELIVERABLE_RULE = """
 You can write files, so write them. Anything longer than a few lines - code, a
-page, a document, a data file - goes in the workspace with write_file or
-edit_file. Do not paste it into your reply.
+page, a document, a data file - goes in the workspace with {tools}. Do not
+paste it into your reply.
 
 Your reply is a short report: what you wrote, where you put it, and anything the
 next person needs to know. If a task asks you to "build" or "produce" something,
@@ -160,33 +160,93 @@ the same as writing it.
 This matters because your reply has a length limit and a file does not. A reply
 that hits the limit is cut off and thrown away, and the work in it is lost.
 
+{strategy}
+
+**Write before you finish investigating.** You get about {rounds} tool calls in
+this turn and then it stops, wherever you are. Reading the workspace spends
+them, and one look-up suggests the next: what you have read is gone when the
+turn ends, and a file on disk is not. So read the few things you need before
+you can start, put something on disk, and look the rest up as you go.
+""".strip()
+
+#: The way to build something large when the agent can both create and revise.
+IN_PASSES = """
 The limit applies to one *turn*, not to the file. For anything large, build it
 in passes: write_file a working skeleton first - real structure, headings or
 sections in place, short placeholder content - and then edit_file each section
 in its own turn. Three small turns finish; one enormous turn gets cut off and
 you have nothing. Do not try to think the whole file through before writing:
 plan briefly, write the skeleton, then improve it.
+""".strip()
 
-**Write before you finish investigating.** You get about {rounds} tool calls in
-this turn and then it stops, wherever you are. Reading the workspace spends
-them, and one look-up suggests the next: what you have read is gone when the
-turn ends, and a file on disk is not. So read the few things you need to start,
-write the skeleton, and look the rest up while you fill it in.
+#: ...and when it can only create.
+#:
+#: This paragraph exists because the other one was sent to an agent that had
+#: no `edit_file`. It read "write a skeleton, then edit_file each section",
+#: could not do the second half, and did it with `cat >> file <<EOF` instead -
+#: 32 shell calls to build a 64KB document, two of them cut off mid-heredoc
+#: and repaired with `sed -i`. Its teammate on the same run, with `edit_file`
+#: and no `bash`, built a *larger* document in 11 calls and no shell at all.
+#:
+#: So the strategy has to be one the agent can actually carry out. Splitting
+#: across files is the real answer here, because `write_file` never
+#: overwrites: one call is all any single file is ever going to get.
+ONE_SHOT_ONLY = """
+You have write_file and not edit_file, so **a file gets one call and cannot be
+revised afterwards** - write_file refuses to overwrite. Plan for that: decide
+the shape before you write, and write each file complete in a single call.
+
+If the whole deliverable will not fit in one call, split it across several
+files rather than trying to grow one. Say in your reply how they fit together.
+Do not append with shell redirection - it is a worse version of a tool you do
+not have, and a cut-off heredoc leaves a half-written file that looks finished.
+""".strip()
+
+#: ...and when it can only revise.
+EDIT_ONLY = """
+You have edit_file and not write_file, so you can change files that already
+exist and cannot create new ones. Work section by section, each in its own
+turn. If the task needs a file that is not there yet, say so in your reply
+rather than trying to make one another way.
 """.strip()
 
 #: Tools that put something in the workspace.
 WRITERS = {"write_file", "edit_file"}
 
 
-def file_deliverable_rule() -> str:
-    """The rule as the model receives it, with the round budget filled in.
+def file_deliverable_rule(tools: set[str]) -> str:
+    """The rule as the model receives it, for the tools it was actually given.
 
     A function rather than a formatted constant so the number reaches the
     model from the same place the loop enforces it. The template is left with
     its placeholder visible on purpose: anything comparing against the raw
     string is comparing against something no agent is ever sent.
+
+    **The strategy paragraph is chosen by the toolbox**, because the old one
+    named `edit_file` unconditionally and was sent to agents that did not have
+    it. A prompt describing a plan the agent cannot carry out is worse than no
+    prompt: this one sent a QA agent down 32 shell calls building a document
+    its teammate built in 11 (§1.1 - the app must not assert what is not so,
+    and "then edit_file each section" was not so for that agent).
     """
-    return FILE_DELIVERABLE_RULE.format(rounds=MAX_TOOL_ROUNDS)
+    # Required, not defaulted. A default would be one particular toolbox, and
+    # a caller that forgot to pass one would silently get a rule written for
+    # an agent other than the one being prompted - which is the whole fault
+    # this function exists to fix, reintroduced one layer up.
+    held = tools
+    if {"write_file", "edit_file"} <= held:
+        strategy = IN_PASSES
+    elif "write_file" in held:
+        strategy = ONE_SHOT_ONLY
+    else:
+        strategy = EDIT_ONLY
+    # Named, rather than "write_file or edit_file" whatever is held. The whole
+    # point of this function is that the rule never mentions a tool the agent
+    # has not got.
+    named = " or ".join(t for t in ("write_file", "edit_file") if t in held) or "the file tools"
+    return FILE_DELIVERABLE_RULE.format(
+        rounds=MAX_TOOL_ROUNDS, strategy=strategy, tools=named
+    )
 
 
 SUMMARY_FIRST_RULE = """
@@ -213,7 +273,7 @@ def system_addendum(specs: list[ToolSpec]) -> str | None:
         rule
         for applies, rule in (
             (ids & UNTRUSTED_SOURCES, UNTRUSTED_CONTENT_RULE),
-            (ids & WRITERS, file_deliverable_rule()),
+            (ids & WRITERS, file_deliverable_rule(ids & WRITERS)),
             # Everyone, whatever they hold. A reply that opens with its own
             # outcome is what lets the transcript show one line and keep the
             # rest behind it — without it, folding a report means choosing the
