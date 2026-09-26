@@ -17,6 +17,7 @@
  */
 import { describe, expect, it } from "vitest";
 
+import type { EventEnvelope } from "../../transport/events.generated";
 import { buildTranscript, type AskRow } from "./transcript";
 
 let seq = 0;
@@ -30,14 +31,16 @@ function ask(payload: Record<string, unknown>) {
       seq,
       ts: "2026-09-26T00:00:00Z",
       draft: { type: "agent.request", payload },
-    },
+    } as unknown as EventEnvelope,
     known: true,
     futureVersion: false,
-  } as never;
+  };
 }
 
+const nameOf = (id: string) => (id === "a-1" ? "Willow" : id);
+
 function rowFor(payload: Record<string, unknown>): AskRow {
-  const rows = buildTranscript([ask(payload)], () => null, () => null);
+  const rows = buildTranscript([ask(payload)], {}, nameOf);
   const row = rows.find((r) => r.kind === "ask");
   if (!row || row.kind !== "ask") throw new Error("no ask row");
   return row;
