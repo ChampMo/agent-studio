@@ -631,15 +631,27 @@ def _build_graph(
             # where it means "after the one before it", so cancelling every
             # later task on a failure would throw away work that has nothing to
             # do with it.
+            # Named with whatever each one *did* leave behind. "failed and
+            # produced nothing" was told to later tasks about a turn that had
+            # written a 14KB stylesheet before running out of budget, which
+            # steers the next agent away from a file that is sitting there.
+            # The honest version is that the task did not finish, plus what it
+            # wrote — which is exactly the thing it should go and check.
             if lost := [
-                r["task"]["title"]
+                (r["task"]["title"], r.get("files") or [])
                 for _index, r in sorted(landed.items())
                 if not r.get("ok", True)
             ]:
+
+                def _said(title: str, files: list[str]) -> str:
+                    if files:
+                        return f"{title!r} did not finish (it wrote {', '.join(files)})"
+                    return f"{title!r} did not finish and wrote no files"
+
                 instruction = "\n\n".join(
                     [
                         "Before you start, from earlier in this plan: "
-                        + "; ".join(f"{t!r} failed and produced nothing" for t in lost)
+                        + "; ".join(_said(t, f) for t, f in lost)
                         + ". Do not assume anything those tasks were meant to"
                         " produce exists — check, and say plainly if what you"
                         " need is missing.",

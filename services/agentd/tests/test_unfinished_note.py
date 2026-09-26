@@ -60,7 +60,7 @@ def test_running_out_of_room_and_coming_back_empty_are_told_apart():
             ("t2", "pending", "Review the atlas"),
         )
     )
-    assert "produced nothing: Draw the atlas" in note
+    assert "did not finish: Draw the atlas" in note
     assert "never started: Review the atlas" in note
 
 
@@ -119,12 +119,12 @@ def test_a_task_cut_off_mid_flight_is_not_reported_as_never_started():
     assert "0 of 5 tasks done" in note
     assert "stopped partway: Audit the frozen DOM + token contract; Implement app.js interactions" in note
     assert "never started: Execute TEST_PLAN and write QA_REPORT.md; Fix critical and major defects" in note
-    assert "produced nothing: Write TEST_PLAN.md" in note
+    assert "did not finish: Write TEST_PLAN.md" in note
     # The two that were mid-flight must not be filed under either of the
     # other two headings - those are claims about them that are not true.
     started, _, rest = note.partition("never started:")
     assert "Implement app.js interactions" not in rest
-    assert "Implement app.js interactions" not in note.split("produced nothing:")[-1]
+    assert "Implement app.js interactions" not in note.split("did not finish:")[-1]
 
 
 def test_a_state_this_build_does_not_know_is_still_named():

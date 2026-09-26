@@ -193,7 +193,16 @@ def ending_for(
     Named separately, because they are different failures with different fixes:
     a task that **never started** ran out of room, a task that was **stopped
     partway** was doing the work when the run was killed, and a task that
-    **produced nothing** ran and came back empty.
+    **did not finish** ran and did not deliver what it was asked for.
+
+    That last one used to read "produced nothing", and on a real run it said
+    so about a task that had just written a 14,229-byte stylesheet - the app
+    watched `write_file css/brutal.css` succeed at seq 198 and then announced
+    that the task produced nothing. `failed` does not mean nothing came out
+    of it: it means the turn ended without a usable answer, which is also
+    true of a turn that wrote a file and then ran out of budget before it
+    could report. Now that the handover names the files, the old wording put
+    two contradicting sentences in one ending.
     """
     # Normalised first. The map carries `(state, title)` now and read the tuple
     # as a state for one commit, which turned every finished run into a failed
@@ -268,7 +277,7 @@ def unfinished_note(task_states: dict[str, tuple[str, str]] | dict[str, str]) ->
     if never:
         parts.append("never started: " + "; ".join(never))
     if empty:
-        parts.append("produced nothing: " + "; ".join(empty))
+        parts.append("did not finish: " + "; ".join(empty))
     return ". ".join(parts)
 
 

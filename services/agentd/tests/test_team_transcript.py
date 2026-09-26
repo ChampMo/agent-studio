@@ -90,3 +90,31 @@ def test_every_task_appears_exactly_once():
     for i in range(4):
         assert text.count(f"[Task {i}]") == 1
         assert text.count(f"wrote: f{i}.md") == 1
+
+
+def test_a_failed_task_that_wrote_something_is_not_called_empty():
+    """"produced nothing" was said about a 14,229-byte stylesheet.
+
+    On the `PARADOX2` run, task t4 ("Elegant-brutalism CSS and interaction
+    layer") wrote `css/brutal.css` — the app watched `write_file` succeed at
+    seq 198 and `edit_file` at 202 — and then ran out of budget before it
+    could report. `produced` is false when the reply is empty, so the task is
+    `failed`, which is right. Announcing that it *produced nothing* is not:
+    the file is on disk, and once the handover began naming written files the
+    two halves of one ending contradicted each other.
+
+    `failed` means the turn ended without delivering what was asked. It does
+    not mean nothing came out of it.
+    """
+    from agentd.agents.runner import unfinished_note
+
+    note = unfinished_note(
+        {
+            "t3": ("done", "Semantic markup, cart and checkout logic"),
+            "t4": ("failed", "Elegant-brutalism CSS and interaction layer"),
+            "t6": ("pending", "Execute QA pass and file the report"),
+        }
+    )
+    assert "did not finish: Elegant-brutalism CSS and interaction layer" in note
+    assert "produced nothing" not in note
+    assert "never started: Execute QA pass and file the report" in note

@@ -141,7 +141,7 @@ async def test_the_next_task_is_told_which_one_failed():
     assert states(items)["t1"] == "failed"
     second = model.turns[1]
     assert "Build index.html" in second, second[:300]
-    assert "failed and produced nothing" in second
+    assert "did not finish and wrote no files" in second
     # The fact, not a decision made on the agent's behalf.
     assert "check" in second.lower()
 
@@ -159,5 +159,5 @@ async def test_a_plan_with_no_failures_says_nothing_extra():
     items = await run(model)
 
     assert states(items)["t1"] == "done"
-    assert "failed and produced nothing" not in model.turns[1]
+    assert "did not finish" not in model.turns[1]
     assert model.turns[1].startswith("Say what you think of it.")
