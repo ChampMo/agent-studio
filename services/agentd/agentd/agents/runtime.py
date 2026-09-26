@@ -318,9 +318,16 @@ async def run_agent_turn(
             {
                 "agentId": agent_id,
                 "code": "tool_rounds_exhausted",
+                # What happened, not a diagnosis of why. "The agent was not
+                # converging on an answer" was a claim this code cannot
+                # support and which the evidence contradicted: seven turns
+                # stopped here on one run, every one of them working steadily
+                # through shell checks the brief had asked for, all stopping at
+                # exactly the limit. Reaching a ceiling is the only fact
+                # available here (§1).
                 "message": (
-                    f"stopped after {MAX_TOOL_ROUNDS} rounds of tool calls; "
-                    "the agent was not converging on an answer"
+                    f"reached the limit of {MAX_TOOL_ROUNDS} rounds of tool "
+                    "calls and was stopped with the task unfinished"
                 ),
                 "recoverable": True,
             },

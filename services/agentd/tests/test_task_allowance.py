@@ -24,6 +24,7 @@ files and three reviewers saying what is wrong with them.
 
 from __future__ import annotations
 
+from agentd.tools.execution import MAX_TOOL_ROUNDS
 from agentd.orchestrator.graph import (
     MIN_TASK_ALLOWANCE,
     RESERVE_PER_QUEUED_TASK,
@@ -190,8 +191,11 @@ async def test_it_does_not_end_the_mission():
 
 async def test_no_ceiling_means_the_mission_ceiling_is_the_only_one():
     _items, _budget, model = await drain(spend_ceiling=None)
-    # Runs until the round cap, exactly as before.
-    assert model.calls == 12
+    # Runs until the round cap, exactly as before — and read off the constant
+    # rather than written out. This said `12`, so raising the cap failed a
+    # test about *task allowances* for a reason that had nothing to do with
+    # them: a second copy of a number is a second thing to update.
+    assert model.calls == MAX_TOOL_ROUNDS
 
 
 async def test_running_out_of_money_and_running_out_of_ideas_are_told_apart():

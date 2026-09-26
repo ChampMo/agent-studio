@@ -3931,6 +3931,102 @@ arrangement.
 Verified in the app on a real six-member team, not just in numbers: head at the
 back, a pair, one in the middle, a pair at the front.
 
+### `done` meant "the agent replied", and a round said `completed` over an empty folder
+
+Reported as *the work does not look like the website I asked for*. It was not a
+quality problem. **There was no website.** After **1,411,863 tokens** the
+workspace held:
+
+    docs/test-plan.md        42,520   a test plan for a page that does not exist
+    docs/build-checklist.md  10,361
+    docs/qa-css.md           10,109
+    docs/ux-spec.md           9,808
+    js/app.js                36,883   behaviour with nothing to attach to
+
+No `index.html`. No `css/style.css`. And the log records round two as
+
+    mission.progress  "Build index.html semantic shell"  -> done
+    mission.progress  "Build css/style.css"              -> done
+    mission.ended     reason=completed
+
+**Both other parties were honest, which is what makes the record the liar.**
+The QA agent opened its report with *"Neither `index.html` nor `css/style.css`
+exists in the workspace. The entire CSS QA pass is therefore unmeasurable"*.
+The leader's own closing summary opened with *"The round produced nothing of
+the deliverable... Nothing was built."* The row said `completed` over both, and
+the sidebar showed a green *6 of 7 tasks done*.
+
+`ending_for` could not save it. It turns a run `failed` when a **task** failed
+— so with every task claiming success it had nothing to correct. The task
+states lied first, and the whole of that lie was `bool(answer.strip())`: both
+build agents replied with prose describing the file they were about to write
+and never called a tool.
+
+So a third turn of a rule this file has now stated twice. *A task that produced
+nothing is not done.* *A turn that was cut off did not finish either.* And now:
+**a task that was asked for a file, and wrote none, has not done the task,
+whatever it said about itself.** `_WRITES_A_FILE` is the planner's own test for
+"this task writes a file" — already used to check the assignee holds
+`write_file` — so asking it a second question here cannot disagree with the
+first. On the real titles it fires on *"Build index.html semantic shell"* and
+*"Build css/style.css"* and not on *"QA markup, ids and accessibility"* or
+*"Extract frozen build checklist"*, which is exactly the line wanted.
+
+### Seven turns stopped at exactly twelve
+
+The same run's dominant failure was `tool_rounds_exhausted`, **seven times**,
+and the shape of it is the point: every one stopped at **exactly 12 model
+replies**. Not a model looping — agents working steadily through shell checks
+the brief had asked for in those words (*"verify your work with `ls` and by
+grepping your own file for the required ids"*). `bash` was **86 of 150 tool
+calls** in that run, and a shell check costs one round each because the model
+has to see the output before choosing the next command.
+
+The message said *"the agent was not converging on an answer"*. That is a
+diagnosis this code cannot make and the evidence contradicts. It says what
+happened now — reached the limit — because reaching a ceiling is the only fact
+available at that line (§1).
+
+`MAX_TOOL_ROUNDS` went 12 → 24, and the reasoning for the number is worth more
+than the number. Its old comment justified 12 with *"the budget guard only
+notices once the money is gone"* — true when written, and `spend_ceiling`
+closed that gap: a turn has a token allowance of its own now and stops as
+`task_budget_spent`. A decision whose reason has expired is not a decision.
+
+**But it cannot simply be made large, which the first attempt missed.**
+Raising it to 40 turned a runaway-model test green in the wrong way: the fixture
+stopped on its *call* budget instead of the round backstop. That is not a test
+artefact. `AppBudget.max_llm_calls` defaults to **40 for a whole run**, and
+running out of calls raises `BudgetExceeded`, which ends the **mission** — so a
+round cap at the call budget lets one turn kill the run, the opposite of what a
+per-task stop is for. 24 doubles the wall that was being hit and stays clear of
+it, and a test now asserts `MAX_TOOL_ROUNDS < default_budget().max_llm_calls`.
+
+Two hardcoded copies of `12` turned up while doing it, in two test files, one
+of them in a test about task allowances that had nothing to do with rounds.
+Both read the constant now.
+
+### Every round's plan, kept
+
+Asked for: the plan history, as a dropdown under the budget.
+
+Nothing is stored for it. A continued run appends to one log, so each round's
+tasks, what it was asked and how it ended are already there — and a second
+place saying what a round planned is a second place to be wrong (§2.1).
+`planRounds()` walks the log once, and **`planProgress` is defined as the last
+of them** rather than its own copy of the round-boundary rule, so the panel at
+the top of the rail and the history underneath cannot disagree about the round
+on screen.
+
+Three details. A round that **died in planning** is kept as a round with no
+tasks rather than dropped — that is precisely the one worth being able to look
+at. The ending is worded by `missionLook`, the same function the header and the
+sidebar use, rather than a second vocabulary for the same four outcomes. And
+the whole section is **absent on a run with one round**: there is no history
+yet, and a control that can only ever say "Round 1" teaches the reader that the
+bottom of that column is not worth reading — the argument that took the layout
+id off the team cards.
+
 ---
 
 ## Decisions made while building

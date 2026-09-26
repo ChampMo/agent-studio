@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from agentd.agents.runtime import run_agent_turn
+from agentd.tools.execution import MAX_TOOL_ROUNDS
 from agentd.core.budget import BudgetLimits, BudgetTracker
 from agentd.providers.base import (
     Capabilities,
@@ -92,7 +93,18 @@ def request() -> ChatRequest:
 
 async def drain(model, tools) -> list[dict]:
     budget = BudgetTracker(
-        BudgetLimits(max_llm_calls=20, max_supersteps=20, max_tokens=10**6, timeout_sec=60)
+        BudgetLimits(
+            # Above `MAX_TOOL_ROUNDS`, and derived from it rather than written
+            # out: a fixture whose call budget is *below* the round cap stops
+            # the turn on the budget, so the test that exists to prove the
+            # round backstop fires would never reach it. That is what happened
+            # when the cap was raised — the number here was 20 and silently
+            # became the thing under test.
+            max_llm_calls=MAX_TOOL_ROUNDS + 5,
+            max_supersteps=MAX_TOOL_ROUNDS + 5,
+            max_tokens=10**6,
+            timeout_sec=60,
+        )
     )
     return [
         item
@@ -317,3 +329,25 @@ async def test_a_model_that_never_stops_calling_tools_is_stopped(workspace: Path
     codes = [e["payload"].get("code") for e in events if e["type"] == "error"]
     assert "tool_rounds_exhausted" in codes
     assert types_of(events)[-1] in {"agent.status", "error"}
+
+
+async def test_one_turn_cannot_spend_a_whole_run_of_model_calls():
+    """The round cap has to stay clear of the call budget.
+
+    `max_llm_calls` is for a whole run — the planner, every task, and the
+    summary — and running out of calls raises `BudgetExceeded`, which ends the
+    **mission**. So a round cap at or above the shipped call budget lets one
+    turn kill the run, which is the opposite of what a per-turn stop is for:
+    `tool_rounds_exhausted` ends one task and leaves the rest of the plan
+    alive.
+
+    Found by raising the cap to 40 and watching a runaway-model test stop on
+    the budget instead of the backstop.
+    """
+    from agentd.core.prefs import default_budget
+
+    shipped = default_budget().max_llm_calls
+    assert MAX_TOOL_ROUNDS < shipped, (
+        f"a single turn may use {MAX_TOOL_ROUNDS} model calls out of the "
+        f"{shipped} a whole run is given"
+    )

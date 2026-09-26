@@ -38,7 +38,7 @@ from ..teams.snapshot import RosterSnapshot, SnapshotMember
 from ..tools.execution import ToolBox
 from ..tools.registry import FILE_TOOLS
 from .hitl import APPROVE, Ask, PlanRejected, ask_to_approve, new_request_id, pause
-from .planner import PlanningFailed, make_plan
+from .planner import _WRITES_A_FILE, PlanningFailed, make_plan
 
 #: Resolves a snapshot member to a live provider + capabilities. Injected so the
 #: graph never learns which vendor anything is (§3.1).
@@ -659,7 +659,31 @@ def _build_graph(
             # then ran out of room mid-summary has done the task; the
             # deliverable is on disk and `artifact.created` says so. Only a
             # turn that was cut off with nothing written is unfinished.
-            produced = bool(answer.strip()) and (wrote or not (cut_off or lost_a_call))
+            # **And a task that was asked for a file, and wrote none, has not
+            # done the task — whatever it said about itself.** That is the same
+            # rule a third time, and it took a real run to see: a five-task
+            # round recorded every task `done`, the run recorded `completed`,
+            # and the folder held no `index.html` and no `css/style.css`. The
+            # two build tasks had replied with prose describing the file they
+            # were about to write and never called a tool.
+            #
+            # Nothing downstream could recover from that. `ending_for` corrects
+            # a run to `failed` when a *task* failed, so with every task
+            # claiming success it had nothing to correct — the task states lied
+            # first. The QA agents were honest ("neither file exists in the
+            # workspace"), the leader's own summary was honest ("nothing was
+            # built"), and the row said `completed` over both.
+            #
+            # `_WRITES_A_FILE` is the planner's own test for "this task writes
+            # a file", already used to check the assignee holds `write_file`.
+            # Asking it a second question here costs one regex and is the same
+            # answer, so the two cannot disagree about which tasks owe a file.
+            owed_a_file = bool(_WRITES_A_FILE.search(str(task.get("instruction") or "")))
+            produced = (
+                bool(answer.strip())
+                and (wrote or not (cut_off or lost_a_call))
+                and (wrote or not owed_a_file)
+            )
             landed[index] = {
                 "task": task,
                 "agent_id": member.agent_id,
@@ -694,6 +718,13 @@ def _build_graph(
                             "message": (
                                 f"{member.name} returned no usable answer for "
                                 f"{task['title']!r}"
+                                + (
+                                    " (the task asks for a file and none was "
+                                    "written; the reply described the work "
+                                    "instead of doing it)"
+                                    if owed_a_file and not wrote and answer.strip()
+                                    else ""
+                                )
                                 + (
                                     " (a tool call was cut off at max_tokens "
                                     "and never ran)"

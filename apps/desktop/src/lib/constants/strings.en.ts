@@ -89,6 +89,17 @@ export const strings = {
     wholeMission: "Everything this run has spent, across every round.",
     // The nearest of the round's ceilings, which is the one that will stop it.
     roundUsed: (percent: number) => `This round: ${percent}% of its limit`,
+    //: Every round's plan, kept because a continued run appends to one log
+    //: and the earlier plans are still in it — nothing is stored for this.
+    plans: "Plans",
+    planRound: (n: number) => `Round ${n}`,
+    //: The picker's own line: which round, how far it got, how it ended. A
+    //: round still going has no ending yet, which is what marks it.
+    planRoundOf: (n: number, done: number, total: number) =>
+      `Round ${n} · ${done}/${total}`,
+    planRoundNow: "this round",
+    planNoTasks: "No plan — the round ended before one was made",
+    planAsked: "Asked for",
     unfinished: "Not finished this round",
     // Says the one thing the ending line above does not: that these can be
     // picked up without paying for the whole round again.

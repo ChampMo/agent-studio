@@ -38,10 +38,34 @@ from ..providers.base import ToolSpec as ProviderToolSpec
 from .base import ToolContext, ToolFailed, ToolResult
 from .registry import ToolSpec
 
-#: How many times the model may call tools before the turn is stopped. A model
-#: that reads the same file forever is not making progress, and the budget guard
-#: only notices once the money is gone.
-MAX_TOOL_ROUNDS = 12
+#: How many times the model may call tools before the turn is stopped.
+#:
+#: **A backstop against a loop, not an economy.** The old value of 12 was set
+#: when this was the only thing standing between a stuck model and the whole
+#: mission budget — its comment said so: "the budget guard only notices once
+#: the money is gone". `spend_ceiling` closed that gap: a turn now has a token
+#: allowance of its own and stops as `task_budget_spent` when it is spent. So
+#: the reason for keeping this number small has expired, and a decision whose
+#: reason has expired is not a decision.
+#:
+#: What it cost, measured on one real run: **seven turns stopped here, every
+#: one of them at exactly 12 replies.** Not a model reading the same file
+#: forever — agents working steadily through a verification the brief had asked
+#: for in those words ("verify your work with `ls` and by grepping your own
+#: file"). `bash` was 57% of every tool call in that run, and a shell check is
+#: one round each, because the model has to see the output before it can choose
+#: the next command.
+#:
+#: **And it cannot simply be made large**, which the first attempt at this
+#: missed. `AppBudget.max_llm_calls` defaults to 40 for a whole run — planner,
+#: every task, and the summary. A round cap at 40 lets one turn spend every
+#: call the mission has, and running out of *calls* raises `BudgetExceeded`,
+#: which ends the **mission**. That trades a failed task for a failed run,
+#: which is the opposite of what `spend_ceiling` was written to achieve.
+#:
+#: So: double the wall that was actually being hit, and stay clear of the
+#: smallest call budget on offer.
+MAX_TOOL_ROUNDS = 24
 
 APPROVE = "approve"
 

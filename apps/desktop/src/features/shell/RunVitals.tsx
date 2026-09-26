@@ -11,6 +11,7 @@
  * exists, and it is the token budget, which is the ceiling that actually stops
  * a mission.
  */
+import { PlanHistory } from "./PlanHistory";
 import { strings } from "../../lib/constants/strings.en";
 import { agentLook } from "../../components/ui/status";
 import { Portrait } from "../../components/ui/Portrait";
@@ -212,6 +213,11 @@ export function RunVitals({
         </dl>
 
       </section>
+
+      {/* Under the budget, because it is a thing you go and look for rather
+          than something in the way while a run is going. Absent on a run with
+          one round — there is no history yet. */}
+      <PlanHistory />
     </>
   );
 }

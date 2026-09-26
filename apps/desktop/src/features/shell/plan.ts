@@ -34,27 +34,76 @@ export interface PlanProgress {
 
 const KNOWN: TaskState[] = ["pending", "running", "done", "failed"];
 
-export function planProgress(events: SequencedEntry[]): PlanProgress {
+/** One round's plan, and how that round ended. */
+export interface PlanRound extends PlanProgress {
+  /** 1-based, in the order the rounds happened. */
+  round: number;
+  /** What the round was asked. The first message of a round creates it. */
+  asked: string | null;
+  /** `null` while this is the round still going. */
+  endReason: string | null;
+  endLimit: string | null;
+}
+
+/**
+ * Every round's plan, oldest first.
+ *
+ * A continued run appends to the same log, so the rounds are already all there
+ * — each one's tasks, what it was asked, and how it ended. Nothing is stored
+ * for this and nothing should be: a second place saying what a round planned
+ * is a second place to be wrong, and the log is the record (§2.1).
+ *
+ * `planProgress` is the last of these, so the panel at the top of the rail and
+ * the history underneath it cannot disagree about the round on screen.
+ */
+export function planRounds(events: SequencedEntry[]): PlanRound[] {
+  const rounds: PlanRound[] = [];
   let order: string[] = [];
   let byId = new Map<string, PlanTask>();
-  let ended = false;
+  let asked: string | null = null;
+  let open = false;
+
+  const close = (endReason: string | null, endLimit: string | null) => {
+    // A round with no plan is still a round that happened — the one that died
+    // in planning is exactly the one worth being able to look at.
+    if (!open) return;
+    const tasks = order.map((id) => byId.get(id)!);
+    const done = tasks.filter((t) => t.state === "done").length;
+    const failed = tasks.filter((t) => t.state === "failed").length;
+    rounds.push({
+      round: rounds.length + 1,
+      tasks,
+      done,
+      failed,
+      left: tasks.length - done - failed,
+      asked,
+      endReason,
+      endLimit,
+    });
+    order = [];
+    byId = new Map();
+    asked = null;
+    open = false;
+  };
 
   for (const { event } of events) {
     const type = event.draft.type;
+    const p = event.draft.payload as unknown as Record<string, unknown>;
 
-    // A new round replaces the previous one's plan entirely.
-    if (ended && type !== "mission.ended") {
-      order = [];
-      byId = new Map();
-      ended = false;
-    }
     if (type === "mission.ended") {
-      ended = true;
+      close(
+        typeof p.reason === "string" ? p.reason : null,
+        typeof p.limit === "string" ? p.limit : null,
+      );
       continue;
+    }
+    open = true;
+    if (type === "user.message" && asked === null) {
+      const content = typeof p.content === "string" ? p.content : "";
+      asked = content.trim() || null;
     }
     if (type !== "mission.progress") continue;
 
-    const p = event.draft.payload as unknown as Record<string, unknown>;
     const id = String(p.taskId ?? "");
     if (!id) continue;
     const raw = String(p.state ?? "");
@@ -65,9 +114,20 @@ export function planProgress(events: SequencedEntry[]): PlanProgress {
     if (!byId.has(id)) order.push(id);
     byId.set(id, { id, title: String(p.label ?? id), state });
   }
+  // The round still going has no ending yet, which is the thing that marks it.
+  close(null, null);
+  return rounds;
+}
 
-  const tasks = order.map((id) => byId.get(id)!);
-  const done = tasks.filter((t) => t.state === "done").length;
-  const failed = tasks.filter((t) => t.state === "failed").length;
-  return { tasks, done, failed, left: tasks.length - done - failed };
+/**
+ * The plan of the round on screen.
+ *
+ * Defined as the last of `planRounds` rather than walked separately, so "what
+ * is the current plan" has one answer. The old version was its own loop with
+ * the same round-boundary rule copied into it.
+ */
+export function planProgress(events: SequencedEntry[]): PlanProgress {
+  const rounds = planRounds(events);
+  const last = rounds[rounds.length - 1];
+  return last ?? { tasks: [], done: 0, failed: 0, left: 0 };
 }
