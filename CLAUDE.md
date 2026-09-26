@@ -526,7 +526,7 @@ web tool and a way to change things, and suggests splitting the roles; and
 because the backend on loopback holds the user's keys.
 
 
-**Released: v0.2.7** (2026-09-26). v0.2.0 was the first build that could update
+**Released: v0.2.8** (2026-09-26). v0.2.0 was the first build that could update
 itself and the first that drew no room; it is marked superseded on its own
 release page rather than left to be downloaded.
 
@@ -3821,7 +3821,7 @@ the exe's own `ProductVersion` reads **0.2.7**. That number is what an installed
 copy compares against, and a build reporting the old one would offer itself an
 update for ever.
 
-### A backend that outlived its app, once, and did not reproduce
+### A backend that outlives its app — now reproduced, and narrowed
 
 Before the build could start, `npm run package` would have failed: the v0.2.6
 app had been open for 134 minutes, and closing its window left an `agentd.exe`
@@ -3831,11 +3831,27 @@ had fired — and the process simply never exited. aiosqlite starts a
 **non-daemon** thread per connection, so anything holding a connection open
 keeps the process alive after the server stops.
 
-The new build does not do it: closed the window, and nothing was left. So this
-is recorded as seen once and not reproduced rather than fixed or dismissed. It
-matters because a lingering `agentd.exe` locks the file an installer has to
-overwrite — which is how this family was found the first time, as an `EBUSY`
-during a build.
+**Seen twice now** — 134 minutes the first time and 46 the second, both after
+real missions had run, and both with no listening socket and the process simply
+not exiting. The second one still had **12 threads** alive. A build closed
+immediately after starting does *not* do it, which is why it read as
+non-reproducing the first time.
+
+Narrowed, and the narrowing rules out the obvious answer. A harness that starts
+the backend, hits `/missions`, `/teams`, `/agents` and `/providers` to open pool
+connections and then closes stdin gets **exit 0 in 0.7 seconds** — so ordinary
+database work is not it. And the team path does close its provider clients:
+`_finish` closes every one it opened, `_park` closes them when a run stops for a
+person. What the two zombies had in common is that a **mission** had run, with
+approvals in it.
+
+Left unfixed rather than guessed at: a hard `os._exit` after `server.run()`
+returns would certainly end the process, and shipping that without knowing which
+thread is held is trading a visible symptom for an invisible risk to whatever
+that thread was doing. It matters because a lingering `agentd.exe` locks the
+file an installer has to overwrite — which is how this family was found the
+first time, as an `EBUSY` during a build, and which is the exact sequence an
+in-app update runs.
 
 And it is the reason the app was closed with `CloseMainWindow()` rather than
 `taskkill`: a force-kill of a process mid-write is the likeliest cause of the
