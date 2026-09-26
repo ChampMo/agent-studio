@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import sys
 import threading
+import time
 
 import uvicorn
 
@@ -21,6 +22,14 @@ from .core.config import get_settings
 from .db.migrate import upgrade_to_head
 
 log = logging.getLogger("agentd")
+
+
+#: How long a polite shutdown gets before the connections are closed under it.
+#:
+#: Long enough for a real request to finish and short enough that nobody
+#: watching Task Manager sees a leftover. The thing it is waiting out is a
+#: WebSocket that will never close itself.
+FORCE_EXIT_AFTER_SEC = 3.0
 
 
 def watch_parent(server: uvicorn.Server) -> None:
@@ -45,6 +54,33 @@ def watch_parent(server: uvicorn.Server) -> None:
             pass
         log.info("parent process is gone; shutting down")
         server.should_exit = True
+
+        # Graceful first, and then not.
+        #
+        # `should_exit` is uvicorn's *polite* shutdown: it stops accepting and
+        # then **waits for open connections to finish**. The event socket never
+        # finishes on its own — it is a long-lived subscription sitting on the
+        # bus — so the server waited for a client that had already gone, and
+        # the process never exited.
+        #
+        # That is the whole of the bug. It looked like "long sessions leak" and
+        # was nothing of the kind: a backend driven only over REST exits in
+        # about a second, with or without a mission, frozen or not. Open one
+        # WebSocket first and it hangs for ever. The real app always has one,
+        # which is why only the real app did it — and why five of them were
+        # found holding `agentd.exe` while an installer was trying to replace
+        # that exact file.
+        #
+        # Nothing is being served at this point: the parent is gone, so the
+        # window that owned the socket is gone with it. Waiting past the grace
+        # period is waiting for nobody.
+        deadline = time.monotonic() + FORCE_EXIT_AFTER_SEC
+        while time.monotonic() < deadline:
+            if not server.started:
+                return
+            time.sleep(0.1)
+        log.warning("shutdown is waiting on open connections; closing them")
+        server.force_exit = True
 
     threading.Thread(target=watch, name="parent-watchdog", daemon=True).start()
 

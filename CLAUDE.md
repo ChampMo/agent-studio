@@ -3821,50 +3821,48 @@ the exe's own `ProductVersion` reads **0.2.7**. That number is what an installed
 copy compares against, and a build reporting the old one would offer itself an
 update for ever.
 
-### A backend that outlives its app — now reproduced, and narrowed
+### A backend that outlived its app: it was the WebSocket
 
-Before the build could start, `npm run package` would have failed: the v0.2.6
-app had been open for 134 minutes, and closing its window left an `agentd.exe`
-behind. Worth being precise about what it was, because the obvious reading is
-wrong. It had **no listening socket** — uvicorn had stopped, so the watchdog
-had fired — and the process simply never exited. aiosqlite starts a
-**non-daemon** thread per connection, so anything holding a connection open
-keeps the process alive after the server stops.
+Closing the window left `agentd.exe` running. It had stopped serving — no
+listening port, so the watchdog had fired and `server.run()` had returned —
+and the process simply never exited. On the day it was finally caught there
+were **five of them**, four from the installed copy, and they surfaced the way
+this family always does: an installer stopped with *"Error opening file for
+writing: ...\Agent Studiogentd.exe"* in the middle of an in-app update.
 
-**Seen twice now** — 134 minutes the first time and 46 the second, both after
-real missions had run, and both with no listening socket and the process simply
-not exiting. The second one still had **12 threads** alive. A build closed
-immediately after starting does *not* do it, which is why it read as
-non-reproducing the first time.
+**Two wrong diagnoses were written here first, and both were written before
+anything was measured.** The first said it followed a mission. The second said
+it followed a long session — "what is left is duration", with 134 and 46
+minutes behind it. The processes that finally proved it were **twelve minutes
+old**, and they came in pairs, which was the clue: a one-file PyInstaller
+bootloader waits for its child, so there was only ever one process failing to
+exit.
 
-Narrowed by three experiments, and two of them ruled out the answer I had
-already written down:
+What it actually is, measured on the frozen binary because nothing else counts
+here:
 
-* a harness that starts the backend, hits `/missions`, `/teams`, `/agents` and
-  `/providers` to open pool connections, then closes stdin — **exit 0 in 0.7
-  seconds**. Ordinary database work is not it;
-* the team path does close its provider clients. `_finish` closes every one it
-  opened and `_park` closes them when a run stops for a person;
-* and **a five-minute session that ran a whole mission exited cleanly**. That
-  one was written here as "both after real missions had run" before it was
-  tested, and testing it took the claim away: a mission is not sufficient.
+    REST only, venv python          exit 0 in 0.7s
+    REST only, frozen               exit 0 in 1.1s
+    REST + a whole mission, frozen  exit 0 in 1.2s
+    one open WebSocket, frozen      STILL ALIVE after 40s
+    the same, with the fix          exit 0 in 4.0s
 
-What is left is duration. The two that lingered had been open 134 and 46
-minutes; the one that did not was five. So the next thing to look at is what
-accumulates over a session rather than what one run does — a periodic task, a
-socket reconnect, something per-window.
+`should_exit` is uvicorn's **graceful** shutdown: it stops accepting and then
+waits for open connections to finish. The event socket never finishes on its
+own — it is a long-lived subscription sitting on the bus — so the server waited
+for a client whose window had already closed. Every harness that exited
+cleanly had only ever made REST calls. The real app always has that socket
+open, which is exactly why only the real app did it.
 
-Left unfixed rather than guessed at: a hard `os._exit` after `server.run()`
-returns would certainly end the process, and shipping that without knowing which
-thread is held is trading a visible symptom for an invisible risk to whatever
-that thread was doing. It matters because a lingering `agentd.exe` locks the
-file an installer has to overwrite — which is how this family was found the
-first time, as an `EBUSY` during a build, and which is the exact sequence an
-in-app update runs.
+So the watchdog escalates: `should_exit`, then `force_exit` after
+`FORCE_EXIT_AFTER_SEC`. Nothing is being served by then — the parent is gone,
+so the window that owned the socket is gone with it, and waiting past the
+grace is waiting for nobody.
 
-And it is the reason the app was closed with `CloseMainWindow()` rather than
-`taskkill`: a force-kill of a process mid-write is the likeliest cause of the
-database corruption earlier in the same session.
+**The lesson is about the experiments, not the fix.** Three clean repros in a
+row were read as evidence about *when* it happens, and all three were missing
+the same thing. A repro that does not reproduce is not evidence about the
+conditions; it is evidence that the harness is not the app yet.
 
 ### The setting had not changed; the work had
 
