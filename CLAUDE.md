@@ -526,7 +526,7 @@ web tool and a way to change things, and suggests splitting the roles; and
 because the backend on loopback holds the user's keys.
 
 
-**Released: v0.2.8** (2026-09-26). v0.2.0 was the first build that could update
+**Released: v0.2.9** (2026-09-26). v0.2.0 was the first build that could update
 itself and the first that drew no room; it is marked superseded on its own
 release page rather than left to be downloaded.
 
