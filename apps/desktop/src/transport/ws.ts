@@ -74,6 +74,16 @@ export class EventSocket {
     };
 
     ws.onmessage = (ev) => {
+      // **Only the current socket speaks for this client.** `close()` merely
+      // begins the handshake, so a socket we have replaced goes on delivering
+      // until the server finishes with it — and it used to deliver straight
+      // into the store. Sequenced events survived that, because they are
+      // deduped on id a few lines below; ephemeral deltas have no id and are
+      // deduped by nothing, so a second socket showed up as a reply typing
+      // itself twice. On a real run it was three, and the transcript read
+      // `**Del**Del**Deliveriveriverable:**` over a clean log.
+      if (this.ws !== ws) return;
+
       let raw: unknown;
       try {
         raw = JSON.parse(ev.data as string);
@@ -97,6 +107,15 @@ export class EventSocket {
     };
 
     ws.onclose = (ev) => {
+      // A socket we have already replaced, finishing at its own pace. It is
+      // not this client's connection any more and none of what follows is
+      // about it — `this.ws` now points at its replacement, and `closedByUs`
+      // was reset by the `connect()` that replaced it. Reading either as
+      // though they described *this* socket is how one extra `attach` came
+      // to leave three sockets alive: the departing one nulled the live
+      // reference and then "reconnected" a connection nobody had lost.
+      if (this.ws !== ws) return;
+
       this.ws = null;
       if (this.closedByUs) return;
       if (ev.code === CLOSE_UNAUTHORISED) {
