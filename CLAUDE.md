@@ -4835,6 +4835,20 @@ the forward-compat test points.
   `read_file` (its 2000-line default makes "the whole document" the default)
   rather than trimming the conversation, which would change what the model
   has been told without telling it.
+- **A provider call that stops producing is bounded by nothing we set.** Seen
+  once, not reproduced: a task sat `running` for 34 minutes with no event on
+  the log, and `POST /cancel` ended it instantly — so the coroutine was alive
+  and awaiting the provider, not deadlocked in our code. Neither adapter
+  passes `timeout` or `max_retries`, so both take the SDK defaults, measured
+  as `Timeout(connect=5, read=600, write=600, pool=600)` with 2 retries. The
+  obvious theory was 600s x 3 = 30 minutes of silence, and **it was tested
+  and does not hold** — the stall ran past 34 minutes with no error. A
+  streaming response that stays open while delivering nothing would explain
+  it, because a per-read timeout never trips on a trickle, but that is
+  untested. `timeout_sec` cannot help either: the budget clock is only
+  checked between calls. Not fixed by picking a number, because a cap too
+  low kills a legitimate long reasoning turn and this project has already
+  paid for that mistake twice with `MAX_TOKENS_PER_TASK`.
 - **The installers are unsigned.** Windows SmartScreen will warn on first run, and macOS
   would refuse outright without notarisation. Nothing to fix in the code — it needs a
   certificate — but anyone handing the MSI to someone else should expect the warning and
