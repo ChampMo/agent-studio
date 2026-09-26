@@ -128,6 +128,15 @@ class MissionRejected(ValueError):
 #: thing the next round's planner can read about what happened.
 SUMMARY_CHARS = 4000
 
+#: How much of an earlier round's *instruction* the next planner is shown.
+#:
+#: Its own messages reach `ROUND_MESSAGE_CHARS`, because the retry button
+#: quotes every unfinished task's instruction verbatim — 7,317 characters on
+#: one real round. Shown in full that is most of a planning prompt spent on
+#: what was already asked; cut with a bare slice it is indistinguishable from
+#: a brief that simply ended. So it is cut, and it says so.
+ROUND_BRIEF_CHARS = 1500
+
 
 def shorten(text: str, limit: int = SUMMARY_CHARS) -> str:
     """`text`, cut at a word boundary and **saying** that it was cut.
@@ -1313,12 +1322,30 @@ class MissionRunner:
         for row in rows:
             payload = row.payload or {}
             if row.type == "user.message":
-                lines.append(f"You were asked: {str(payload.get('content', ''))[:1500]}")
+                # Through `shorten`, not a bare slice: these are the app's own
+                # retry messages and run to thousands of characters, and a
+                # planner cannot tell a brief that ended from one that was cut.
+                asked = shorten(str(payload.get("content", "")), ROUND_BRIEF_CHARS)
+                lines.append(f"You were asked: {asked}")
             else:
                 ended = str(payload.get("summary", "")).strip()
                 reason = str(payload.get("reason", ""))
+                # **Not re-cut here.** It was `ended[:4000]`, and the stored
+                # ending is already bounded — `shorten` caps the leader's
+                # handover at SUMMARY_CHARS and `_finish` then prefixes the
+                # reason, so a real one measured 4,045 characters. Slicing it
+                # back to 4,000 removed the last 45, which is precisely where
+                # `shorten` had put " … (shortened — the whole message is on
+                # the timeline)".
+                #
+                # So the planner was handed a handover that stopped mid-table
+                # with nothing saying it had been cut, losing the section that
+                # says what the next round should do first — the exact failure
+                # `shorten` exists to prevent, reintroduced by the one reader
+                # downstream of it. Two readers of one bound, and the one
+                # nobody was looking at was the wrong one (§2.1).
                 lines.append(
-                    f"That round ended ({reason}).\n{ended[:4000]}"
+                    f"That round ended ({reason}).\n{ended}"
                     if ended
                     else f"That round ended ({reason})."
                 )

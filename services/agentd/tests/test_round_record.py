@@ -21,6 +21,7 @@ from agentd.agents.runner import SUMMARY_CHARS, MissionRunner, shorten
 from agentd.api.chat import ROUND_MESSAGE_CHARS, ForkIn, MissionIn, NoteIn
 from datetime import UTC, datetime
 
+from agentd.core.events import EventBus
 from agentd.db.models import Mission
 from agentd.db.session import Database
 from agentd.orchestrator.planner import MAX_INSTRUCTION_CHARS, MAX_TASKS
@@ -128,3 +129,84 @@ def test_a_full_plan_can_be_handed_back_as_a_retry():
     worst = MAX_TASKS * (MAX_INSTRUCTION_CHARS + 120) + 200
     assert worst <= ROUND_MESSAGE_CHARS
     NoteIn(content="x" * worst)
+
+
+async def test_the_next_round_is_told_when_the_handover_was_cut(db: Database):
+    """The marker that says "this was cut" was itself being cut off.
+
+    `shorten` caps the leader's handover at SUMMARY_CHARS and ends it with
+    " … (shortened — the whole message is on the timeline)". `_finish` then
+    prefixes the reason, so the stored ending is SUMMARY_CHARS plus that
+    prefix — measured at 4,045 characters on the real PARADOX.ART round 1.
+
+    `earlier_rounds` then applied a bare `[:4000]`, removing the last 45
+    characters, which is exactly where the marker was. The planner for the
+    next round read a handover stopping mid-table with nothing saying it had
+    been abbreviated, and the section it lost was "What the next round should
+    do first".
+
+    Two readers of one bound, and the one nobody was looking at was wrong
+    (§2.1).
+    """
+    mission_id = "m-earlier"
+    async with db.session() as s:
+        s.add(
+            Mission(
+                id=mission_id,
+                kind="mission",
+                team_id=None,
+                goal="Build it.",
+                status="ended",
+                started_at=datetime.now(UTC),
+            )
+        )
+        await s.commit()
+
+    runner = MissionRunner(db, EventBus(db))
+    handover = shorten("alpha bravo charlie delta " * 400)
+    stored = f"stopped at the tokens limit (1494411/1500000) - {handover}"
+    assert len(stored) > SUMMARY_CHARS, "the shape this test is about"
+
+    await runner._bus.publish(
+        mission_id, {"type": "user.message", "payload": {"content": "Build it."}}
+    )
+    await runner._bus.publish(
+        mission_id,
+        {
+            "type": "mission.ended",
+            "payload": {"reason": "budget_exceeded", "summary": stored},
+        },
+    )
+
+    record = await runner.earlier_rounds(mission_id, "carry on")
+
+    assert "shortened" in record, "the planner has to be told the record was cut"
+    assert stored in record, "and the stored ending reaches it whole"
+
+
+async def test_a_very_long_earlier_brief_is_cut_and_says_so(db: Database):
+    # The app writes these itself: the retry button quotes every unfinished
+    # task's instruction verbatim, and one real round's was 7,317 characters.
+    mission_id = "m-brief"
+    async with db.session() as s:
+        s.add(
+            Mission(
+                id=mission_id,
+                kind="mission",
+                team_id=None,
+                goal="Build it.",
+                status="ended",
+                started_at=datetime.now(UTC),
+            )
+        )
+        await s.commit()
+
+    runner = MissionRunner(db, EventBus(db))
+    await runner._bus.publish(
+        mission_id,
+        {"type": "user.message", "payload": {"content": "do this. " * 900}},
+    )
+
+    record = await runner.earlier_rounds(mission_id, "carry on")
+    assert "shortened" in record
+    assert len(record) < 3000, "a whole retry brief must not fill the planning prompt"
