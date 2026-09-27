@@ -269,6 +269,16 @@ async def run_team_mission(
     #: Text files the user attached, already formatted, to go in front of every
     #: instruction. A text model reads a file no other way.
     documents: str = "",
+    #: Where notes from the user and from teammates wait for their recipient.
+    #:
+    #: Passed in its own right rather than being fished out of a member's
+    #: toolbox, which is where it used to be read from. A member whose tools
+    #: are all unavailable this mission - a researcher on a machine with no
+    #: search key, say - gets no toolbox at all, and so silently received
+    #: nothing: not a note the person sent mid-run, and not a `send_message`
+    #: from a teammate who had been told it was delivered. Being reachable is
+    #: not a property of holding tools.
+    mailbox: Any | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Run a team to completion, narrating every step as events.
 
@@ -297,6 +307,7 @@ async def run_team_mission(
         require_approval=require_approval,
         checkpointer=checkpointer,
         resuming=resume is not None,
+        mailbox=mailbox,
         images=images,
         documents=documents,
         earlier=earlier,
@@ -360,6 +371,7 @@ def _build_graph(
     require_approval: bool = False,
     checkpointer: Any | None = None,
     resuming: bool = False,
+    mailbox: Any | None = None,
     images: tuple[ImagePart, ...] = (),
     documents: str = "",
     #: What earlier rounds of this mission did, for the planner.
@@ -664,7 +676,10 @@ def _build_graph(
             # "here is what a teammate said about it".
             if documents:
                 instruction = "\n\n".join([documents, "---", instruction])
-            mailbox = box.context.extras.get("mailbox") if box else None
+            # From the parameter, not from `box.context.extras`. An agent with
+            # no usable tools has no toolbox, and used to have no post either -
+            # so a note from the person, and a teammate's `send_message` that
+            # had already reported success, both went nowhere.
             if mailbox is not None and (waiting := mailbox.collect(member.agent_id)):
                 delivered = "\n\n".join(
                     "\n".join([f"{mailbox.name_of(sender)} says:", content])

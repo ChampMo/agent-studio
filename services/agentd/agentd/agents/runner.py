@@ -1028,6 +1028,9 @@ class MissionRunner:
                 budget=budget,
                 provider_for=provider_for,
                 tools_for=tools_for,
+                # Its own argument, so being reachable does not depend on
+                # holding tools (see `run_team_mission`).
+                mailbox=mailbox,
                 checkpointer=self._checkpointer,
                 require_approval=require_approval,
                 resume=resume,
