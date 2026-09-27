@@ -5,6 +5,7 @@
  * Deliberately plain: the RPG look belongs to M5+, and building it now would be
  * touching the graphics layer early (PROJECT_BRIEF.md §2.9).
  */
+import { useId } from "react";
 import type {
   ButtonHTMLAttributes,
   InputHTMLAttributes,
@@ -71,6 +72,42 @@ export function Field({
       {children}
       {hint ? <span className="block text-xs text-muted">{hint}</span> : null}
     </label>
+  );
+}
+
+/**
+ * A heading over a *group* of controls, which `Field` must not be used for.
+ *
+ * `Field` renders a `<label>`, and a label may not contain another label.
+ * `ToolPicker` had thirteen `Checkbox` rows (each its own `<label>`) inside
+ * one, and React builds the tree through the DOM API, so the parser never
+ * auto-closes it the way it would in hand-written HTML: the invalid nesting
+ * really existed. Measured in the running app - clicking the word "Tools"
+ * toggled `read_file`, because a label with no `htmlFor` activates its first
+ * labelable descendant. A heading that silently grants a tool.
+ *
+ * It was wrong for a screen reader too: with no `htmlFor`, "Tools" was folded
+ * into the first checkbox's accessible name instead of naming the set. This
+ * says what it actually is.
+ */
+export function FieldGroup({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: ReactNode;
+}) {
+  const id = useId();
+  return (
+    <div role="group" aria-labelledby={id} className="block space-y-1.5">
+      <span id={id} className="text-sm font-medium text-text">
+        {label}
+      </span>
+      {children}
+      {hint ? <span className="block text-xs text-muted">{hint}</span> : null}
+    </div>
   );
 }
 

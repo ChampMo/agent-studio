@@ -13,7 +13,7 @@ import { useEffect } from "react";
 import { strings } from "../../lib/constants/strings.en";
 import { cn } from "../../lib/cn";
 import { useToolStore } from "../../stores/toolStore";
-import { Badge, Field } from "../../components/ui/primitives";
+import { Badge, FieldGroup } from "../../components/ui/primitives";
 import { Checkbox } from "../../components/ui/Checkbox";
 import type { ToolRisk } from "../../transport/rest";
 
@@ -45,7 +45,7 @@ export function ToolPicker({
 
   return (
     <div className="space-y-3">
-      <Field label={strings.tools.title}>
+      <FieldGroup label={strings.tools.title}>
         {tools.length === 0 ? (
           <p className="text-xs text-faint">{strings.tools.none}</p>
         ) : (
@@ -80,7 +80,7 @@ export function ToolPicker({
             ))}
           </div>
         )}
-      </Field>
+      </FieldGroup>
 
       {/* The "trusted removes the only gate" warning moved with the setting,
           to the control that now owns it beside the composer. Warning about a

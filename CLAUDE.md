@@ -4771,6 +4771,78 @@ and `expected '<label...' to match /"relative"/`. The CSS one reads the
 length, so matching either would be the trap this file already recorded once
 when a test matched a rule's own explanation instead of the rule.
 
+### Four readers over the right files found nothing, and one measurement found it
+
+Worth recording against the several entries here where the adversarial pass
+saved a session. This time it did not, and the reason is specific.
+
+Four parallel investigations read every file a checkbox tick touches. All four
+returned **clean, zero causes** - including the one whose area contained the
+bug. The fourth went further than reading: it **reproduced the exact click in
+the running app** and reported *"exactly one checkbox changed, `window.__log`
+empty, no error, no unhandledrejection, no submit, `#root.childElementCount
+=== 1`, the form still mounted, navigation type unchanged. Nothing threw,
+nothing unmounted, nothing navigated."*
+
+Every one of those assertions is **true while the app sits 1,318px off the top
+of the window**. They were looking for a throw, and the failure was a scroll
+position. The one number nobody asked for was `document.documentElement
+.scrollTop`.
+
+That is the same shape as this file's own *"a scene graph that is entirely
+correct and never painted"* - `world.children` was 4, the desk measured
+130x75, the figure held three sprites, and the canvas was blank. **A check
+that confirms the DOM is intact cannot see a bug whose whole nature is that
+the DOM is intact.** When a report is *"the window is blank"*, measure where
+the pixels went before asking what threw.
+
+What the pass was still worth: three of the four eliminated their areas
+*structurally* rather than by failing to find something - zero HTTP requests
+on a tick, zero zustand writes, every other consumer unmounted - and the
+fourth checked that the code it read is what shipped
+(`git merge-base --is-ancestor`). Those are what made the measurement
+trustworthy instead of a lucky guess. And it turned up a second, real bug
+nobody was looking for.
+
+### A group heading that silently granted a tool
+
+`Field` renders a `<label>`, and `ToolPicker` put thirteen `Checkbox` rows -
+each its own `<label htmlFor>` - inside one. HTML forbids that. React builds
+the tree through the DOM API rather than the HTML parser, so the parser never
+auto-closes it the way it would in hand-written markup: `label label` matched
+**13 elements** in the live DOM.
+
+Not cosmetic. A `<label>` with no `htmlFor` activates its **first labelable
+descendant**, so clicking the word *"Tools"* toggled `read_file`. Measured,
+and put back:
+
+    before  0000000000000
+    after   1000000000000     indexesToggled: [0]
+
+A heading that grants a tool to an agent is the app changing what a team can
+do without being asked - and the one mitigation the investigating agent
+reported, *"Chromium does not forward from the outer label here"*, was true of
+the case it tested (clicking a **row**) and false of the one it did not
+(clicking the **heading**). A negative measured on one path is not a property
+of the element.
+
+It was also wrong for a screen reader: with no `htmlFor`, "Tools" was folded
+into the first checkbox's accessible name instead of naming the set.
+`FieldGroup` is the same markup with `role="group"` and `aria-labelledby`.
+
+The guard is a source scan rather than a DOM test, because the rule is about
+composition: no `<Field>` may contain a `<Checkbox>` or another `<Field>`. It
+fails on the old code naming the exact site -
+`features\agent-creator\ToolPicker.tsx:48`. Only that one place had it; every
+other `Field` wraps a single control, which is what it is for.
+
+**And the test's own first version failed against correct code**, by slicing
+`FieldGroup`'s body at the first `"\n}"` - which is the end of the destructured
+props type, not the function. It was reading a signature and asserting about a
+body. Same family as the `themeTokens` test that matched a comment instead of
+a declaration: *if a test parses source, the parsing is the thing most likely
+to be wrong.*
+
 ---
 
 ## Decisions made while building
