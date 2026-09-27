@@ -853,65 +853,106 @@ def _build_graph(
                     )
                 )
 
-        waves = plan_waves(tasks)
-        for at, wave in enumerate(waves):
-            # Stop *starting* work when the working share is gone, rather than
-            # being cut off mid-task by `BudgetExceeded` on the next call.
-            #
-            # The difference is the whole point. A hard stop leaves files
-            # nobody described and a record whose only account of itself is a
-            # number; stopping here lets whatever is already running finish and
-            # keeps enough in hand for the leader to say what was done, what
-            # was not, and what a next round should pick up.
-            #
-            # Tasks never started keep their `pending` state, and
-            # `unfinished_note` already names them on the ending.
-            if (spent := budget.work_exhausted()) is not None:
-                budget.stopped_early = spent
-                kind, used, limit = spent
-                await emit(
-                    _draft(
-                        "error",
-                        {
-                            "agentId": leader.agent_id,
-                            "code": "work_stopped_for_summary",
-                            # `used` is what has been spent. It was printed as
-                            # "the {kind} left ({used} of {limit})", which
-                            # reads as the opposite of what it is - on a real
-                            # run, "the tokens left (1350000 of 1500000)" over
-                            # a round with 150,000 left. The number was right
-                            # and the word in front of it was not (§1).
-                            "message": (
-                                f"{used:.0f} of {limit:.0f} {kind} used; what "
-                                "is left is being kept for the summary, so no "
-                                "further tasks were started"
-                            ),
-                            "recoverable": True,
-                        },
+        async def run_waves(waves: list[list[int]]) -> None:
+            for at, wave in enumerate(waves):
+                # Stop *starting* work when the working share is gone, rather than
+                # being cut off mid-task by `BudgetExceeded` on the next call.
+                #
+                # The difference is the whole point. A hard stop leaves files
+                # nobody described and a record whose only account of itself is a
+                # number; stopping here lets whatever is already running finish and
+                # keeps enough in hand for the leader to say what was done, what
+                # was not, and what a next round should pick up.
+                #
+                # Tasks never started keep their `pending` state, and
+                # `unfinished_note` already names them on the ending.
+                if (spent := budget.work_exhausted()) is not None:
+                    budget.stopped_early = spent
+                    kind, used, limit = spent
+                    await emit(
+                        _draft(
+                            "error",
+                            {
+                                "agentId": leader.agent_id,
+                                "code": "work_stopped_for_summary",
+                                # `used` is what has been spent. It was printed as
+                                # "the {kind} left ({used} of {limit})", which
+                                # reads as the opposite of what it is - on a real
+                                # run, "the tokens left (1350000 of 1500000)" over
+                                # a round with 150,000 left. The number was right
+                                # and the word in front of it was not (§1).
+                                "message": (
+                                    f"{used:.0f} of {limit:.0f} {kind} used; what "
+                                    "is left is being kept for the summary, so no "
+                                    "further tasks were started"
+                                ),
+                                "recoverable": True,
+                            },
+                        )
                     )
+                    break
+                # How many tasks are still queued behind this wave. Their share is
+                # what this wave may not spend.
+                queued_after = sum(len(w) for w in waves[at + 1 :])
+                if len(wave) == 1:
+                    # The common case, and it stays a plain await: one task in
+                    # flight should not pay for a task group or read like one.
+                    await run_one(wave[0], tasks[wave[0]], queued_after)
+                    continue
+                # `gather` rather than a queue: a wave is small, and the cap is the
+                # thing that keeps one mission from becoming a burst. A budget
+                # exception from any of them still ends the mission — the others are
+                # cancelled with the node.
+                for chunk in [
+                    wave[at : at + MAX_PARALLEL] for at in range(0, len(wave), MAX_PARALLEL)
+                ]:
+                    await asyncio.gather(
+                        *(run_one(i, tasks[i], queued_after) for i in chunk)
+                    )
+
+        waves = plan_waves(tasks)
+        try:
+            await run_waves(waves)
+        except BudgetExceeded as spent:
+            # **A hard stop is still an ending that has to explain itself.**
+            #
+            # `work_exhausted` catches the ordinary case between waves, and a
+            # run that trips it goes on to write a handover. A task already in
+            # flight does not go through it: its next `check()` raises, the
+            # exception leaves this node, and `work -> summarise` is a plain
+            # edge — so the graph aborted and the round produced only the
+            # machine-written note.
+            #
+            # Measured in the packaged build at 62,718 against a 45,000
+            # ceiling: 330 characters of ending for a round that had written
+            # a file. Exactly the failure the reserve exists to prevent,
+            # reached by the one path the reserve could not see.
+            #
+            # So it is recorded the same way crossing the working share is,
+            # and the graph carries on to the summary — which `release_reserve`
+            # now guarantees the room for. Nothing is swallowed: the mission
+            # is still recorded `budget_exceeded` off `stopped_early`, with
+            # the limit the person set.
+            budget.stopped_early = (spent.kind, spent.used, spent.limit)
+            await emit(
+                _draft(
+                    "error",
+                    {
+                        "agentId": leader.agent_id,
+                        "code": "work_stopped_for_summary",
+                        "message": (
+                            f"{spent.used:.0f} of {spent.limit:.0f} {spent.kind} "
+                            "used; a task was stopped where it stood, and what "
+                            "is left is being kept for the summary"
+                        ),
+                        "recoverable": True,
+                    },
                 )
-                break
-            # How many tasks are still queued behind this wave. Their share is
-            # what this wave may not spend.
-            queued_after = sum(len(w) for w in waves[at + 1 :])
-            if len(wave) == 1:
-                # The common case, and it stays a plain await: one task in
-                # flight should not pay for a task group or read like one.
-                await run_one(wave[0], tasks[wave[0]], queued_after)
-                continue
-            # `gather` rather than a queue: a wave is small, and the cap is the
-            # thing that keeps one mission from becoming a burst. A budget
-            # exception from any of them still ends the mission — the others are
-            # cancelled with the node.
-            for chunk in [
-                wave[at : at + MAX_PARALLEL] for at in range(0, len(wave), MAX_PARALLEL)
-            ]:
-                await asyncio.gather(
-                    *(run_one(i, tasks[i], queued_after) for i in chunk)
-                )
+            )
 
         results.extend(landed[index] for index in sorted(landed))
         return {"results": results}
+
 
     async def summarise_node(state: MissionState) -> MissionState:
         # What was held back is for exactly this turn. Released before the

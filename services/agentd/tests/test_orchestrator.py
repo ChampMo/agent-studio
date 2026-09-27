@@ -483,6 +483,81 @@ async def test_the_ceiling_itself_still_raises():
     assert exc.value.kind == "llm_calls"
 
 
+class HungryModel(TeamModel):
+    """Spends real tokens, so a limit can be crossed *inside* a task.
+
+    `TeamModel` reports 50 tokens a call, which no plausible ceiling trips
+    mid-turn. This one reports what it was allowed to produce, so
+    `clamp_max_tokens` still bounds it and the arithmetic stays honest.
+    """
+
+    def __init__(self, *, per_call=5_000, **kw):
+        super().__init__(**kw)
+        self._per_call = per_call
+
+    async def stream(self, req, caps):
+        self.calls.append(req.model)
+        yield TextChunk(self._plan if req.response_schema else self._worker)
+        spend = min(self._per_call, req.max_tokens or self._per_call)
+        yield DoneChunk("stop", Usage(spend // 2, spend - spend // 2))
+
+
+#: Two tasks that declare they need nothing, so they run in one wave. That is
+#: what makes the hard stop reachable: `work_exhausted` is consulted *between*
+#: waves, so a sibling already in flight is the only thing that can cross the
+#: ceiling from inside.
+PARALLEL_PLAN = (
+    '{"tasks": ['
+    '{"id": "t1", "title": "Gather", "assignee_seat": 1, "instruction": "Find sources.", "depends_on": []},'
+    '{"id": "t2", "title": "Check", "assignee_seat": 2, "instruction": "Verify them.", "depends_on": []}'
+    "]}"
+)
+
+
+async def test_a_task_stopped_where_it_stood_still_gets_a_handover():
+    """The hard stop is an ending, and an ending has to explain itself.
+
+    `work_exhausted` catches the ordinary case between waves. A task already
+    in flight does not pass through it — its next `check()` raises, and
+    `work -> summarise` is a plain edge, so the graph aborted and the round
+    produced only the machine-written note.
+
+    Measured in the packaged v0.3.2 build before this was fixed: 62,718
+    against a 45,000 ceiling, and 330 characters of ending for a round that
+    had written a file. Exactly what the reserve exists to prevent, reached
+    by the one path the reserve could not see.
+    """
+    budget = BudgetTracker(limits(max_tokens=9_000))
+    items = sequenced(
+        await drain(HungryModel(plan=PARALLEL_PLAN), roster_of_three(), budget=budget)
+    )
+
+    # It really was the hard stop, not the polite one between waves.
+    stops = [
+        i for i in items
+        if i["type"] == "error" and i["payload"]["code"] == "work_stopped_for_summary"
+    ]
+    assert stops, "the run must say why it stopped starting work"
+    assert "stopped where it stood" in stops[0]["payload"]["message"]
+
+    # And the summary still ran — which is the whole point.
+    assert any(i["type"] == "agent.message" for i in items), "no handover was written"
+    assert budget.stopped_early is not None
+    assert budget.stopped_early[0] == "tokens"
+
+
+async def test_the_handover_is_still_recorded_as_running_out():
+    # Catching the exception must not turn an overspent run into a tidy one.
+    from agentd.agents.runner import ending_for
+
+    budget = BudgetTracker(limits(max_tokens=9_000))
+    await drain(HungryModel(plan=PARALLEL_PLAN), roster_of_three(), budget=budget)
+    assert budget.stopped_early is not None
+    kind, used, limit = budget.stopped_early
+    assert used >= limit, "the numbers on the ending must be the real ones"
+    assert limit == 9_000, "and the limit must be the one that was set"
+
+
 async def test_supersteps_are_counted_as_graph_nodes():
     budget = BudgetTracker(limits(max_supersteps=1))
     with pytest.raises(BudgetExceeded) as exc:

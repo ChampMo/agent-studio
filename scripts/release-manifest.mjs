@@ -28,7 +28,12 @@
  *
  *   npm run package
  *   npm run release:manifest -- --notes-file NOTES.md
- *   gh release create vX.Y.Z dist/* --notes-file NOTES.md
+ *   git push origin HEAD
+ *   gh release create vX.Y.Z dist/* --target "$(git rev-parse HEAD)" \n *       --notes-file NOTES.md
+ *
+ * `--target` is not optional and the push has to come first: it is resolved
+ * on GitHub's side, so the commit must already be there. v0.2.7 through
+ * v0.3.0 each tagged the default branch because this line did not say so.
  *
  * `latest.json` goes on the release as an asset, which is what makes
  * `/releases/latest/download/latest.json` resolve to it.

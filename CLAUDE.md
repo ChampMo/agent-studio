@@ -51,11 +51,17 @@ The app updates itself, so a release is a **signed** build plus one extra asset.
    launch with `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222`,
    start a mission through the app's own handshake, and poll until the row
    says `ended` with no `internal_error` on the log.
-5. Publish the tag with everything in `dist/`, **naming the commit**:
+5. **Push first**, then publish the tag with everything in `dist/`, naming
+   the commit:
 
 ```bash
-gh release create v0.2.0 dist/* --target "$(git rev-parse HEAD)" --notes-file NOTES.md
+git push origin HEAD && gh release create v0.2.0 dist/* --target "$(git rev-parse HEAD)" --notes-file NOTES.md
 ```
+
+`--target` is a `target_commitish` resolved on GitHub's side, so the commit
+has to be there already. Without the push it fails with a 422 — loudly, which
+is the safe direction, but the tempting recovery is to drop `--target`, and
+that is the bug the flag was added to prevent.
 
 One command decides both the name in the manifest and the name of the uploaded
 file, so the url in `latest.json` cannot point at a 404.
@@ -531,7 +537,7 @@ web tool and a way to change things, and suggests splitting the roles; and
 because the backend on loopback holds the user's keys.
 
 
-**Released: v0.3.2** (2026-09-26). v0.2.0 was the first build that could update
+**Released: v0.3.1** (2026-09-26). v0.2.0 was the first build that could update
 itself and the first that drew no room; it is marked superseded on its own
 release page rather than left to be downloaded.
 
