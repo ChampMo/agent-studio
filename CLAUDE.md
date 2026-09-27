@@ -38,8 +38,14 @@ process, and the build refuses rather than shipping the previous backend.
 
 The app updates itself, so a release is a **signed** build plus one extra asset.
 
-1. Bump `version` in `src-tauri/tauri.conf.json`. That number is what an installed
-   copy compares against; nothing else decides whether an update is offered.
+1. Bump `version` in **both** `src-tauri/tauri.conf.json` **and**
+   `src-tauri/Cargo.toml`. The first is what an installed copy compares
+   against and is the only one that decides whether an update is offered; the
+   second is the crate version, and every release before v0.3.3 moved them
+   together by habit while this step named only the first. v0.3.3 was built
+   once with them apart - the artifact was correct (`ProductVersion 0.3.3`)
+   and the build log said `Compiling agent-studio v0.3.2`, which is the record
+   being untrue about itself for no reason.
 2. `npm run package` — signs every bundle and writes a `.sig` beside each one.
 3. `npm run release:manifest -- --notes-file <your notes>` — copies the
    bundles into `dist/` under their release names and writes
