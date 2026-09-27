@@ -16,7 +16,18 @@
  */
 import type { SequencedEntry } from "../../stores/eventStore";
 
-export type TaskState = "pending" | "running" | "done" | "failed";
+/**
+ * `stopped` is a task this app cut off at one of its own ceilings before it
+ * could deliver. It is deliberately not `failed`: a limit is a budget to
+ * raise and a failure is work to look at, and one word for both sent people
+ * to the wrong one.
+ */
+export type TaskState =
+  | "pending"
+  | "running"
+  | "done"
+  | "failed"
+  | "stopped";
 
 export interface PlanTask {
   id: string;
@@ -28,11 +39,13 @@ export interface PlanProgress {
   tasks: PlanTask[];
   done: number;
   failed: number;
-  /** How many are neither finished nor failed — what is actually left. */
+  /** Cut off at one of this app's own ceilings, rather than having failed. */
+  stopped: number;
+  /** How many are neither finished nor finished-with — what is actually left. */
   left: number;
 }
 
-const KNOWN: TaskState[] = ["pending", "running", "done", "failed"];
+const KNOWN: TaskState[] = ["pending", "running", "done", "failed", "stopped"];
 
 /** One round's plan, and how that round ended. */
 export interface PlanRound extends PlanProgress {
@@ -70,12 +83,17 @@ export function planRounds(events: SequencedEntry[]): PlanRound[] {
     const tasks = order.map((id) => byId.get(id)!);
     const done = tasks.filter((t) => t.state === "done").length;
     const failed = tasks.filter((t) => t.state === "failed").length;
+    const stopped = tasks.filter((t) => t.state === "stopped").length;
     rounds.push({
       round: rounds.length + 1,
       tasks,
       done,
       failed,
-      left: tasks.length - done - failed,
+      stopped,
+      // `stopped` is finished-with too: it will not run again in this round,
+      // so counting it as "left" would report work as outstanding that the
+      // round has already given up on.
+      left: tasks.length - done - failed - stopped,
       asked,
       endReason,
       endLimit,
@@ -129,5 +147,5 @@ export function planRounds(events: SequencedEntry[]): PlanRound[] {
 export function planProgress(events: SequencedEntry[]): PlanProgress {
   const rounds = planRounds(events);
   const last = rounds[rounds.length - 1];
-  return last ?? { tasks: [], done: 0, failed: 0, left: 0 };
+  return last ?? { tasks: [], done: 0, failed: 0, stopped: 0, left: 0 };
 }

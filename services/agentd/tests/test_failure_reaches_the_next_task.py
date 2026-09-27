@@ -138,7 +138,11 @@ async def test_the_next_task_is_told_which_one_failed():
     model = Model(PLAN, fail_first=True)
     items = await run(model)
 
-    assert states(items)["t1"] == "failed"
+    # The state is `stopped` — this fixture fails t1 by truncation, which is
+    # one of the app's own ceilings. What this test exists for is the *next*
+    # task being told, and that keys off the task's `ok`, not off the word.
+    assert states(items)["t1"] != "done"
+    assert states(items)["t1"] == "stopped"
     second = model.turns[1]
     assert "Build index.html" in second, second[:300]
     assert "did not finish and wrote no files" in second

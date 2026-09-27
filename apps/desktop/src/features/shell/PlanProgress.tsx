@@ -20,6 +20,12 @@ const MARK: Record<TaskState, string> = {
   done: "bg-done",
   running: "bg-search",
   failed: "bg-stop",
+  // Amber, not the red of `failed`. This app cut the task off at one of its
+  // own ceilings, which is a budget to raise — a different thing to do about
+  // it than a task that had the room and did not deliver, and the colour is
+  // the first thing read. `--color-attn` is the hue already reserved for
+  // "this wants your attention" rather than "this went wrong".
+  stopped: "bg-attn",
   pending: "bg-line",
 };
 
@@ -69,6 +75,7 @@ export function PlanProgress() {
                 task.state === "done" && "text-faint",
                 task.state === "running" && "text-text",
                 task.state === "failed" && "text-stop",
+                task.state === "stopped" && "text-attn",
                 task.state === "pending" && "text-muted",
               )}
             >

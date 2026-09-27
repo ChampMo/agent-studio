@@ -102,7 +102,10 @@ export interface DraftMissionProgress {
 export interface PayloadMissionProgress {
   taskId: string;
   label: string;
-  state: "pending" | "running" | "done" | "failed";
+  /**
+   * `stopped` is a task this app cut off at one of its own ceilings before it could deliver — a per-task allowance, a reply's max_tokens, or the tool-round cap. It is kept apart from `failed`, which is a task that had the room and did not deliver: a run that hits a limit is a budget to raise, and a run that fails is work to look at, and calling both of them failed sent people to the wrong one.
+   */
+  state: "pending" | "running" | "done" | "failed" | "stopped";
   done: number;
   total: number;
   /**

@@ -819,6 +819,7 @@ def _build_graph(
                     cut_off = cut_off or code == "output_truncated"
                     lost_a_call = lost_a_call or code == "tool_call_truncated"
                     rationed = rationed or code == "task_budget_spent"
+                    rationed = rationed or code == "tool_rounds_exhausted"
 
             # A task that produced nothing is not done, whatever the loop
             # counter says. A live run reported `done 1/2` for a turn that was
@@ -874,6 +875,27 @@ def _build_graph(
                 and (wrote or not (cut_off or lost_a_call))
                 and (wrote or not owed_a_file)
             )
+            # **A task this app cut off is not a task that failed.**
+            #
+            # `failed` and `stopped` are different facts and they send the
+            # reader somewhere different: a limit is a budget to raise, and a
+            # failure is work to look at. Calling both of them `failed` sent
+            # people to the wrong one — reported as "the plan the model wrote
+            # for itself keeps coming back failed", over a run where every
+            # single one of them was this app stopping the turn at a ration it
+            # had set.
+            #
+            # `stopped` is not a softer `failed`. It is still not `done`, it
+            # still counts against the round, `ending_for` still refuses to
+            # call the run `completed`, and `unfinished_note` still names the
+            # task. Only the word changes, and it changes to the true one.
+            #
+            # What stays `failed` is the case the `_WRITES_A_FILE` rule above
+            # exists for: a turn that had the room, answered, and did not do
+            # what it was asked. That one is the agent's, and this must not
+            # launder it.
+            hit_a_ceiling = rationed or cut_off or lost_a_call
+            state = "done" if produced else ("stopped" if hit_a_ceiling else "failed")
             landed[index] = {
                 "task": task,
                 "agent_id": member.agent_id,
@@ -897,7 +919,7 @@ def _build_graph(
                     {
                         "taskId": task["id"],
                         "label": task["title"],
-                        "state": "done" if produced else "failed",
+                        "state": state,
                         "done": finished,
                         "total": len(tasks),
                     },

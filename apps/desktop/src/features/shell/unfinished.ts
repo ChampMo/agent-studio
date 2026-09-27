@@ -26,10 +26,11 @@ export interface UnfinishedTask {
   /** What it was told to do. Empty for a round recorded before the field
    *  existed, where the title is all there is (§8). */
   instruction: string;
-  /** `failed` ran and came back empty or broken; `pending` never started.
-   *  Different problems: one needs a different approach, the other needs
+  /** `failed` ran with the room and did not deliver; `stopped` was cut off at
+   *  one of this app's own ceilings; `pending` never started. Three different
+   *  problems: the first needs a different approach, and the other two need
    *  room. */
-  state: "failed" | "pending";
+  state: "failed" | "stopped" | "pending";
 }
 
 const FINISHED = new Set(["done"]);
@@ -90,7 +91,13 @@ export function unfinishedTasks(events: SequencedEntry[]): UnfinishedTask[] {
     // would be offering to run it twice at once.
     if (state === "running") continue;
     const task = byId.get(id)!;
-    out.push({ ...task, state: state === "failed" ? "failed" : "pending" });
+    // An unknown state is filed as `pending` rather than dropped (§8): an
+    // unnamed leftover is worse than one filed imprecisely.
+    out.push({
+      ...task,
+      state:
+        state === "failed" ? "failed" : state === "stopped" ? "stopped" : "pending",
+    });
   }
   return out;
 }
@@ -111,7 +118,9 @@ export function retryMessage(task: UnfinishedTask): string {
   const why =
     task.state === "failed"
       ? "This task ran and did not finish. Pick it up — check what is already on disk before redoing it"
-      : "This task was planned and never started. Do it now";
+      : task.state === "stopped"
+        ? "This task ran out of room before it finished. Pick it up — check what is already on disk before redoing it"
+        : "This task was planned and never started. Do it now";
   const what = task.instruction.trim();
   // The title on its own when there is no instruction to add. A round recorded
   // before instructions were kept has only the title, and the message read it
@@ -140,7 +149,9 @@ export function retryAllMessage(tasks: UnfinishedTask[]): string {
     const state =
       task.state === "failed"
         ? "ran and did not finish — check what is already on disk"
-        : "never started";
+        : task.state === "stopped"
+          ? "ran out of room — check what is already on disk"
+          : "never started";
     const body = what && what !== task.title ? `\n   ${what}` : "";
     return `- ${task.title} (${state})${body}`;
   });

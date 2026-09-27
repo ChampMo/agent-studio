@@ -4988,6 +4988,60 @@ matters too, because t2's 40 becomes the next binding limit as soon as tasks
 have room to use the calls. No amount of dividing a budget makes it bigger -
 this file said so once already and it is still true.
 
+### `stopped` is a fifth task state, and it is not a softer `failed`
+
+Asked twice, in the same words both times: *a round that runs out is fine, a
+plan the model wrote for itself coming back **failed** is not.* The first
+answer to that was to stop starving tasks, which removed most of the red — and
+it did not answer the question, because the word was the thing being objected
+to.
+
+So there is a fifth state. `done`, `failed`, `pending`, `running`, and now
+**`stopped`: a task this app cut off at one of its own ceilings before it
+could deliver** — the per-task allowance, a reply's `max_tokens`, or the
+tool-round cap.
+
+The reason to separate them is that they send the reader somewhere different.
+A limit is a budget to raise. A failure is work to go and look at. One word
+for both sent people to the wrong one, and on the run behind the report
+**every single red task was the app stopping the turn at a ration it had
+set** — so the panel was reporting the app's own arithmetic as the plan going
+wrong.
+
+**What `stopped` deliberately does not do.** It is not a softer `done`. It is
+still not `done`, it still counts against the round, `ending_for` still
+refuses to call the run `completed`, and `unfinished_note` still names the
+task — under *"ran out of room"* rather than *"did not finish"*. Only the word
+changes, and it changes to the true one. A test asserts the run cannot say
+`completed` over a stopped task, because this project has already credited a
+team with work it had not finished, twice.
+
+**And what stays `failed`.** A turn that had the room, answered, and did not
+do what it was asked — the case `_WRITES_A_FILE` exists to catch, where a
+round was recorded `completed` over an empty folder. That one is the agent's,
+and `stopped` must not launder it. `hit_a_ceiling` is the whole of the
+distinction and it reads only the app's own stop codes.
+
+The state is amber rather than red. `--color-attn` is the hue already reserved
+for *this wants your attention* as against *this went wrong*, and the dot is
+the first thing read.
+
+**The typechecker found the second copy of the table.** `MARK` exists in both
+`PlanProgress` and `PlanHistory`, typed `Record<TaskState, string>` — so
+adding a state was a build error in the file nobody was looking at, rather
+than a dot that silently renders as nothing. That is the closed enum earning
+its keep; §8 tolerance lives in the decoder and in `KNOWN`, where an
+unrecognised state is still shown rather than dropped, and both halves have a
+test.
+
+**Two existing tests failed, and both were right to.** They assert the outcome
+of a *truncated* reply, which is `MAX_TOKENS_PER_TASK` — one of the app's own
+ceilings, so now `stopped`. Neither property they protect changed: the turn is
+still not `done`, the error codes still fire, and the next task is still told
+what happened before it, which keys off the task's `ok` and not off the word.
+They assert `!= "done"` **and** the new word now, so a future rename cannot
+quietly turn either into nothing.
+
 ---
 
 ## Decisions made while building

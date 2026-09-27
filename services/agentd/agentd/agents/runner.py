@@ -267,14 +267,20 @@ def unfinished_note(task_states: dict[str, tuple[str, str]] | dict[str, str]) ->
     never = [label for state, label in entries if state == "pending" and label]
     cut = [label for state, label in entries if state == "running" and label]
     empty = [label for state, label in entries if state == "failed" and label]
+    # A task this app cut off at one of its own ceilings. Named apart from
+    # `failed` because the two need different answers: this one is a budget
+    # to raise, and `failed` is work to go and look at.
+    ration = [label for state, label in entries if state == "stopped" and label]
     # Anything this build has not heard of is grouped with `pending` rather
     # than dropped: an unnamed leftover is worse than one filed imprecisely
     # (§8).
-    known = {"done", "pending", "running", "failed"}
+    known = {"done", "pending", "running", "failed", "stopped"}
     never += [label for state, label in entries if state not in known and label]
 
     if cut:
         parts.append("stopped partway: " + "; ".join(cut))
+    if ration:
+        parts.append("ran out of room: " + "; ".join(ration))
     if never:
         parts.append("never started: " + "; ".join(never))
     if empty:

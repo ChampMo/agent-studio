@@ -27,10 +27,14 @@ import { cn } from "../../lib/cn";
 import { useEventStore } from "../../stores/eventStore";
 import { planRounds, type TaskState } from "./plan";
 
+// The same table as `PlanProgress`, and the typechecker is what keeps the two
+// from drifting: `Record<TaskState, string>` made adding `stopped` a build
+// error here rather than a dot silently rendering as nothing.
 const MARK: Record<TaskState, string> = {
   done: "bg-done",
   running: "bg-search",
   failed: "bg-stop",
+  stopped: "bg-attn",
   pending: "bg-line",
 };
 

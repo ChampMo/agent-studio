@@ -608,3 +608,69 @@ def test_a_tiny_ceiling_still_runs_something():
     # The condition the loop tests is already true at the very first wave...
     assert tiny.remaining_working_tokens < MIN_TASK_ALLOWANCE
     # ...which is exactly why it may only be consulted from the second wave on.
+
+
+# ---------------------------------------------------------------------------
+# A task this app cut off is not a task that failed.
+#
+# Reported twice, in the same words both times: a round that runs out is fine,
+# a plan the model wrote for itself coming back `failed` is not. On the run
+# behind that report every red task was this app stopping the turn at a ration
+# it had set — `task_budget_spent` immediately before every single
+# `task_produced_nothing`.
+
+
+def test_a_task_stopped_at_a_ceiling_is_not_reported_as_failed():
+    from agentd.agents.runner import unfinished_note
+
+    note = unfinished_note(
+        {
+            "t1": ("done", "Scope brief"),
+            "t2": ("stopped", "Build Hero and cursor-reactive MatchaScene"),
+            "t3": ("pending", "Independent QA"),
+        }
+    )
+    assert "ran out of room: Build Hero and cursor-reactive MatchaScene" in note
+    assert "never started: Independent QA" in note
+    # The word the person specifically did not want to see about it.
+    assert "did not finish: Build Hero" not in note
+
+
+def test_failed_still_means_failed():
+    """`stopped` must not launder the case the file-deliverable rule exists for.
+
+    A turn that had the room, answered, and did not write the file it was
+    asked for is the agent's failure, and this project has already shipped a
+    round recorded `completed` over an empty folder once.
+    """
+    from agentd.agents.runner import unfinished_note
+
+    note = unfinished_note({"t1": ("failed", "Build css/style.css")})
+    assert "did not finish: Build css/style.css" in note
+    assert "ran out of room" not in note
+
+
+def test_a_stopped_task_still_keeps_the_run_from_saying_completed():
+    """The word changes; the accounting does not.
+
+    `stopped` is not a softer `done`. A run whose tasks were cut off did not
+    do what it was asked, and `ending_for` must go on refusing `completed` —
+    otherwise this would be the third time this app credited a team with work
+    it had not finished.
+    """
+    from agentd.agents.runner import ending_for
+
+    reason, _summary = ending_for(
+        "completed", "", {"t1": ("done", "a"), "t2": ("stopped", "b")}
+    )
+    assert reason != "completed"
+
+
+def test_an_unknown_state_is_still_named(  # noqa: D103
+):
+    # §8: a state this build has never heard of is filed with `pending` rather
+    # than dropped. An unnamed leftover is worse than one filed imprecisely.
+    from agentd.agents.runner import unfinished_note
+
+    note = unfinished_note({"t1": ("teleported", "Something from a later build")})
+    assert "Something from a later build" in note

@@ -142,7 +142,12 @@ async def test_a_reply_cut_off_at_max_tokens_is_not_done():
         )
     )
 
-    assert outcome(items) == "failed"
+    # `stopped`, not `failed`, and the distinction is deliberate: a reply cut
+    # off at `MAX_TOKENS_PER_TASK` hit one of *this app's* ceilings. What the
+    # test is here to protect is that it is not `done` and that it is
+    # reported — both still hold, and nothing is hidden by the rename.
+    assert outcome(items) != "done"
+    assert outcome(items) == "stopped"
     assert "output_truncated" in codes(items)
     assert "task_produced_nothing" in codes(items)
 

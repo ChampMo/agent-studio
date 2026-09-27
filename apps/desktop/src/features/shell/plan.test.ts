@@ -121,3 +121,40 @@ describe("the plan on screen", () => {
     expect(planProgress([]).tasks).toEqual([]);
   });
 });
+
+/**
+ * A task this app cut off is counted apart from one that failed.
+ *
+ * Asked for twice in the same words: a round that runs out is fine, a plan
+ * the model wrote for itself coming back `failed` is not. On the run behind
+ * that report every red task was the app stopping the turn at a ration it had
+ * set, so the panel was reporting the app's own rationing as the plan going
+ * wrong.
+ */
+describe("a stopped task", () => {
+  it("is not counted as failed, and is not counted as still to do", () => {
+    const plan = planProgress([
+      task("t1", "Scope brief", "done"),
+      task("t2", "Build Hero", "stopped"),
+      task("t3", "QA", "pending"),
+    ]);
+    expect(plan.done).toBe(1);
+    expect(plan.failed).toBe(0);
+    expect(plan.stopped).toBe(1);
+    // `left` is what is genuinely outstanding. A stopped task will not run
+    // again in this round, so counting it as left would report work as
+    // pending that the round has already given up on.
+    expect(plan.left).toBe(1);
+  });
+
+  it("survives a state this build has never heard of", () => {
+    // §8 — a later build may send something this one does not know, and the
+    // panel must still show the task rather than dropping it.
+    const plan = planProgress([
+      task("t1", "Scope brief", "done"),
+      task("t2", "Something new", "teleported"),
+    ]);
+    expect(plan.tasks).toHaveLength(2);
+    expect(plan.tasks[1]?.title).toBe("Something new");
+  });
+});
