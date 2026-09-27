@@ -88,6 +88,7 @@ interface MissionState {
   /** Keep a finished run going, in the same conversation. */
   /** Rename the open run. The title only — `goal` is the record. */
   setTitle: (title: string) => void;
+  resumeRun: () => Promise<void>;
   continueRun: (
     message: string,
     opts?: { requireApproval?: boolean },
@@ -195,6 +196,24 @@ export const useMissionStore = create<MissionState>((set, get) => ({
       set({
         rejected: problemsFrom(err),
       });
+    } finally {
+      set({ launching: false });
+    }
+  },
+
+  resumeRun: async () => {
+    const missionId = get().missionId;
+    if (!missionId) return;
+    set({ launching: true, rejected: null });
+    try {
+      await api.resumeMission(missionId);
+      // Same as a continue from here: back on the stream from 0, so the
+      // transcript stays one conversation rather than becoming two.
+      useEventStore.getState().attach(missionId);
+      set({ endReason: null, live: true });
+      await get().loadMission(missionId);
+    } catch (err) {
+      set({ rejected: problemsFrom(err) });
     } finally {
       set({ launching: false });
     }

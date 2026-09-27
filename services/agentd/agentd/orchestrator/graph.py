@@ -296,6 +296,17 @@ async def run_team_mission(
     #: What earlier rounds of this mission did, for the planner. Empty on a
     #: mission's first round.
     earlier: str = "",
+    #: A plan to carry on with instead of writing a new one.
+    #:
+    #: A round that stops at a limit is a **pause**, not a verdict on the plan.
+    #: Re-planning from scratch at that point was measured doing real harm: on
+    #: one run five rounds each re-planned the same five tasks, finished one or
+    #: two, and the verification tail never ran once in 7.5 million tokens —
+    #: while each round also paid a leader to rewrite a plan nobody had
+    #: rejected. When this is given the planning turn is skipped entirely: the
+    #: tasks are the ones that were already agreed, minus the ones already
+    #: done.
+    carried: list[dict[str, Any]] | None = None,
     #: Images the user attached to this round, handed to the turns that need
     #: to see them: the work turns, because the graph cannot know in advance
     #: which agent picks up the task the picture is about, and the summary turn,
@@ -351,6 +362,7 @@ async def run_team_mission(
         images=images,
         documents=documents,
         earlier=earlier,
+        carried=carried,
     )
 
     # One thread per mission, so a resume finds the right checkpoint even when
@@ -416,6 +428,8 @@ def _build_graph(
     documents: str = "",
     #: What earlier rounds of this mission did, for the planner.
     earlier: str = "",
+    #: A plan to carry on with instead of writing one. See `run_team_mission`.
+    carried: list[dict[str, Any]] | None = None,
 ):
     leader = snapshot.leader
     assert leader is not None
@@ -424,6 +438,47 @@ def _build_graph(
         for warning in budget.record_superstep():
             await emit(warning)
         budget.check()
+
+        if carried:
+            # Carrying on, so there is nothing to decide and nobody to pay.
+            # The tasks were agreed in an earlier round and the only thing
+            # that has changed is that there is room to run them again.
+            await emit(
+                _draft(
+                    "agent.message",
+                    {
+                        "agentId": leader.agent_id,
+                        "messageId": f"plan-{mission_id}-carried",
+                        "content": (
+                            "Carrying on with the same plan — "
+                            f"{len(carried)} task"
+                            f"{'' if len(carried) == 1 else 's'} still to do:\n\n"
+                            + _plan_text(carried, snapshot)
+                        ),
+                    },
+                )
+            )
+            for t in carried:
+                await emit(
+                    _draft(
+                        "mission.progress",
+                        {
+                            "taskId": t["id"],
+                            "label": t["title"],
+                            "state": "pending",
+                            "done": 0,
+                            "total": len(carried),
+                            "instruction": str(t.get("instruction") or ""),
+                            "assigneeSeat": int(t.get("assignee_seat") or 0),
+                            **(
+                                {"dependsOn": [str(d) for d in t["depends_on"]]}
+                                if t.get("depends_on") is not None
+                                else {}
+                            ),
+                        },
+                    )
+                )
+            return {"tasks": list(carried)}
 
         await emit(
             _draft("agent.status", {"agentId": leader.agent_id, "status": "thinking"})
@@ -541,6 +596,20 @@ def _build_graph(
                         # a task that failed could only be retried by paying
                         # for the whole round.
                         "instruction": str(t.get("instruction") or ""),
+                        # Who it went to, and what it waits for. Here for the
+                        # same reason `instruction` is: so a round can be
+                        # **continued on this plan** instead of re-planned.
+                        # Without these the log says what each task was and not
+                        # who was to do it, so picking a round back up meant
+                        # asking the leader to invent the whole plan again —
+                        # which is how five rounds of one run came to re-plan
+                        # the same five tasks and finish one or two of them.
+                        "assigneeSeat": int(t.get("assignee_seat") or 0),
+                        **(
+                            {"dependsOn": [str(d) for d in t["depends_on"]]}
+                            if t.get("depends_on") is not None
+                            else {}
+                        ),
                     },
                 )
             )
@@ -1127,6 +1196,40 @@ def _build_graph(
         budget.check()
 
         results = state.get("results") or []
+
+        # **A pause does not owe an account of itself; an ending does.**
+        #
+        # The handover exists because the next round re-plans from nothing and
+        # would otherwise know only the goal — that is the reason written where
+        # it was added. When the plan is carried forward that reason expires:
+        # the next round already has the tasks, their instructions, their
+        # seats and their order, and the task states say which are left. A
+        # decision whose stated reason has expired is not a decision.
+        #
+        # So a round that is pausing mid-plan skips the leader's summary turn
+        # entirely. It is not a saving trick — it is that there is nothing for
+        # it to say that the plan does not already say, and on the run that
+        # prompted this the app was paying a reasoning model to rewrite that
+        # same account five times.
+        #
+        # An ending still summarises: a plan that has run out of tasks is
+        # finished, and *that* is when somebody wants the final answer.
+        # Pausing, not ending: the round hit a limit and the plan still has
+        # work in it. Not conditional on this round having been carried —
+        # the first round of a run pauses the same way, and that is the point.
+        planned = len(state.get("tasks") or [])
+        finished = sum(1 for r in results if r.get("ok"))
+        left = planned - finished
+        if budget.stopped_early is not None and left > 0:
+            return {
+                "summary": (
+                    f"Paused — {left} task{'' if left == 1 else 's'} of "
+                    f"{planned} still to do, on the same plan. "
+                    "Nothing was re-planned and no summary was written: the "
+                    "plan and its task states are the account of where this "
+                    "got to."
+                )
+            }
 
         # A task that produced nothing is reported as such rather than left as a
         # blank the leader has to guess at -- and guessing is how a summary ends

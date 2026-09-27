@@ -847,6 +847,96 @@ class MissionRunner:
         self._track(mission_id, task)
         return mission_id
 
+    async def resume_mission(self, mission_id: str) -> str:
+        """Pick a paused round back up on the same plan, with a fresh limit.
+
+        A round that stops at a limit is a **pause**, not a verdict on the
+        plan. `continue_mission` treated it as one: it took a new instruction
+        and the leader wrote a new plan, so the tasks that had not run were
+        proposed again, reworded, alongside whatever else the leader thought
+        of this time.
+
+        Measured on the run that prompted this — five rounds, 7,480,984
+        tokens: each round re-planned substantially the same five tasks,
+        finished one or two, and **the verification tail never ran once**.
+        `docs/QA_REPORT.md` was planned in four separate rounds and does not
+        exist. Nothing was wrong with the plan; there was never room left to
+        reach the end of it, and every round paid a reasoning model to write
+        it out again.
+
+        So this writes nothing and decides nothing. The plan comes off the log
+        (`carried_plan`), the tasks already `done` are dropped, and the round
+        runs again with a fresh budget. No planning turn, and — because the
+        plan carries the account of where things got to — no summary turn
+        either when it pauses again.
+
+        Falls back by refusing rather than by guessing: a run whose plan
+        cannot be read back (rounds recorded before the seat was on the
+        `pending` event) raises, and the caller can send an instruction the
+        ordinary way.
+        """
+        if self.is_running(mission_id):
+            raise MissionAlreadyRunning(mission_id)
+
+        carried = await self.carried_plan(mission_id)
+        if not carried:
+            # `list[str]`, which is what MissionRejected carries and what the
+            # composer already renders. A dict here would have reached the UI
+            # as "[object Object]" — the exact fault this project fixed in
+            # `unwrap()` once already.
+            raise MissionRejected(
+                [
+                    "this run has no unfinished plan to carry on with — say "
+                    "what you want next instead"
+                ]
+            )
+
+        async with self._db.session() as s:
+            mission = (
+                await s.execute(select(Mission).where(Mission.id == mission_id))
+            ).scalar_one_or_none()
+            if mission is None:
+                raise MissionNotRunning(mission_id)
+            if mission.kind != "mission" or not mission.roster_snapshot:
+                raise MissionNotRunning(mission_id)
+            roster = RosterSnapshot.from_json(mission.roster_snapshot)
+            limits = resolve_limits(
+                mission=mission.budget, app_default=await get_app_budget(self._db)
+            )
+            # Before the row is reopened and before a single event: a refusal
+            # that has already restarted the mission leaves it saying
+            # `running` with nothing driving it.
+            await self._refuse_missing_providers(roster)
+            mission.status = "running"
+            mission.end_reason = None
+            mission.ended_at = None
+            # `goal` is deliberately NOT touched. Nothing new was asked, so
+            # writing something into the record of what this run was asked
+            # would be inventing it (§5.1).
+            #
+            # Read inside the session, though: past `commit()` the instance is
+            # expired, and reading an attribute off it after the block would
+            # be a lazy load on a closed session.
+            goal = mission.goal
+            await s.commit()
+
+        task = asyncio.create_task(
+            self._run_team(
+                mission_id,
+                roster,
+                goal,
+                limits,
+                attached=await self._attached(mission_id),
+                # No `earlier`: the planner does not run, so there is nobody
+                # to read it and assembling it would be paid-for text nothing
+                # consumes.
+                carried=carried,
+            ),
+            name=f"mission:{mission_id}",
+        )
+        self._track(mission_id, task)
+        return mission_id
+
     async def _run_team(
         self,
         mission_id: str,
@@ -860,6 +950,8 @@ class MissionRunner:
         attached: tuple[tuple[ImagePart, ...], str] = ((), ""),
         #: What earlier rounds did, for the planner. See `earlier_rounds`.
         earlier: str = "",
+        #: A plan to carry on with rather than write. See `carried_plan`.
+        carried: list[dict[str, Any]] | None = None,
     ) -> None:
         images, documents = attached
         budget = BudgetTracker(limits)
@@ -1044,6 +1136,7 @@ class MissionRunner:
                 images=images,
                 documents=documents,
                 earlier=earlier,
+                carried=carried,
             ):
                 # The same routing split a chat uses (§7.1), in the same place.
                 if is_ephemeral(item):
@@ -1303,6 +1396,111 @@ class MissionRunner:
             mission.tasks_done = done
             mission.tasks_total = len(states)
             await session.commit()
+
+    async def carried_plan(self, mission_id: str) -> list[dict[str, Any]]:
+        """The last round's plan, minus what it finished, or [].
+
+        Read off `mission_events` rather than stored, for the same reason
+        `earlier_rounds` is: the log is the record, and a second place saying
+        what a round planned is a second place to be wrong (§2.1). The
+        `pending` event carries everything a task needs to run again — its
+        instruction, its seat and what it waits for — precisely so this is
+        possible without one.
+
+        **Why this exists.** A round that stops at a limit was being treated
+        as a verdict on the plan: the next round threw it away and asked the
+        leader to write a new one. Measured on a real run, that is not a
+        small waste. Five rounds each re-planned substantially the same five
+        tasks, each finished one or two, and the tail — the verification and
+        the QA report — never ran once across 7.5 million tokens. The plan
+        was never the problem; there was never enough room left to reach the
+        end of it.
+
+        Tasks already `done` are dropped. Everything else comes back, in the
+        plan's own order, including a task that was `stopped` at a ceiling:
+        it ran, it did not deliver, and it is still owed.
+        """
+        async with self._db.session() as session:
+            rows = (
+                (
+                    await session.execute(
+                        select(MissionEvent)
+                        .where(MissionEvent.mission_id == mission_id)
+                        .where(
+                            MissionEvent.type.in_(("mission.progress", "mission.ended"))
+                        )
+                        .order_by(MissionEvent.seq)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+
+        #: The plan as announced, and the last state each task reached. Reset
+        #: at every round boundary, so what comes back is the *last* round's
+        #: plan and not an accumulation of every round's.
+        order: list[str] = []
+        announced: dict[str, dict[str, Any]] = {}
+        state: dict[str, str] = {}
+        ended = False
+        for row in rows:
+            payload = row.payload or {}
+            if row.type == "mission.ended":
+                # Mark the boundary; do not clear here. **The first event of
+                # the next round is what opens it** — the same rule this
+                # codebase already needed twice, for the rail's counters and
+                # for the scene's caption, and for the same reason: clearing
+                # at the ending throws away the round you are standing in.
+                #
+                # The version before this one cleared here, and the plan came
+                # back empty every time, because the last thing on a finished
+                # run's log *is* an ending. The version before that did not
+                # clear at all, and five rounds came back as one plan with
+                # the same task repeated. Both found by running it over a
+                # real log rather than a fixture.
+                ended = True
+                continue
+            if ended:
+                ended = False
+                order = []
+                announced = {}
+                state = {}
+            task_id = str(payload.get("taskId") or "")
+            if not task_id:
+                continue
+            if payload.get("state") == "pending":
+                if task_id not in announced:
+                    order.append(task_id)
+                announced[task_id] = payload
+            state[task_id] = str(payload.get("state") or "")
+
+        out: list[dict[str, Any]] = []
+        for task_id in order:
+            if state.get(task_id) == "done":
+                continue
+            payload = announced[task_id]
+            # A round recorded before `assigneeSeat` existed cannot be
+            # carried: without it every task would default to seat 0, which
+            # is the leader, and a leader with workers is never assigned a
+            # task — so the round would do nothing at all. Refuse the whole
+            # plan rather than carry a broken one, and the caller re-plans as
+            # it always did (§8: this build is honest about what it cannot
+            # read, instead of guessing a seat).
+            if payload.get("assigneeSeat") is None:
+                return []
+            task: dict[str, Any] = {
+                "id": task_id,
+                "title": str(payload.get("label") or ""),
+                "instruction": str(payload.get("instruction") or ""),
+                "assignee_seat": int(payload.get("assigneeSeat") or 0),
+            }
+            # Absent and empty mean different things in a plan — absent is
+            # "after the one before it", [] is "may start immediately" — so an
+            # absent one is left absent rather than turned into a list (§8).
+            if payload.get("dependsOn") is not None:
+                task["depends_on"] = [str(d) for d in payload["dependsOn"]]
+            out.append(task)
+        return out
 
     async def earlier_rounds(self, mission_id: str, current_goal: str) -> str:
         """What the rounds before this one asked for and what came of them.

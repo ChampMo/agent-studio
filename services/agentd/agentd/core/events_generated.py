@@ -101,6 +101,18 @@ class PayloadMissionProgress(BaseModel):
     ]
     done: Annotated[int, Field(ge=0)]
     total: Annotated[int, Field(ge=0)]
+    assigneeSeat: Annotated[
+        int | None,
+        Field(
+            description='Which seat the plan gave this task, on the `pending` event that announces it and nowhere else. Present so a round can be *continued on the same plan* rather than re-planned: without it the log records what each task was, and not who was to do it, so resuming meant asking the leader to invent the whole plan again.'
+        ),
+    ] = None
+    dependsOn: Annotated[
+        list[str] | None,
+        Field(
+            description='The task ids this one waits for, exactly as the plan declared them, on the `pending` event only. Absent means what it means in a plan: after the task before it. Carried for the same reason as `assigneeSeat` — a resumed round must schedule the same waves, and a plan that loses its dependencies silently becomes sequential.'
+        ),
+    ] = None
     instruction: Annotated[
         str | None,
         Field(

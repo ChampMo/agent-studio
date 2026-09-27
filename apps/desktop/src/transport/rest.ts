@@ -497,6 +497,19 @@ export const api = {
       `/missions?limit=${limit}`,
     ),
 
+  /** Pick a paused round back up on the plan it already has.
+   *
+   *  Takes no message, because nothing new is being asked — which is the
+   *  whole difference from `continueMission`. That one hands the leader an
+   *  instruction and gets a fresh plan; on a run measured at five rounds and
+   *  7.5M tokens that meant the same five tasks proposed over and over while
+   *  the verification tail never ran once. */
+  resumeMission: (missionId: string) =>
+    request<{ missionId: string; resumed: boolean }>(
+      `/missions/${missionId}/resume`,
+      { method: "POST" },
+    ),
+
   /** Keep a finished run going in the same conversation (§7.1). The roster,
    *  the workspace and the whole timeline carry over. */
   continueMission: (

@@ -5042,6 +5042,84 @@ what happened before it, which keys off the task's `ok` and not off the word.
 They assert `!= "done"` **and** the new word now, so a future rename cannot
 quietly turn either into nothing.
 
+### A round that runs out is a pause, and the plan should survive it
+
+Reported as *"it keeps adding work and never finishes; the later rounds hit
+the limit very fast and waste a lot."* Measured on that run — five rounds,
+**7,480,984 tokens**, every round `budget_exceeded`:
+
+    rd planned done stopped     tokens
+     1       8    4       1  1,462,996
+     2       5    3       0  1,532,446
+     3       9    5       3  1,452,993
+     4       5    1       0  1,548,518
+     5       5    1       2  1,484,031
+
+**No task was `failed`** — v0.3.4 held. The complaint had moved on: it was
+about the shape of the whole thing.
+
+Where the money went, and it is not where it looks. Planning is **0.5-1.8%**
+of a round. One or two tasks take the rest: 1,439,793 for a single task in
+round 4, 1,357,469 in round 5. 87.7% of the run is `cacheReadTokens` — the
+turn's own conversation re-sent, growing from a ~2,200-token prompt to 60-90k
+over twenty-odd replies. The expensive turns are shell-heavy (43 and 51 `bash`
+calls), and **103 of those calls were 102 distinct commands**: not a loop,
+`ls -la`, `cat package.json`, `cat src/App.jsx`, `grep -n z-index`. Each round
+re-discovers a 32-file project from nothing, so the bigger the project gets
+the less each round achieves. That is the "later rounds hit the limit fast"
+exactly.
+
+**And the plan never converged, for a reason the log states plainly.** Rounds
+2-5 were all the retry button, whose message literally says *"Do them, and
+only them"* — and the leader wrote a fresh five-task plan every time. Round 4
+and round 5 are the same five items reworded. `docs/QA_REPORT.md` was planned
+in four separate rounds and **does not exist**; `docs/DEFECTS.md` was never
+written either, and rounds 4 *and* 5 both open by telling the team to read it.
+Each round re-issued instructions whose inputs the unrun tail was supposed to
+have produced.
+
+So the fix is the one the person proposed, and it is better than the ones
+being investigated: **keep the plan.** A round that stops at a limit is a
+pause, not a verdict on the plan.
+
+`POST /missions/{id}/resume` takes **no message**, because nothing new is
+being asked. `carried_plan()` reads the last round's plan off the log — the
+`pending` event now carries `assigneeSeat` and `dependsOn` alongside the
+instruction it already had, for exactly this — drops what is `done`, and the
+round runs again with a fresh limit and **no planning turn**. `summarise_node`
+also returns without calling the model when a round pauses mid-plan: the
+handover exists because the next round re-plans from nothing, and when the
+plan carries over that reason expires. A decision whose stated reason has
+expired is not a decision.
+
+**Three things the implementation got wrong first, all caught by running it
+over the real log rather than a fixture.**
+
+The round boundary, twice and in opposite directions. Clearing on
+`mission.ended` returned **nothing at all**, because the last thing on a
+finished run's log *is* an ending. Not clearing returned **five rounds as one
+plan** with the same task repeated. The rule that works is the one this file
+already records for `deriveVitals` and for `sceneState`: *the first event
+after an ending opens the next round.* Third time.
+
+And `assigneeSeat` is absent on every event recorded before it existed, so
+`int(None or 0)` sent every carried task to **seat 0 — the leader**, who is
+never assigned a task when the team has workers. The round would have done
+nothing at all. It refuses the whole plan instead and the caller re-plans as
+before (§8: say what cannot be read rather than guess it).
+
+Two more found by reading rather than shipping: `MissionRejected` takes
+`list[str]` and I had handed it a dict, which is the `[object Object]` fault
+this file already records once; and `mission.goal` was being read after the
+session closed, which is a lazy load on an expired instance.
+
+**What this does not fix, and it is the larger half.** A task that spends
+1.4M tokens re-discovering a project is still going to spend it. The plan
+surviving means the tail eventually runs rather than being re-proposed for
+ever; it does not make a round cheaper. The measured driver — each round
+re-reading the whole workspace through the shell — is untouched, and the
+levers for it were refuted in an earlier pass for reasons that still hold.
+
 ---
 
 ## Decisions made while building

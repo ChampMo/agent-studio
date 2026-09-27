@@ -213,6 +213,40 @@ async def send_note(request: Request, mission_id: str, body: NoteIn) -> dict[str
     return {"missionId": mission_id, "queued": True}
 
 
+@router.post("/missions/{mission_id}/resume", status_code=status.HTTP_202_ACCEPTED)
+async def resume_mission(request: Request, mission_id: str) -> dict[str, Any]:
+    """Pick a paused round back up on the same plan, with a fresh limit.
+
+    Takes no message, because nothing new is being asked. A round that stops
+    at a limit is a pause: the plan was agreed, some of it ran, and the rest
+    is still owed. `continue` would hand the leader a new instruction and get
+    a new plan; this runs the one that already exists.
+
+    Refuses rather than guesses when there is no plan to carry — a run
+    recorded before the seat was written onto the `pending` event cannot be
+    resumed, and says so, so the caller can send an instruction instead.
+    """
+    runner = get_runner(request)
+    try:
+        await runner.resume_mission(mission_id)
+    except MissionAlreadyRunning:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "this mission is still working"
+        ) from None
+    except MissionNotRunning:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "no such team mission to resume"
+        ) from None
+    except MissionRejected as exc:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            # Same shape as the launch rejection, so the composer renders it
+            # the same way rather than through a second path.
+            {"message": "there is nothing to carry on with", "problems": exc.problems},
+        ) from None
+    return {"missionId": mission_id, "resumed": True}
+
+
 @router.post("/missions/{mission_id}/continue", status_code=status.HTTP_202_ACCEPTED)
 async def continue_mission(
     request: Request, mission_id: str, body: NoteIn

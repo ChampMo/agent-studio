@@ -162,6 +162,15 @@
           "type": "integer",
           "minimum": 0
         },
+        "assigneeSeat": {
+          "type": "integer",
+          "description": "Which seat the plan gave this task, on the `pending` event that announces it and nowhere else. Present so a round can be *continued on the same plan* rather than re-planned: without it the log records what each task was, and not who was to do it, so resuming meant asking the leader to invent the whole plan again."
+        },
+        "dependsOn": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "The task ids this one waits for, exactly as the plan declared them, on the `pending` event only. Absent means what it means in a plan: after the task before it. Carried for the same reason as `assigneeSeat` — a resumed round must schedule the same waves, and a plan that loses its dependencies silently becomes sequential."
+        },
         "instruction": {
           "type": "string",
           "description": "What this task was actually told to do, on the `pending` event that announces it and nowhere else. The plan message renders titles and seats, which is what a person needs to approve a plan and not enough to run a task again: a task that failed could only be retried by re-running the whole round. Bounded by the plan's own task limit."

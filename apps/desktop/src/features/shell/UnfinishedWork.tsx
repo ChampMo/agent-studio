@@ -14,6 +14,16 @@
  * What is left over is a plan already — the tail of one the leader wrote — so
  * it goes back as a plan, in a single round.
  *
+ * **And it resumes rather than re-asks.** The button used to send the tasks
+ * back as a fresh instruction, which made the leader write a new plan from
+ * them: on one measured run that produced five rounds which each re-planned
+ * substantially the same five tasks, finished one or two, and never once
+ * reached the verification tail — `docs/QA_REPORT.md` was planned four times
+ * and never written. Nothing was wrong with the plan. There was never room
+ * left to get to the end of it, and each round paid to write it out again.
+ * `resumeRun` carries the plan instead, so a pause costs a limit and not a
+ * planning turn.
+ *
  * Directly above the composer, outside the scroll. It is a thing to decide, not
  * a thing that happened, so it does not belong in the record — and the record
  * is where it scrolls away. Two earlier placements were wrong in opposite
@@ -26,12 +36,12 @@ import { cn } from "../../lib/cn";
 import { useEventStore, type SequencedEntry } from "../../stores/eventStore";
 import { useMissionStore } from "../../stores/missionStore";
 import { useEndReason } from "../../stores/runState";
-import { retryAllMessage, unfinishedTasks } from "./unfinished";
+import { unfinishedTasks } from "./unfinished";
 
 export function UnfinishedWork() {
   const events = useEventStore((s) => s.events);
   const missionId = useMissionStore((s) => s.missionId);
-  const continueRun = useMissionStore((s) => s.continueRun);
+  const resumeRun = useMissionStore((s) => s.resumeRun);
   const launching = useMissionStore((s) => s.launching);
   const endReason = useEndReason();
 
@@ -61,11 +71,12 @@ export function UnfinishedWork() {
         <p className="truncate text-[11px] text-faint">
           {left.map((task) => task.title).join(" · ")}
         </p>
+        <p className="text-[11px] text-faint">{strings.rail.unfinishedHint}</p>
       </div>
       <button
         type="button"
         disabled={launching}
-        onClick={() => void continueRun(retryAllMessage(left))}
+        onClick={() => void resumeRun()}
         className={cn(
           "flex min-h-[24px] shrink-0 items-center gap-1.5 rounded-card",
           "border border-line px-2.5 py-1.5 text-[11px] text-muted",

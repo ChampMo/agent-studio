@@ -100,14 +100,21 @@ export const strings = {
     planRoundNow: "this round",
     planNoTasks: "No plan — the round ended before one was made",
     planAsked: "Asked for",
-    unfinished: "Not finished this round",
-    // Says the one thing the ending line above does not: that these can be
-    // picked up without paying for the whole round again.
+    unfinished: "Paused",
+    // A pause, in the words of one. The old wording — "did not finish … can
+    // be picked up without redoing the rest" — read as a report on a round
+    // that was over, and the button under it sent a fresh instruction that
+    // made the leader re-plan. The plan is kept now, so the true sentence is
+    // the shorter one: this is where it got to, and it goes on from here.
     unfinishedLead: (n: number) =>
       n === 1
-        ? "One task did not finish. It can be picked up on its own."
-        : `${n} tasks did not finish. They can be picked up without redoing the rest.`,
-    retryAll: "Run these",
+        ? "Paused with one task left on the plan."
+        : `Paused with ${n} tasks left on the plan.`,
+    // Says what it does, and what it does not do. "Run these" invited the
+    // reading that it re-runs them from the top; nothing is re-planned and
+    // nothing already done is repeated.
+    unfinishedHint: "Same plan, same team, a fresh limit. Nothing is re-planned.",
+    retryAll: "Carry on",
     timeUsed: "Time used",
     leader: "Team leader",
     // Share of what the round spent, not a rank against the biggest spender.
