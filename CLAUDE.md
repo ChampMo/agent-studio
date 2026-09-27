@@ -537,7 +537,7 @@ web tool and a way to change things, and suggests splitting the roles; and
 because the backend on loopback holds the user's keys.
 
 
-**Released: v0.3.1** (2026-09-26). v0.2.0 was the first build that could update
+**Released: v0.3.2** (2026-09-27). v0.2.0 was the first build that could update
 itself and the first that drew no room; it is marked superseded on its own
 release page rather than left to be downloaded.
 
@@ -4467,6 +4467,65 @@ charged 175 fresh input tokens.
 the last one's output. What restarted was the app's account of it — which is
 what the person saw, and why three rounds of real work read as three rounds
 of nothing.
+### v0.3.2, and the release check that failed on its own headline
+
+Stage B of the check was written to prove this release's claim — that a run
+which overspends can still say where the money went — and on the first
+attempt it did the opposite:
+
+    62,718 / 45,000   handover: 330 chars (machine note only)
+
+The reserve had been guaranteed to the wrap-up and the wrap-up never ran.
+`work_exhausted` is consulted *between* waves, so a run that crosses the
+working share politely goes on to write a handover. A task already in flight
+does not pass through it: its next `check()` raises, and `work -> summarise`
+is a plain edge, so the graph aborted. **The one path the reserve could not
+see was the one that kept happening.**
+
+`work_node` catches it now and records it exactly as the polite stop is
+recorded. Nothing is swallowed — `stopped_early` carries the real numbers and
+the run is still `budget_exceeded` against the limit the person set.
+
+Writing the test found the explanation. It needed a **parallel wave** to
+reach the path at all: with one task per wave `work_exhausted` always gets
+first look, so only a sibling already running can cross the ceiling from
+inside. On the old code it fails by raising `tokens 9000/9000` out of the
+graph, which is precisely what the packaged build did.
+
+Re-run: **4,246 characters of leader handover**, the real limit quoted, and
+the three new buckets. And the leader used the new `wrote:` line to catch its
+own team out — *"the three reports contradict themselves: each has a `wrote:`
+line and each body says the work was still in progress"* — which was true.
+
+### The trade this release makes, stated plainly
+
+The wrap-up may now spend past the ceiling, bounded by the reserve. An
+overshoot cannot be prevented outright: a call's input and cache-read cost
+are unknown until it returns and `clamp_max_tokens` bounds only output, so
+one call spent 20,476 after a 51,000 working share was already crossed.
+
+The choice was between spending a little past the number and losing the
+account of where the money went, and losing the account is worse — you have
+paid for the overshoot either way. Enforcement and reporting read different
+numbers on purpose, so an ending still says `57805/45000` and means it.
+
+### Two copies of the release procedure, and the quiet one was wrong
+
+The pre-release audit found `--target "$(git rev-parse HEAD)"` cannot work
+from a branch that is fifteen commits ahead of its remote — GitHub resolves
+it server-side — and the procedure never said to push. That failure is a
+loud 422, which is the safe direction. The dangerous half was that
+`release-manifest.mjs` still carried the pre-v0.3.1 command in its own
+header, with no `--target` at all: an operator following the script never
+gets the 422 and silently tags `main`, which is v0.2.7-era code. Both say
+the same thing now.
+
+It also caught the `Released:` line claiming 2026-09-26 — v0.3.1's date, a
+day before v0.3.2's bundles existed. The line had been folded into the
+version bump; every other release wrote it *after* shipping, which is why it
+was true every other time. The convention is restored, and this entry is
+written after the fact.
+
 ---
 
 ## Decisions made while building
