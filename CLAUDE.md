@@ -543,7 +543,7 @@ web tool and a way to change things, and suggests splitting the roles; and
 because the backend on loopback holds the user's keys.
 
 
-**Released: v0.3.3** (2026-09-27). v0.2.0 was the first build that could update
+**Released: v0.3.4** (2026-09-27). v0.2.0 was the first build that could update
 itself and the first that drew no room; it is marked superseded on its own
 release page rather than left to be downloaded.
 
