@@ -4849,6 +4849,19 @@ the forward-compat test points.
   checked between calls. Not fixed by picking a number, because a cap too
   low kills a legitimate long reasoning turn and this project has already
   paid for that mistake twice with `MAX_TOKENS_PER_TASK`.
+- **A handover is not guaranteed when the work phase overshoots.** The
+  wrap-up reserve is no longer inside a task's allowance, which was a real
+  hole - one task was granted 1,317,230 of a 1,500,000 budget and the round
+  ended with no leader handover at all. But the reserve cannot absorb a
+  single large call: a 60,000-token verification run crossed its 51,000
+  working share at one call and then spent 20,476 on the next, ending at
+  76,839 against a 9,000 reserve. A call's input and cache-read cost are not
+  known before it is made, and `clamp_max_tokens` bounds only output, so no
+  reserve sized for a summary can cover this. Closing it means either letting
+  the wrap-up spend past the user's ceiling - which changes what that number
+  means, and the Limits panel currently promises it is "the point at which
+  Agent Studio stops paying for a run" - or refusing a call whose prompt is
+  already larger than what is left. That is a product decision, not a fix.
 - **The installers are unsigned.** Windows SmartScreen will warn on first run, and macOS
   would refuse outright without notarisation. Nothing to fix in the code — it needs a
   certificate — but anyone handing the MSI to someone else should expect the warning and
