@@ -4656,6 +4656,48 @@ Against the measured run that is ~27,888 tokens, **0.238%**. Cheap enough that
 a true statement wins, and small enough that nobody should expect to see it in
 a total.
 
+**The refutation confirmed the fact and found a hazard in my wording.** All
+35 checks came back refuted, including this one — but it reproduced every
+number and went further than I had: **10 turns made more than 24 tool calls,
+one of them 38.** That is the falsity proved directly rather than inferred
+from a mean.
+
+What it killed was my sentence, not the correction. I had written *"spend a
+separate reply **only** on what you could not have asked for until you saw
+the last answer"*, which makes result-dependence the **sole** sanctioned
+reason to split a reply — and rules out the reason that actually matters
+here. `max_tokens` bounds the whole reply, so two `write_file` calls in one
+share one limit. On this run Cedar's two adjacent writes cost **12,544 and
+9,669** output tokens: merged that is 22,213 against a 16,384 cap, truncated,
+**and both files lost**. That failure had already cost the run **513,192
+tokens** across two turns of Rowan's.
+
+Worse, the model cannot learn from it. `made.append` sits inside `if outcome
+is not None`, so a call refused as `tool_call_truncated` **never enters the
+conversation the next round sees** — the model is not told which of its calls
+was dropped.
+
+So the rule now names payload as its own reason to split, and there is a test
+that fails on the word `only`. *Small look-ups travel well together; a file
+does not travel with anything.*
+
+**And the honest ceiling on batching is ~4%, not 47%.** Of 313 adjacent
+tool-calling pairs only **12** are both read-only and name no file in common;
+merging just those is -17.8% tokens and **-4.8% money**, because 65% of this
+run's actual cost is output tokens, which merging never touches. The model is
+also already doing it where it is safe: 82% of the 286 bash calls chain three
+or more shell statements, and single-call replies carry **2.8x** the output of
+multi-call ones — it batches when calls are cheap and stops when one carries a
+payload, which is correct.
+
+**The 79% entry's diagnosis does not transfer, and that is the useful
+finding.** That one blamed the deliverable being re-sent. Attributing each
+prompt increment to the tool that caused it here: **bash 46.2%, read_file
+37.8%, grep 8.1%, list_dir 6.3% — and write_file 0.3%.** *98.4% of
+conversation growth is reading; 0.5% is writing.* A write costs output on the
+way out and returns a one-line summary. At 79% the bill was re-sending the
+artifact; at 89.8% it is re-sending the **evidence**.
+
 ---
 
 ## Decisions made while building
@@ -5038,6 +5080,17 @@ the forward-compat test points.
   optimised. What actually drives 89.8% is the round count against a 10.6x
   re-send multiplier, and `MAX_TOOL_ROUNDS` 12 -> 24 doubled the worst case
   deliberately. No change is proposed; this item now records a result.
+- **A call dropped as `tool_call_truncated` is invisible to the model.**
+  `made.append` sits inside `if outcome is not None`, so a call whose
+  arguments were cut off never enters the assistant message the next round
+  sees — the model is not told which of its calls was discarded, and cannot
+  retry it. On PARADOX.ART this ran twice, both to the same agent, as
+  `tool_call_truncated` -> `output_truncated` -> `task_produced_nothing`,
+  costing **513,192 tokens (4.4% of the run)** for nothing. The `if not
+  outcomes: break` path is the one-call case and is handled; this is the
+  case where *some* calls succeeded and one did not. Recorded rather than
+  fixed: telling the model would mean synthesising a tool result for a call
+  that never ran, which needs deciding rather than typing.
 - **A provider call that stops producing is bounded by nothing we set.** Seen
   once, not reproduced: a task sat `running` for 34 minutes with no event on
   the log, and `POST /cancel` ended it instantly — so the coroutine was alive

@@ -199,3 +199,29 @@ def test_the_rule_says_a_reply_may_carry_several_calls():
     for tools in ({"write_file", "edit_file"}, {"write_file"}, {"edit_file"}):
         rule = file_deliverable_rule(tools)
         assert "several tools at once" in rule, tools
+
+
+def test_the_rule_does_not_push_two_large_writes_into_one_reply():
+    """The batching sentence must not make result-dependence the only reason
+    to split a reply.
+
+    The first version said to spend a separate reply "only on what you could
+    not have asked for until you saw the last answer" — which sanctions
+    merging two independent `write_file` calls. On the run this was measured
+    against, Cedar's two adjacent writes cost 12,544 and 9,669 output tokens;
+    `max_tokens` bounds the whole reply, so 22,213 against a 16,384 cap
+    truncates and **both files are lost**. That failure already cost this run
+    513,192 tokens across two turns, and a truncated call never reaches
+    `outcomes`, so the model is not told it was dropped.
+
+    Payload size is therefore a second, independent reason to split, and the
+    rule has to say so.
+    """
+    from agentd.tools.execution import file_deliverable_rule
+
+    for tools in ({"write_file", "edit_file"}, {"write_file"}):
+        rule = file_deliverable_rule(tools)
+        assert "a reply of its own" in rule, tools
+        assert "shares one length limit" in rule, tools
+        # The wording that made result-dependence the sole sanctioned reason.
+        assert "only on what you could not have asked for" not in rule, tools

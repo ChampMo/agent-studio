@@ -169,10 +169,13 @@ ends, and a file on disk is not. So read the few things you need before you
 can start, put something on disk, and look the rest up as you go.
 
 **One reply can ask for several tools at once**, and they all come back
-together. Look-ups that do not depend on each other cost one reply between
-them instead of one each, so ask for everything you already know you need in
-the same reply, and spend a separate reply only on what you could not have
-asked for until you saw the last answer.
+together — so two look-ups that do not depend on each other need not cost two
+replies.
+
+**But keep a call that carries a lot of content in a reply of its own.**
+Everything you ask for in one reply shares one length limit, so two large
+write_file calls together can hit it and both are lost. Small look-ups
+travel well together; a file does not travel with anything.
 """.strip()
 
 #: The way to build something large when the agent can both create and revise.
