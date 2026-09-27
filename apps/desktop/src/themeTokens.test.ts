@@ -270,3 +270,52 @@ describe("the throbber", () => {
     expect(css).toMatch(/animation:\s*throb\s+[\d.]+m?s\s+steps\(12,\s*end\)/);
   });
 });
+
+/**
+ * The document is not a scrolling surface, structurally rather than by intent.
+ *
+ * Reported as a screenshot: ticking `edit_file` in the agent editor turned the
+ * whole window blank. Nothing threw — `#root` still held 84KB of markup and
+ * the console was clean. Measured in the running app:
+ *
+ *     html  overflow-y: hidden   scrollTop: 1318
+ *           scrollHeight: 2374   clientHeight: 1056
+ *     body  scrollHeight: 1056   ← and everything below it
+ *
+ * Only `html` was tall. Thirteen `sr-only` checkbox inputs are
+ * `position: absolute` with **no positioned ancestor**, so they are laid out
+ * against the initial containing block and reached past the panel they live
+ * in. `overflow: hidden` clipped them and — this is the part that bites —
+ * still made `html` a scroll container, so focusing one made the browser
+ * scroll the document to reveal it and the app slid 1,318px out of view.
+ * There is no scrollbar in that state, so there is no way back.
+ *
+ * Two independent one-line changes each collapsed the document to the
+ * viewport, both measured live:
+ *
+ *     as shipped                              2374
+ *     scroll container position: relative     1056
+ *     checkbox inputs position: static        1056
+ *
+ * So both are taken: the label becomes the containing block (the cause), and
+ * the shell clips instead of hiding (the class of bug).
+ */
+describe("the app shell", () => {
+  it("clips the document without making it scrollable", () => {
+    const from = css.indexOf("html,\nbody,\n#root {");
+    expect(from, "the shell rule moved").toBeGreaterThan(-1);
+    const body = css
+      .slice(from, css.indexOf("\n}", from))
+      // The comment explains `hidden` at length and keeps it as a fallback,
+      // so neither prose nor the fallback may be what the assertion reads.
+      .replace(/\/\*[\s\S]*?\*\//g, "");
+
+    const decls = [...body.matchAll(/overflow:\s*([a-z]+)/g)].map((m) => m[1]);
+    expect(decls.length, "no overflow declared on the shell").toBeGreaterThan(0);
+    // `hidden` may be there as a fallback; `clip` has to be the one that wins.
+    expect(
+      decls[decls.length - 1],
+      "`hidden` clips AND creates a scroll container — focus can slide the app away",
+    ).toBe("clip");
+  });
+});

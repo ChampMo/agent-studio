@@ -47,6 +47,15 @@ export function Checkbox({
     <label
       htmlFor={inputId}
       className={cn(
+        // `relative` is load-bearing, not styling. The input below is
+        // `sr-only`, which is `position: absolute` — and with no positioned
+        // ancestor it is laid out against the *initial containing block*, so
+        // thirteen of them inside a tall scrolling panel stretched the
+        // document to 2,374px against a 1,020px viewport. Focusing one then
+        // made the browser scroll the document to reveal it, sliding the whole
+        // app out of view. This makes the row itself the containing block, so
+        // a hidden input can never reach past the panel it lives in.
+        "relative",
         "group flex min-h-[36px] items-start gap-2.5 py-1",
         disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer",
         className,

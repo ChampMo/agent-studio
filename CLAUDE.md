@@ -4698,6 +4698,79 @@ conversation growth is reading; 0.5% is writing.* A write costs output on the
 way out and returns a one-line summary. At 79% the bill was re-sending the
 artifact; at 89.8% it is re-sending the **evidence**.
 
+### Ticking one checkbox blanked the whole window, and nothing threw
+
+Reported with a screenshot: open an agent, tick `edit_file`, and the entire
+window goes blank. Following advice from this file, at that.
+
+**The first thing to check was whether it was a crash, and it was not.**
+`#root` still held **84,357 characters of markup**, `document.body.innerText`
+still listed every run in the sidebar, and the console carried nothing but
+Vite's own three lines. React had not unmounted and nothing had been caught.
+So it was never a JavaScript bug - it was layout, and the app had simply been
+moved off screen.
+
+    html   overflow-y: hidden   scrollTop: 1318
+           scrollHeight: 2374   clientHeight: 1056
+    body   scrollHeight: 1056   <- and every element below it
+
+**Only `html` was tall.** Everything from `body` down measured exactly the
+viewport, which is the whole diagnosis in one line: something was escaping the
+layout rather than stretching it.
+
+`sr-only` is `position: absolute`, and the thirteen hidden checkbox inputs in
+the tool list had **no positioned ancestor** - `positionedAncestor: null`
+measured on a real one - so they were placed against the *initial containing
+block* and reached past the panel they live in. `overflow: hidden` clipped
+them and, the part that bites, **still made `html` a scroll container**. So
+focusing one made the browser scroll the document to bring it into view, the
+app slid 1,318px up, and there is no scrollbar in that state to get back.
+Setting `document.documentElement.scrollTop = 0` restored the entire app
+untouched, which is what settled it.
+
+**Two independent one-line changes, each measured live, each enough:**
+
+    as shipped                               2374
+    scroll container position: relative      1056
+    checkbox inputs  position: static        1056
+
+Both are taken, because they fix different things. `relative` on the
+`Checkbox` row is the **cause** - the row becomes the containing block, so a
+hidden input can never reach past the panel it lives in, everywhere in the
+app at once. `overflow: clip` on `html, body, #root` is the **class** - clip
+clips without creating a scroll container, so nothing can ever slide the app
+away again whatever overflows in future. Verified that the legitimate inner
+panel still scrolls under `clip` before taking it.
+
+**This file had already learned the second half and applied it in the wrong
+place.** The AI panel's rotating border is `overflow: clip` with a comment
+explaining that `hidden` "clips and makes it scrollable" - while the shell
+rule three hundred lines above, whose own comment says *"the document is not
+a scrolling surface in this app"*, used `hidden`. The invariant was written
+down and never enforced. It is structural now.
+
+**What the parallel investigation was worth.** Four read-only passes over the
+areas a tick can touch. Three came back **clean, each for a structural
+reason** rather than an absence of evidence: ticking fires **zero HTTP
+requests**, so no response can crash the page; it writes **no zustand state at
+all**, so there is no selector trap or effect loop; and every other consumer
+of `agent.tools` is **unmounted while the form is open**. Three eliminations
+that each rule out a whole family, which is what let the measurement be
+trusted rather than second-guessed.
+
+**And there is no error boundary anywhere in the app.** `componentDidCatch`,
+`ErrorBoundary` and `getDerivedStateFromError` appear in zero files, so a
+genuine throw would produce this same blank window with no message. It was not
+the cause here, and it is the reason a bug of any kind in this app is as hard
+to read as this one was. Recorded as an open item.
+
+**Both tests fail on the shipped code**, with `expected 'hidden' to be 'clip'`
+and `expected '<label...' to match /"relative"/`. The CSS one reads the
+*declarations* with comments stripped and asserts the **last** `overflow` wins
+- `hidden` is deliberately kept as a fallback, and the comment discusses it at
+length, so matching either would be the trap this file already recorded once
+when a test matched a rule's own explanation instead of the rule.
+
 ---
 
 ## Decisions made while building
@@ -5080,6 +5153,16 @@ the forward-compat test points.
   optimised. What actually drives 89.8% is the round count against a 10.6x
   re-send multiplier, and `MAX_TOOL_ROUNDS` 12 -> 24 doubled the worst case
   deliberately. No change is proposed; this item now records a result.
+- **There is no error boundary anywhere in the frontend.**
+  `componentDidCatch` / `ErrorBoundary` / `getDerivedStateFromError` appear in
+  zero files under `apps/desktop/src`, so any uncaught throw during render
+  replaces the whole window with a blank rectangle and no message. The
+  `edit_file` blank-window bug was *not* a throw - it was layout - but it took
+  measuring `#root.innerHTML` to know that, and a real throw is
+  indistinguishable from the outside. A boundary around the main column that
+  says what failed, and keeps the sidebar usable, would make the difference
+  readable. Not done here because the useful version has to decide what to
+  keep alive when a pane dies.
 - **A call dropped as `tool_call_truncated` is invisible to the model.**
   `made.append` sits inside `if outcome is not None`, so a call whose
   arguments were cut off never enters the assistant message the next round

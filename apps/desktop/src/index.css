@@ -287,7 +287,21 @@ body,
      its content, the shell grows with it, and every panel that was supposed to
      scroll internally simply runs off the bottom of the window. There is no
      scrollbar anywhere in that state, which is how it was noticed.  */
+
+  /* `clip`, not `hidden`, and the difference is the whole point: **`hidden`
+     clips AND makes the box a scroll container**, so the document could still
+     be scrolled by anything that moved focus into content hanging past the
+     viewport - by the browser itself, with no scrollbar to get back. Ticking
+     one checkbox in the agent editor slid the whole app 1,318px up and left a
+     blank window. `clip` clips without creating a scroll container, so the
+     sentence above is now structurally true instead of merely intended.
+
+     This file already learned this once, for the AI panel's rotating border,
+     and the lesson was applied there and not here - where the invariant is
+     actually written down. `hidden` stays as a fallback for anything that does
+     not know `clip`; the declaration after it wins where it does. */
   overflow: hidden;
+  overflow: clip;
 }
 
 body {
