@@ -84,12 +84,35 @@ MAX_PARALLEL = 3
 #:
 #: A floor, not a share: a task may use everything except what the tasks after
 #: it need to run at all. Enough to read a few files and answer.
-RESERVE_PER_QUEUED_TASK = 20_000
+#:
+#: The same number as the floor below, because it is the same idea — "what a
+#: queued task needs to work". It was 20,000 while the floor was 12,000: two
+#: figures for one quantity, and the smaller was what a task actually got.
+RESERVE_PER_QUEUED_TASK = 2 * MAX_TOKENS_PER_TASK
 
 #: However tight things are, a task gets at least this much or it cannot even
 #: read the workspace, and reporting "stopped" without having looked is worse
 #: than not running it.
-MIN_TASK_ALLOWANCE = 12_000
+#:
+#: **Derived from `MAX_TOKENS_PER_TASK`, not picked.** The two were independent
+#: and contradicted each other: a whole task's floor was 12,000 while a single
+#: reply was permitted 16,384 output tokens on its own. So the app rationed a
+#: task below what it allowed one of that task's replies to emit.
+#:
+#: What that produced, measured on the ZenBrew run (200,000 per round, an
+#: eight-task plan): **14 of 17 task starts got the floor**, and every single
+#: `task_produced_nothing` on the log is immediately preceded by a
+#: `task_budget_spent` from the same agent. A task on the floor got two
+#: replies; on a build task both go on looking at the workspace, so it was
+#: stopped before it wrote anything and then recorded `failed` — the app
+#: blaming the agent for a ration it had set itself. The same three tasks
+#: failed that way in all three rounds.
+#:
+#: Two replies is the minimum coherent turn: one to look, one to write. A
+#: floor is a *ceiling*, not an allocation — a task that needs less simply
+#: uses less and the rest stays available — so the cost of raising it is paid
+#: only in `RESERVE_PER_QUEUED_TASK`, which is why the two move together.
+MIN_TASK_ALLOWANCE = 2 * MAX_TOKENS_PER_TASK
 
 
 def task_allowance(remaining_tokens: int, queued_after: int) -> int:
@@ -742,6 +765,11 @@ def _build_graph(
             cut_off = False
             #: A tool call hit max_tokens mid-arguments and was **not run**.
             lost_a_call = False
+            #: The *app* stopped this turn at its share of the round's budget.
+            #: Kept apart from the two above because it is not something the
+            #: agent did: saying "returned no usable answer" about a turn this
+            #: app cut off is the record blaming the wrong party (PROJECT_BRIEF 1).
+            rationed = False
             #: A file tool succeeded, so something is on disk whatever else
             #: happened to the turn. Correlated start-to-end by `callId`, the
             #: same way the runner watches for artifacts -- `agent.tool.end`
@@ -790,6 +818,7 @@ def _build_graph(
                     code = payload["code"]
                     cut_off = cut_off or code == "output_truncated"
                     lost_a_call = lost_a_call or code == "tool_call_truncated"
+                    rationed = rationed or code == "task_budget_spent"
 
             # A task that produced nothing is not done, whatever the loop
             # counter says. A live run reported `done 1/2` for a turn that was
@@ -887,13 +916,23 @@ def _build_graph(
                             # task too big for one turn, and a lost tool call
                             # is an action that never happened at all.
                             "message": (
+                                (
+                                    f"{member.name} was stopped at its share of "
+                                    f"the round's budget before finishing "
+                                    f"{task['title']!r}"
+                                )
+                                if rationed
+                                else
                                 f"{member.name} returned no usable answer for "
                                 f"{task['title']!r}"
                                 + (
                                     " (the task asks for a file and none was "
                                     "written; the reply described the work "
                                     "instead of doing it)"
-                                    if owed_a_file and not wrote and answer.strip()
+                                    if owed_a_file
+                                    and not wrote
+                                    and answer.strip()
+                                    and not rationed
                                     else ""
                                 )
                                 + (
@@ -942,6 +981,51 @@ def _build_graph(
                                     f"{used:.0f} of {limit:.0f} {kind} used; what "
                                     "is left is being kept for the summary, so no "
                                     "further tasks were started"
+                                ),
+                                "recoverable": True,
+                            },
+                        )
+                    )
+                    break
+                # Not exhausted, but not enough left to give the next task a
+                # working allowance either — and starting one anyway is what
+                # this guard exists to prevent.
+                #
+                # `work_exhausted` only fires when the working share is *gone*.
+                # Between "plenty" and "gone" there is a band where a task is
+                # started on a ration it cannot deliver anything with: it makes
+                # a couple of tool calls, is stopped at its ceiling before it
+                # writes, and is recorded `failed`. On the run that found this,
+                # every failure had that exact shape.
+                #
+                # A task that never ran keeps its `pending` state and
+                # `unfinished_note` reports it as never started, which is both
+                # true and useful: it says the round ran out of room, not that
+                # the plan was wrong.
+                #
+                # `at > 0` so the first wave always gets a go. A ceiling may
+                # legally be set as low as 1,000, and a guard that refused to
+                # start anything would turn a small budget into a round that
+                # does nothing at all — worse than the fault being fixed here,
+                # which is about the *second* task onward being started on
+                # what is left rather than on what a task needs.
+                if at > 0 and budget.remaining_working_tokens < MIN_TASK_ALLOWANCE:
+                    budget.stopped_early = (
+                        "tokens",
+                        float(budget.tokens_used),
+                        float(budget.limits.max_tokens),
+                    )
+                    await emit(
+                        _draft(
+                            "error",
+                            {
+                                "agentId": leader.agent_id,
+                                "code": "work_stopped_underfunded",
+                                "message": (
+                                    f"{budget.remaining_working_tokens:,} tokens left, "
+                                    f"and a task needs {MIN_TASK_ALLOWANCE:,} to be worth "
+                                    "starting — the remaining tasks were left for a "
+                                    "next round rather than started and cut off"
                                 ),
                                 "recoverable": True,
                             },

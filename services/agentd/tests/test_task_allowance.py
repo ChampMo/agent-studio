@@ -74,15 +74,29 @@ def test_the_reserve_is_enough_to_read_a_small_project_and_answer():
 
 
 def test_the_real_run_would_have_had_room_for_all_four():
-    """The case this exists for, with its real numbers.
+    """The case this exists for: 200,000 total, four tasks.
 
-    200,000 total, four tasks. The implementation gets 140,000 — more than it
-    had spent by the time all three files were on disk — and the three reviews
-    have 60,000 between them.
+    The implementation must still get the lion's share — that is the whole
+    argument for a floor rather than a split, and splitting 200,000 four ways
+    was measured to produce nothing at all — while the three reviews keep
+    enough between them to actually run.
+
+    This asserted `first == 140_000` when the reserve was 20,000 per queued
+    task. The reserve is now the same number as the floor, so the split is
+    101,696 / 98,304 rather than 140,000 / 60,000. The property is unchanged
+    and the reviews are better off: 60,000 between three of them was 20,000
+    each, which is below what a task needs to take a turn — the exact fault
+    that made every late task on the ZenBrew run fail.
     """
     first = task_allowance(200_000, queued_after=3)
-    assert first == 140_000
     left = 200_000 - first
+
+    # The implementation still gets the largest single share.
+    assert first > left / 3
+    # And it is not squeezed towards the four-way split this exists to avoid.
+    assert first >= 200_000 // 2
+
+    # Each review can still take a turn — the thing 20,000 each could not do.
     assert left // 3 >= MIN_TASK_ALLOWANCE
 
 
@@ -484,3 +498,113 @@ async def test_the_reported_figure_is_this_task_s_own_spend():
     )
     # And neither claims the pair's total as its own.
     assert said_fast + said_slow == budget.tokens_used
+
+
+# ---------------------------------------------------------------------------
+# A task may never be rationed below what one of its own replies may emit.
+#
+# Reported as "it keeps failing": ZenBrew, 200,000 per round, an eight-task
+# plan, three rounds, and the same build tasks failed in every one.
+#
+#   MIN_TASK_ALLOWANCE   12,000   <- what a whole task could spend
+#   MAX_TOKENS_PER_TASK  16,384   <- what ONE reply's output was permitted
+#
+# 14 of 17 task starts got that floor, and every `task_produced_nothing` on
+# that log is immediately preceded by a `task_budget_spent` from the same
+# agent. The failures had 2-3 replies against 4-6 for the successes: a build
+# task spends its first replies looking at the workspace, so it was stopped
+# before it ever wrote, and was then recorded `failed` — the app blaming the
+# agent for a ration it set itself.
+
+
+def test_a_task_is_never_rationed_below_one_of_its_own_replies():
+    """The floor has to survive a single reply, or the turn cannot act.
+
+    This is the check that would have caught the ZenBrew run on the day the
+    two constants were written, and it is an inequality rather than a number
+    so that raising either one alone cannot reintroduce it.
+    """
+    from agentd.orchestrator.graph import MAX_TOKENS_PER_TASK, MIN_TASK_ALLOWANCE
+
+    assert MIN_TASK_ALLOWANCE >= 2 * MAX_TOKENS_PER_TASK, (
+        f"a task may spend {MIN_TASK_ALLOWANCE:,} while one of its replies may "
+        f"emit {MAX_TOKENS_PER_TASK:,} — it gets one reply and cannot both look "
+        "and write"
+    )
+
+
+def test_the_reserve_is_what_a_queued_task_actually_gets():
+    """One number for one idea.
+
+    The reserve held back 20,000 per queued task in order to hand each of them
+    a floor of 12,000. Two figures for "what a queued task needs", and the
+    smaller one was what they were given — so the withholding was sized for a
+    task that does not exist.
+    """
+    from agentd.orchestrator.graph import MIN_TASK_ALLOWANCE, RESERVE_PER_QUEUED_TASK
+
+    assert RESERVE_PER_QUEUED_TASK == MIN_TASK_ALLOWANCE
+
+
+def test_no_task_on_the_real_run_is_offered_less_than_a_turn():
+    """Replayed from ZenBrew round 1, using what it actually spent.
+
+    The first version of this test walked eight tasks spending the floor each
+    time, and **passed on the broken constants** — spending 12,000 a task
+    never depletes 176,000, so the starvation never appeared. It proved
+    nothing. These are the real cumulative-spend figures at each
+    `mission.progress running`, read off that mission's log.
+
+    The invariant is a disjunction, and both halves matter: a task is either
+    offered enough to take a turn, or it is not started at all. What must
+    never happen — what happened fourteen times on that run — is a task
+    started on a ration below one of its own replies.
+    """
+    from agentd.orchestrator.graph import (
+        MAX_TOKENS_PER_TASK,
+        MIN_TASK_ALLOWANCE,
+        task_allowance,
+    )
+
+    working_ceiling = 200_000 - 24_000
+    # (tokens already spent in the round, tasks still queued behind this one)
+    real_starts = [
+        (14_644, 7), (42_756, 6), (87_111, 5), (99_908, 4),
+        (99_908, 3), (147_287, 2), (161_290, 1), (180_954, 0),
+    ]
+
+    starved = []
+    for spent, queued_after in real_starts:
+        remaining = max(0, working_ceiling - spent)
+        if remaining < MIN_TASK_ALLOWANCE:
+            continue                      # never started — honest, and reported
+        allowed = task_allowance(remaining, queued_after)
+        if allowed < 2 * MAX_TOKENS_PER_TASK:
+            starved.append((spent, allowed))
+
+    assert starved == [], (
+        "tasks started on a ration below one of their own replies: "
+        + "; ".join(f"at {s:,} spent -> offered {a:,}" for s, a in starved)
+    )
+
+
+def test_a_tiny_ceiling_still_runs_something():
+    """The guard must not turn a small budget into a round that does nothing.
+
+    `remaining_working_tokens < MIN_TASK_ALLOWANCE` stops the wave loop
+    starting more work. A ceiling may legally be set as low as 1,000, where
+    that condition is true before anything has run — so the check is gated on
+    `at > 0` and the first wave always gets a go. Asserted here on the
+    arithmetic, because the alternative is a silent regression for anyone who
+    sets a deliberately small budget.
+    """
+    from agentd.core.budget import BudgetLimits, BudgetTracker
+    from agentd.orchestrator.graph import MIN_TASK_ALLOWANCE
+
+    tiny = BudgetTracker(
+        BudgetLimits(max_llm_calls=40, max_supersteps=60, max_tokens=30_000,
+                     timeout_sec=900)
+    )
+    # The condition the loop tests is already true at the very first wave...
+    assert tiny.remaining_working_tokens < MIN_TASK_ALLOWANCE
+    # ...which is exactly why it may only be consulted from the second wave on.

@@ -4907,6 +4907,87 @@ build put on disk, and both halves of the key are `88bb20420e628b18`. The tag
 resolves to `54643c5`, which is HEAD - the thing `--target` exists to
 guarantee, and which four releases got wrong before it was added.
 
+### The app rationed a task below one of its own replies, then blamed the agent
+
+Reported as *"it keeps failing"* over a ZenBrew run: three rounds, 576,308
+tokens, and the same build tasks red in every one. The complaint was precise
+and worth quoting - not minding a round that runs out, minding that **the
+plan the model wrote for itself comes back failed**.
+
+Two constants, written independently, that cannot both be right:
+
+    MIN_TASK_ALLOWANCE   12,000   what a whole task may spend
+    MAX_TOKENS_PER_TASK  16,384   what ONE reply's output may be
+
+**The floor for a whole task was smaller than the cap on a single reply.**
+
+What it did, off that mission's log: **14 of 17 task starts got the floor**,
+and every `task_produced_nothing` is immediately preceded by a
+`task_budget_spent` from the same agent. The chain is always the same - out of
+ration, cut off, no answer, `failed`. The failures had **2-3 replies** against
+**4-6** for the tasks that succeeded: a build task spends its first replies
+looking at the workspace, so it was stopped before it ever wrote. Then the
+runtime said *"Cedar returned no usable answer"* about a turn this app had
+stopped.
+
+A second fault compounded it. Each round's **first** task was granted a large
+allowance and then *overshot* it - 65,894 granted and 88,000 spent, 85,462
+granted and 119,584 spent - because the ceiling is tested before a round, not
+during one. So one task took half the round and everything behind it sat on
+the floor.
+
+**The fix is to stop having two numbers for one idea.** Both are now derived:
+
+    MIN_TASK_ALLOWANCE     = 2 * MAX_TOKENS_PER_TASK    (one reply to look,
+    RESERVE_PER_QUEUED_TASK = MIN_TASK_ALLOWANCE         one to write)
+
+The reserve was 20,000 per queued task in order to hand each of them a floor
+of 12,000 - the withholding was sized for a task that does not exist. And the
+floor is a **ceiling, not an allocation**: a task needing less simply uses
+less, so raising it costs nothing except through the reserve, which is why
+the two have to move together.
+
+**And a task that cannot be funded is no longer started.** `work_exhausted`
+only fires when the working share is *gone*; between "plenty" and "gone" is a
+band where a task is started on a ration it cannot deliver with. It is left
+`pending` instead, which `unfinished_note` already reports as never started -
+true, and the outcome the person said they were fine with. Gated on `at > 0`
+so the first wave always runs: a ceiling may legally be 1,000, and a guard
+that started nothing would be worse than the fault.
+
+Replayed against the real log, round by round:
+
+    as shipped   15 tasks started, 12 of them below one reply's own cap
+    with the fix 11 tasks started,  0 below it, 6 left for a next round
+
+What the replay **cannot** say is whether a task given more would have
+finished; the log only records what each spent when it was cut off. So the
+claim is the narrow one: the app no longer starts work it has already decided
+not to pay for.
+
+**The first version of the regression test passed on the broken code.** It
+walked eight tasks spending the floor each time - and spending 12,000 a task
+never depletes 176,000, so the starvation never appeared. It is built from the
+run's real cumulative spends now, and fails naming all seven starved starts
+with their figures. The same trap this file records twice already: a test
+written from the same assumption as the code proves nothing.
+
+**One existing test failed, correctly.** `test_the_real_run_would_have_had_
+room_for_all_four` pinned `first == 140_000`, which was the old reserve
+arithmetic. The property it exists for - the implementation keeps the lion's
+share rather than being squeezed into a four-way split - is unchanged, and the
+three reviews are better off: 98,304 between them instead of 60,000, where
+20,000 each was itself below a workable turn. It asserts the property now.
+
+**What this does not fix, and is the honest half of the answer.** 200,000 for
+an eight-task web build is too small whatever the rationing. Eight tasks at
+the new floor is 262,144 before the wrap-up reserve, and that run's own first
+tasks spent 88,000 and 119,584 each. The tiers are 100k / 200k / 600k / 1.5M
+and this was t2; t3 is the one that fits, and its `max_llm_calls` of 120
+matters too, because t2's 40 becomes the next binding limit as soon as tasks
+have room to use the calls. No amount of dividing a budget makes it bigger -
+this file said so once already and it is still true.
+
 ---
 
 ## Decisions made while building
