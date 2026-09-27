@@ -144,6 +144,11 @@ class BudgetTracker:
     #: While True, the four checks below behave as though the wrap-up's share
     #: were already spent, so the work phase stops before eating it.
     _holding_back: bool = field(default=True, init=False)
+    #: The ceiling each limit is checked against once the wrap-up has been
+    #: released, or None while the team is still working. See
+    #: `release_reserve` - this is what makes a handover certain rather than
+    #: likely, and it is deliberately *not* what gets reported.
+    _wrapup_ceiling: dict[str, float] | None = field(default=None, init=False)
     #: Which limit ended the work phase, if one did. Read by the runner, which
     #: has to record `budget_exceeded` even though the graph then reached its
     #: end normally and wrote a summary.
@@ -177,7 +182,10 @@ class BudgetTracker:
 
     @property
     def remaining_tokens(self) -> int:
-        return max(0, self.limits.max_tokens - self.tokens_used)
+        """What may still be spent, which during the wrap-up includes the
+        reserve — otherwise `clamp_max_tokens` would hand the summary turn a
+        cap of zero on exactly the run that needs it."""
+        return max(0, int(self._ceiling("tokens", self.limits.max_tokens) - self.tokens_used))
 
     @property
     def remaining_working_tokens(self) -> int:
@@ -252,6 +260,21 @@ class BudgetTracker:
             ("time", self.elapsed_sec, self.limits.timeout_sec),
         ]
 
+    def _ceiling(self, kind: str, limit: float) -> float:
+        """The number *enforcement* compares against, which is not always the
+        number the person set.
+
+        They are the same for the whole of the working phase. They differ only
+        after `release_reserve`, and only by the reserve - see there.
+
+        Reporting never comes through here: `snapshot`, `warnings` and the
+        `BudgetExceeded` a run is recorded with all carry `limits`, so the
+        timeline still says `76839/60000` and means it.
+        """
+        if self._wrapup_ceiling is None:
+            return limit
+        return self._wrapup_ceiling.get(kind, limit)
+
     def _reserve(self) -> dict[str, float]:
         """What to hold back from each limit, sized to the limit.
 
@@ -294,18 +317,52 @@ class BudgetTracker:
         return None
 
     def release_reserve(self) -> None:
-        """Hand the wrap-up what was held back for it.
+        """Hand the wrap-up what was held back for it, and guarantee it.
 
-        Called once, immediately before the summary turn. The hard limits are
-        untouched: `check` still raises at the ceiling the user actually set,
-        so a summariser that runs away is stopped like anything else.
+        Called once, immediately before the summary turn, and nothing else
+        runs after it.
+
+        **The reserve is now available even when the work phase overshot**,
+        which is the whole point of holding it back. It used to be a share of
+        a ceiling that had already been passed - so on the run this came from
+        the round that most needed to explain itself was the one refused the
+        chance: `check()` raised here and the person got a 218-character
+        machine note instead of a handover.
+
+        Sized as `max(limit, used-now + reserve)`. A run that stopped where it
+        should sees no change at all - `used + reserve` is still under the
+        ceiling, so the ceiling wins and the wrap-up spends inside it. A run
+        that overshot gets exactly the reserve and not a token more.
+
+        Why an overshoot is possible at all, since it is the reason this
+        exists: a call's input and cache-read cost are not known until it
+        returns, and `clamp_max_tokens` bounds only output. One call on a
+        60,000-token run cost 20,476 after the working share was already
+        crossed. No reserve sized for a summary can absorb that, so the
+        choice is between spending a little past the number and losing the
+        account of where the money went.
+
+        **The reported limits do not move.** `snapshot`, `warnings` and the
+        `BudgetExceeded` a run is recorded with all read `limits` directly, so
+        an ending still says `76839/60000` - which is true, and is the thing
+        somebody needs to see.
         """
         self._holding_back = False
+        reserve = self._reserve()
+        self._wrapup_ceiling = {
+            kind: max(limit, used + reserve.get(kind, 0.0))
+            for kind, used, limit in self._usage()
+        }
 
     def check(self) -> None:
-        """Raise if any limit is spent. Call before every LLM call and after."""
+        """Raise if any limit is spent. Call before every LLM call and after.
+
+        Compared against `_ceiling` and *reported* with the limit the person
+        set, so a run that spends into the wrap-up reserve is still recorded
+        against the number they chose.
+        """
         for kind, used, limit in self._usage():
-            if limit > 0 and used >= limit:
+            if limit > 0 and used >= self._ceiling(kind, limit):
                 raise BudgetExceeded(kind, used, limit)
 
     def warnings(self) -> list[dict[str, Any]]:

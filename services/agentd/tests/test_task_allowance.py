@@ -272,3 +272,77 @@ def test_after_the_reserve_is_released_the_two_agree():
     assert t.remaining_working_tokens < t.remaining_tokens
     t.release_reserve()
     assert t.remaining_working_tokens == t.remaining_tokens
+
+
+# ---- the wrap-up is guaranteed its reserve, even past the ceiling --------
+#
+# The choice this encodes: a run that overshoots should still be able to say
+# where the money went. Losing the handover means paying for the overshoot
+# *and* losing the account of it, which is the worst of both.
+
+
+def test_a_run_that_stopped_where_it_should_gets_no_extra():
+    # The common case must be untouched: used + reserve is still under the
+    # ceiling, so the ceiling wins and the wrap-up spends inside it.
+    from agentd.core.budget import WRAPUP_RATIO, WRAPUP_TOKENS
+
+    limit = 1_500_000
+    held = min(WRAPUP_TOKENS, limit * WRAPUP_RATIO)
+    t = tracker(limit, used=int(limit - held))   # stopped exactly on the share
+    t.release_reserve()
+    assert t.remaining_tokens == int(held)
+    assert t.tokens_used + t.remaining_tokens == limit, "must not exceed the ceiling"
+    t.check()  # and it may run
+
+
+def test_a_run_that_overshot_still_gets_the_reserve():
+    """The failure this exists for.
+
+    Measured: a 60,000-token run crossed its 51,000 working share and then
+    spent 20,476 on a single call, ending at 76,839. `check()` raised in
+    `summarise_node` and the round produced a 218-character machine note
+    instead of a handover.
+    """
+    from agentd.core.budget import BudgetExceeded, WRAPUP_RATIO, WRAPUP_TOKENS
+
+    limit = 60_000
+    held = min(WRAPUP_TOKENS, limit * WRAPUP_RATIO)
+    t = tracker(limit, used=76_839)
+
+    # While the team is still working, being over is still over.
+    try:
+        t.check()
+        raise AssertionError("the work phase must still be stopped")
+    except BudgetExceeded:
+        pass
+
+    t.release_reserve()
+    t.check()                                   # the handover may now be written
+    assert t.remaining_tokens == int(held)      # exactly the reserve, no more
+
+
+def test_the_reported_limit_does_not_move():
+    """The record has to keep saying what the person actually set."""
+    from agentd.core.budget import BudgetExceeded
+
+    t = tracker(60_000, used=76_839)
+    t.release_reserve()
+    assert t.snapshot()["tokens"]["limit"] == 60_000
+    assert t.snapshot()["tokens"]["used"] == 76_839
+    # And when the wrap-up itself runs out, the ending names the real number.
+    t.tokens_used = 200_000
+    try:
+        t.check()
+        raise AssertionError("should have raised")
+    except BudgetExceeded as exc:
+        assert exc.limit == 60_000, "an ending must not quote the grace as the limit"
+
+
+def test_the_other_limits_are_guaranteed_too():
+    # A handover needs a call and a superstep, not only tokens. A work phase
+    # that used every call would otherwise still silence it.
+    t = tracker(60_000)
+    t.llm_calls_used = t.limits.max_llm_calls + 5
+    t.supersteps_used = t.limits.max_supersteps + 5
+    t.release_reserve()
+    t.check()
