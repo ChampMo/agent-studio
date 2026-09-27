@@ -162,11 +162,17 @@ that hits the limit is cut off and thrown away, and the work in it is lost.
 
 {strategy}
 
-**Write before you finish investigating.** You get about {rounds} tool calls in
-this turn and then it stops, wherever you are. Reading the workspace spends
-them, and one look-up suggests the next: what you have read is gone when the
-turn ends, and a file on disk is not. So read the few things you need before
-you can start, put something on disk, and look the rest up as you go.
+**Write before you finish investigating.** You get {rounds} replies in this
+turn and then it stops, wherever you are. Reading the workspace spends them,
+and one look-up suggests the next: what you have read is gone when the turn
+ends, and a file on disk is not. So read the few things you need before you
+can start, put something on disk, and look the rest up as you go.
+
+**One reply can ask for several tools at once**, and they all come back
+together. Look-ups that do not depend on each other cost one reply between
+them instead of one each, so ask for everything you already know you need in
+the same reply, and spend a separate reply only on what you could not have
+asked for until you saw the last answer.
 """.strip()
 
 #: The way to build something large when the agent can both create and revise.

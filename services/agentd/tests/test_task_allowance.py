@@ -88,10 +88,13 @@ def test_the_real_run_would_have_had_room_for_all_four():
 
 # ---- and the turn actually stops -----------------------------------------
 
+import asyncio
+import re
+
 import pytest
 
 from agentd.agents.runtime import run_agent_turn
-from agentd.core.budget import BudgetLimits, BudgetTracker
+from agentd.core.budget import BudgetExceeded, BudgetLimits, BudgetTracker
 from agentd.providers.base import (
     Capabilities,
     ChatRequest,
@@ -346,3 +349,138 @@ def test_the_other_limits_are_guaranteed_too():
     t.supersteps_used = t.limits.max_supersteps + 5
     t.release_reserve()
     t.check()
+
+
+# ---------------------------------------------------------------------------
+# A wave of parallel tasks shares one BudgetTracker.
+#
+# `spend_ceiling` used to be enforced as `budget.tokens_used - spent_at_start`,
+# and `budget` is the mission's, shared by every task in the wave through
+# `asyncio.gather`. So each sibling's "own" delta was the whole wave's spend.
+#
+# Off the real PARADOX.ART log (seq 1463-1510), the last wave of round 4:
+#
+#     agent-1f50683d  21,635 tokens
+#     agent-fb8b0d01  12,355 tokens
+#     combined        33,990
+#
+#     seq 1501  task_budget_spent  "... its share of the run's budget (33,990
+#     seq 1508  task_budget_spent  "... its share of the run's budget (33,990
+#
+# Both were stopped, and both reported the *combined* figure as their own.
+# The identical pair, re-run sequentially as round 5, both finished — at
+# 1,880,269 tokens. The defect cost an entire round.
+
+
+class Steady:
+    """One tool call per round at a known, fixed cost."""
+
+    kind = "openai_compatible"
+
+    def __init__(self, per_round: int):
+        self.calls = 0
+        self.per_round = per_round
+
+    async def stream(self, req: ChatRequest, caps: Capabilities):
+        self.calls += 1
+        # A real provider awaits the network on every chunk, so sibling turns
+        # in a wave genuinely interleave. Without this the fake runs straight
+        # through, `gather` finishes one turn before starting the next, and
+        # the shared-counter bug cannot show — the first version of these
+        # tests passed on the broken code for exactly that reason.
+        await asyncio.sleep(0)
+        yield ToolCallChunk(call_id=f"c{self.calls}", name="noop", arguments_json="{}")
+        await asyncio.sleep(0)
+        yield DoneChunk("tool_use", Usage(input_tokens=self.per_round, output_tokens=0))
+
+    async def aclose(self):
+        return None
+
+
+async def _turn(budget, model, agent_id, spend_ceiling):
+    out = []
+    async for item in run_agent_turn(
+        provider=model,
+        caps=Capabilities(tool_calling=True),
+        request=ChatRequest(model="m", messages=[Message("user", "go")], max_tokens=100),
+        mission_id="m-1",
+        agent_id=agent_id,
+        budget=budget,
+        tools=one_tool(),
+        spend_ceiling=spend_ceiling,
+    ):
+        out.append(item)
+    return out
+
+
+def _shared_budget():
+    return BudgetTracker(
+        BudgetLimits(
+            max_llm_calls=5_000,
+            max_supersteps=5_000,
+            max_tokens=100_000_000,
+            timeout_sec=600,
+        )
+    )
+
+
+async def test_a_wave_is_bounded_collectively_not_per_task():
+    """The invariant that had no test, and that a "fix" nearly removed.
+
+    `queued_after` counts only *later* waves (graph.py), so every task in the
+    current wave is handed the whole working remainder as its ceiling. The
+    only thing stopping a wave of N spending N x that remainder is that
+    `spend_ceiling` differences the *shared* tracker — so the siblings stop
+    collectively at one allowance.
+
+    `test_spending_the_whole_allowance_leaves_the_run_under_its_ceiling`
+    covers `queued_after=0`, one task. This is the parallel case, and its
+    absence is why counting each turn separately looked like a tidy-up.
+    """
+    budget = _shared_budget()
+    a, b = Steady(1_000), Steady(1_000)
+    await asyncio.gather(
+        _turn(budget, a, "a-1", 10_000), _turn(budget, b, "a-2", 10_000)
+    )
+    # Together, not each: ~10,000 between them, not 10,000 apiece.
+    assert budget.tokens_used <= 12_000, (
+        f"the wave spent {budget.tokens_used:,} against one task's 10,000 "
+        "allowance — the wave is no longer collectively bounded"
+    )
+    assert a.calls + b.calls <= 12
+
+
+async def test_the_reported_figure_is_this_task_s_own_spend():
+    """Enforcement is collective; the sentence is personal.
+
+    On the real run two siblings spending 21,635 and 12,355 were each told
+    they had used "(33,990 tokens)" — the pair's total, printed twice as a
+    personal figure. The bound was right; the number in the message was
+    false of the task it was attached to.
+    """
+    budget = _shared_budget()
+    fast, slow = Steady(2_500), Steady(700)
+    out = await asyncio.gather(
+        _turn(budget, fast, "a-1", 6_000), _turn(budget, slow, "a-2", 6_000)
+    )
+
+    def figure(items):
+        for i in items:
+            if i.get("type") == "error" and i["payload"].get("code") == "task_budget_spent":
+                return int(
+                    re.search(r"\(([\d,]+) tokens\)", i["payload"]["message"])
+                    .group(1)
+                    .replace(",", "")
+                )
+        return None
+
+    said_fast, said_slow = figure(out[0]), figure(out[1])
+    assert said_fast is not None and said_slow is not None
+    # Each says what it actually spent, so the two cannot agree.
+    assert said_fast == fast.calls * 2_500
+    assert said_slow == slow.calls * 700
+    assert said_fast != said_slow, (
+        f"both tasks reported {said_fast} — that is the shared-counter bug"
+    )
+    # And neither claims the pair's total as its own.
+    assert said_fast + said_slow == budget.tokens_used

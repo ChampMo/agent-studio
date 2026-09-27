@@ -42,7 +42,7 @@ from collections.abc import AsyncIterator, Mapping
 from contextlib import aclosing
 from typing import Any
 
-from ..core.budget import BudgetTracker
+from ..core.budget import BudgetTracker, tokens_in
 from ..providers.base import (
     Capabilities,
     ChatRequest,
@@ -160,7 +160,33 @@ async def run_agent_turn(
 
     final_done: DoneChunk | None = None
 
+    #: Where the wave's collective ceiling is measured from.
+    #:
+    #: This is the mission-wide tracker on purpose, and it is load-bearing.
+    #: `queued_after` counts only *later* waves, so `task_allowance` hands
+    #: every task in the current wave the entire working remainder. The
+    #: shared counter is therefore the only thing that stops a wave of N
+    #: spending N times that remainder: differencing a global makes the
+    #: siblings stop *collectively* at one allowance.
+    #:
+    #: Counting each turn separately here was tried and reverted. On the real
+    #: round it would have taken the wave from 2,977,297 to 3,011,287 against
+    #: a 3,000,000 ceiling — eating the wrap-up reserve and turning a round
+    #: recorded `failed` *under* budget into `budget_exceeded` *over* it,
+    #: with no handover. That is the exact failure `remaining_working_tokens`
+    #: was written to fix.
     spent_at_start = budget.tokens_used
+
+    #: What *this turn alone* has spent. Reporting only — never enforcement.
+    #:
+    #: Both halves of that matter. The wave is bounded collectively (above),
+    #: but the sentence in `task_budget_spent` is about one task, so it has
+    #: to be one task's number. It said otherwise: on the run that found this
+    #: two siblings spending 21,635 and 12,355 were each told they had used
+    #: "(33,990 tokens)" — the pair's total, reported twice as a personal
+    #: figure. Same shape as "was stopped after 120s" printed beside
+    #: `durationMs: 789197` (PROJECT_BRIEF 1).
+    spent_here = 0
     overspent = False
 
     #: Extra room bought by a round that came back with nothing at all. See
@@ -247,7 +273,11 @@ async def run_agent_turn(
 
         final_done = done
         usage = done.usage if done else None
-        warnings = budget.record_call(usage.to_event_usage() if usage else None)
+        event_usage = usage.to_event_usage() if usage else None
+        warnings = budget.record_call(event_usage)
+        # Counted with the same function the guard uses, so a turn's own tally
+        # and the mission's can never mean different things by "a token".
+        spent_here += tokens_in(event_usage)
 
         text = "".join(parts)
 
@@ -391,8 +421,8 @@ async def run_agent_turn(
                 # exactly the limit. Reaching a ceiling is the only fact
                 # available here (§1).
                 "message": (
-                    f"reached the limit of {MAX_TOOL_ROUNDS} rounds of tool "
-                    "calls and was stopped with the task unfinished"
+                    f"reached the limit of {MAX_TOOL_ROUNDS} replies in one "
+                    "turn and was stopped with the task unfinished"
                 ),
                 "recoverable": True,
             },
@@ -408,7 +438,7 @@ async def run_agent_turn(
                 "code": "task_budget_spent",
                 "message": (
                     f"this task used its share of the run's budget "
-                    f"({budget.tokens_used - spent_at_start:,} tokens) and was "
+                    f"({spent_here:,} tokens) and was "
                     "stopped so the rest of the plan could still run"
                 ),
                 "recoverable": True,

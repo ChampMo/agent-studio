@@ -160,3 +160,42 @@ def test_the_raw_template_is_never_what_an_agent_gets():
 
     assert "{rounds}" in FILE_DELIVERABLE_RULE
     assert FILE_DELIVERABLE_RULE != file_deliverable_rule({"write_file", "edit_file"})
+
+
+# ---------------------------------------------------------------------------
+# What the rule says about the round budget has to be what the loop enforces.
+#
+# It said "You get about 24 tool calls in this turn". `MAX_TOOL_ROUNDS` bounds
+# `for _round in range(MAX_TOOL_ROUNDS)` — one iteration is one model *reply*,
+# and a reply may carry any number of calls. On the PARADOX.ART run the mean
+# was 1.56 calls per reply (523 calls across 336 replies; 41% of replies
+# carried two), so an agent reaching the cap got about 37 calls, not 24.
+#
+# The app was understating its own budget by a third, in the direction that
+# makes an agent hurry — and the same paragraph tells it to write early
+# *because* the budget is tight. A number the app enforces must be described
+# by the noun it actually counts (PROJECT_BRIEF 1).
+
+
+def test_the_rule_counts_replies_not_tool_calls():
+    from agentd.tools.execution import MAX_TOOL_ROUNDS, file_deliverable_rule
+
+    rule = file_deliverable_rule({"write_file", "edit_file"})
+    assert f"{MAX_TOOL_ROUNDS} replies" in rule
+    # The old wording, which was false about this app's own loop.
+    assert "tool calls in this turn" not in rule
+
+
+def test_the_rule_says_a_reply_may_carry_several_calls():
+    """The consequence, not just the correction.
+
+    Knowing the unit is a reply is only useful alongside the fact that a
+    reply can hold more than one call — otherwise "24 replies" reads as a
+    tighter budget than "24 tool calls" and the correction costs the agent
+    room rather than giving it any.
+    """
+    from agentd.tools.execution import file_deliverable_rule
+
+    for tools in ({"write_file", "edit_file"}, {"write_file"}, {"edit_file"}):
+        rule = file_deliverable_rule(tools)
+        assert "several tools at once" in rule, tools

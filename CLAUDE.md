@@ -4526,6 +4526,136 @@ version bump; every other release wrote it *after* shipping, which is why it
 was true every other time. The convention is restored, and this entry is
 written after the fact.
 
+### Asked to make it cheaper, and the honest answer was almost entirely no
+
+`PARADOX.ART` finished at **11,717,738 tokens over five rounds** — 579,477
+input, 613,845 output, **10,524,416 cache reads (89.8%)**, zero cache writes.
+Four independent investigations proposed 39 ways to spend less. Every proposal
+was then handed to an agent told to refute it. **25 checked, 0 survived.**
+
+That is the result, not a failure of the pass. Three things kept killing them:
+
+**The 89.8% is cheap.** A cache read is priced at 0.1x input in this repo's own
+`pricing.json`, so every lever aimed at the big number is aimed at the
+discounted part of the bill. And trimming it is worse than neutral: stubbing
+old tool results edits the message history, which **breaks the prefix that
+makes those tokens cheap in the first place**. The arithmetic in those
+proposals reproduces exactly and is honest about the wrong quantity.
+
+**Several "findings" were the file already.** "Do not lower
+`MAX_TOOL_ROUNDS`", "do not lower `DEFAULT_READ_LIMIT`", "do not gate `bash`"
+— all correct, all already argued in the docstrings above the constants they
+name. A pass that rediscovers the comments is worth recording as a pass that
+found nothing.
+
+**And the tempting lever was measured backwards.** This file guessed that
+`read_file`'s 2000-line default was "probably the cheaper lever". It never
+bound on this run at all; read-only rounds are ~35% of assembled context, and
+a lower cap turns one read into several *rounds*, which is the multiplier
+being optimised. The driver is round count against a **10.6x** re-send
+multiplier, and `MAX_TOOL_ROUNDS` 12 -> 24 doubled the worst case on purpose.
+
+### The evidence reproduced and my diagnosis was still backwards
+
+The one proposal I acted on before the refutation came back. Off the log, round
+4's last wave:
+
+    agent-1f50683d  21,635 tokens
+    agent-fb8b0d01  12,355 tokens
+    combined        33,990
+
+    seq 1501  task_budget_spent  "... its share of the run's budget (33,990
+    seq 1508  task_budget_spent  "... its share of the run's budget (33,990
+
+Two siblings, different spends, **both stopped reporting the pair's total as
+their own**. `spend_ceiling` differences `budget.tokens_used`, which is
+mission-wide, and `asyncio.gather` runs a wave against one tracker. I made the
+turn count itself instead, wrote three tests, proved two of them failed on the
+old code, and ran 759 green.
+
+It was the wrong change, and the reason is one line I had not read.
+`queued_after` counts only **later** waves, so `task_allowance` hands *every*
+task in the current wave the entire working remainder. **The shared counter is
+the only thing bounding a wave collectively.** Removing it lets N siblings
+spend N times that remainder. On the real round: 2,977,297 + 33,990 =
+**3,011,287 against a 3,000,000 ceiling** — the wrap-up reserve eaten and a
+round recorded `failed` *under* budget turned into `budget_exceeded` *over*
+it, with no handover. That is precisely the failure `remaining_working_tokens`
+was written to fix two releases ago.
+
+The saving would also have been ~0. Round 5 re-ran those two tasks and needed
+**1,880,269** tokens; the change buys them 33,990 between them, 1.8%, inside a
+round with 57,990 left. Round 5 was unavoidable either way.
+
+**My own reassurance test was the tell.** `test_..._still_stops_a_runaway_wave`
+asserted `BudgetExceeded` is raised — and `BudgetExceeded` ending the run is
+the exact outcome `spend_ceiling` and the reserve exist to *prevent*. I wrote a
+test that asserted the bad ending and read it as proof the fix was safe.
+
+So enforcement is back on the shared counter with the reasoning written beside
+it, and **only the true half is kept**: `spent_here` tallies the turn's own
+spend and is used for the *message* and nothing else. The bound is collective
+because the allowance is collective; the sentence is personal because it is
+about one task. Saying "(33,990 tokens)" to a task that spent 21,635 is the
+record stating a number that is false of what it is attached to — the same
+shape as "was stopped after 120s" beside `durationMs: 789197`.
+
+**The invariant had no test, which is why this looked like a tidy-up.**
+`test_spending_the_whole_allowance_leaves_the_run_under_its_ceiling` covers one
+task with `queued_after=0`. The parallel case is now covered, and it fails on
+the rejected change with `the wave spent 20,000 against one task's 10,000
+allowance` — two tasks, exactly 2x, as predicted before it was run.
+
+**And the first version of those tests passed on the broken code.** The fake
+provider never awaited anything, so `gather` ran each turn end to end and the
+siblings never interleaved. A fake that models a real provider has to yield to
+the loop; without `await asyncio.sleep(0)` the bug is unreachable and three
+green tests prove nothing.
+
+### A number I was about to write down, off by 2.1x
+
+I costed the run as 2,245,764 priced-equivalent against 11,717,738 guard
+tokens — **5.22x** — and nearly recorded that the guard overstates money
+five-fold. It applies `cache_read_multiplier` 0.1 while leaving output at 1.0:
+the discount taken, the premium ignored. **Every one of the eight models in
+`pricing.json` prices output at exactly 5x input.** Weighted consistently the
+figure is 4,701,144 and the ratio is **2.49x**, and DeepSeek is not in that
+table at all, so for this run even 2.49x is hypothetical.
+
+`TOKEN_FIELDS` counting all four at 1.0 stays. Its comment already says why —
+cache reads "still consume context" — and a ceiling measuring context is a
+defensible thing for a ceiling to measure. Reweighting it to an approximation
+that does not apply to the endpoint actually in use would be trading a stated
+choice for a guess.
+
+### The prompt was wrong about the app's own loop
+
+`FILE_DELIVERABLE_RULE` said *"You get about 24 tool calls in this turn"*.
+`MAX_TOOL_ROUNDS` bounds `for _round in range(MAX_TOOL_ROUNDS)` — one iteration
+is one model **reply**, and a reply may carry any number of calls. Measured on
+this run: **523 calls across 336 replies, mean 1.56**, 41% of replies carrying
+two and one carrying five. So an agent that reached the cap got about 37 calls
+and had been told it would get 24.
+
+Understated by a third, in the direction that makes an agent hurry — and the
+same paragraph tells it to write early *because* the budget is tight. The
+number reached the model from the constant that enforces it, exactly as
+intended; the noun beside it was not the one being counted.
+
+It says `replies` now, and says that a reply can ask for several tools at once
+and that independent look-ups cost one reply between them. **No saving is
+claimed.** The model already batches — 1.56 is not 1.0 — so the tempting "47%
+if every two replies were merged" is a counterfactual ceiling, not a
+prediction. This is a §1 fix: the app must not assert what is not so about
+itself.
+
+It is not free, and the cost is the honest thing to put next to a change with
+no measured benefit: the paragraph adds **332 characters (~83 tokens)** to the
+opening prompt of every agent holding a file tool, re-sent on every reply.
+Against the measured run that is ~27,888 tokens, **0.238%**. Cheap enough that
+a true statement wins, and small enough that nobody should expect to see it in
+a total.
+
 ---
 
 ## Decisions made while building
@@ -4892,14 +5022,22 @@ the forward-compat test points.
   request, and the obvious fix does not apply as written — `system` is passed
   as a plain string at `anthropic_provider.py:101`, which takes no
   `cache_control`, so it has to become a block list first.
-- **Nothing trims a turn's conversation.** Every tool result stays in the
-  prompt for every later round of that turn, so reading a 68KB document once
-  is paid for on each of the next twenty rounds. On PARADOX.ART that was 40%
-  of a 4.5M-token run. Nothing accumulates *across* tasks — each starts
-  fresh — so this is a per-turn cost, and the cheaper lever is probably
-  `read_file` (its 2000-line default makes "the whole document" the default)
-  rather than trimming the conversation, which would change what the model
-  has been told without telling it.
+- **Nothing trims a turn's conversation, and the measured answer is to leave
+  it alone.** Every tool result stays in the prompt for every later round of
+  that turn. The finished PARADOX.ART run is **11,717,738 tokens over five
+  rounds**, 89.8% of it `cacheReadTokens` — the earlier "40% of a 4.5M-token
+  run" described a snapshot three rounds in and is not this run as it stands.
+  A four-way optimisation pass costed every trimming lever on that run and
+  **not one survived refutation**: the tokens a sliding window removes are
+  cache reads at 0.1x, and editing the message history breaks the prefix that
+  makes them cheap, so the arithmetic is honest about the wrong quantity.
+  The guess recorded here that `read_file`'s 2000-line default was "probably
+  the cheaper lever" is **wrong and measured wrong** — the default never bound
+  on this run, read-only rounds are ~35% of assembled context, and lowering it
+  converts one read into several rounds, which is the quantity being
+  optimised. What actually drives 89.8% is the round count against a 10.6x
+  re-send multiplier, and `MAX_TOOL_ROUNDS` 12 -> 24 doubled the worst case
+  deliberately. No change is proposed; this item now records a result.
 - **A provider call that stops producing is bounded by nothing we set.** Seen
   once, not reproduced: a task sat `running` for 34 minutes with no event on
   the log, and `POST /cancel` ended it instantly — so the coroutine was alive
