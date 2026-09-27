@@ -543,7 +543,7 @@ web tool and a way to change things, and suggests splitting the roles; and
 because the backend on loopback holds the user's keys.
 
 
-**Released: v0.3.2** (2026-09-27). v0.2.0 was the first build that could update
+**Released: v0.3.3** (2026-09-27). v0.2.0 was the first build that could update
 itself and the first that drew no room; it is marked superseded on its own
 release page rather than left to be downloaded.
 
@@ -4848,6 +4848,64 @@ props type, not the function. It was reading a signature and asserting about a
 body. Same family as the `themeTokens` test that matched a comment instead of
 a declaration: *if a test parses source, the parsing is the thing most likely
 to be wrong.*
+
+### v0.3.3, and a check that reported on somewhere else
+
+Both stages inside the packaged binary, against the real endpoint.
+
+**A - a whole mission to `ended`.** `completed`, 3 of 3 tasks, 80 events, zero
+internal errors, zero planning failures, and `DESIGN.md` on disk with the
+colour and font read out of the workspace.
+
+**B - the two reported actions, driven for real.** This release fixes a UI
+fault, so a mission finishing proves nothing about it: every DOM assertion
+stayed true while the app sat 1,318px off screen. The assertions had to be
+the scroll position and the document height.
+
+**And B failed first, on the harness.** It reported `foundEditFile: false`
+beside `headingChangedATool: true` - which reads as "the fix did not work"
+and was nothing of the kind. The card selector was
+
+    menu.closest('[class*="rounded"], li, article')
+
+and the *menu button's own* class is `rounded-card`, so `closest` matched the
+button it started from, clicked nothing, and measured whatever page it was
+already on. Thirteen checkboxes happened to be there, so the guard passed.
+
+The fix to the harness is the part worth keeping: it now **proves where it is
+before it measures**, listing the real tool ids and refusing outright -
+*"not the tool list - refusing to report a verdict"* - rather than reporting
+one it has not earned. Re-run that way, every check passed against the
+packaged build: nested labels 0, `role="group"` present, `overflow: clip`,
+document 860 = viewport 860, the heading grants nothing, ticking `edit_file`
+works and leaves `scrollTop` at 0, and the agent is left exactly as found.
+
+Third time this project has been handed a false negative by its own checker -
+the v0.2.7 rehearsal that matched a payload it had already truncated, the
+`themeTokens` test that matched a comment instead of a declaration, and now a
+selector that matched its own starting element. **A checker that cannot say
+where it is measuring is measuring something else.**
+
+### The version was in two files and the procedure named one
+
+`ProductVersion` read 0.3.3 and the build log said `Compiling agent-studio
+v0.3.2`. Both were true: `tauri.conf.json` drives the bundle and the number an
+installed copy compares, while `src-tauri/Cargo.toml` is the crate version.
+
+Every release from v0.2.5 to v0.3.2 moved the two together - by habit, because
+step 1 of the procedure here named only `tauri.conf.json`. The artifact would
+have been correct either way; what would have shipped is a build log that
+disagrees with the release it came from, for no reason. Rebuilt with both
+aligned, and the step now names both.
+
+**Verified from outside afterwards**, the way an installed copy does it rather
+than the way the build does: the manifest at
+`releases/latest/download/latest.json` is byte-identical to what the build
+wrote, the installer is 36,014,612 bytes at
+`440680eb...8ce4` matching the notes, the manifest's signature is the one the
+build put on disk, and both halves of the key are `88bb20420e628b18`. The tag
+resolves to `54643c5`, which is HEAD - the thing `--target` exists to
+guarantee, and which four releases got wrong before it was added.
 
 ---
 
