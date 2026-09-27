@@ -717,3 +717,44 @@ async def test_closing_the_generator_stops_the_graph():
     # Nothing left running.
     await asyncio.sleep(0)
     assert True
+
+
+# A pause does not owe an account of itself; an ending does.
+#
+# The handover exists because the next round used to re-plan from nothing and
+# would know only the goal. When the plan carries over that reason expires —
+# the tasks, their instructions, their seats and their states already say
+# where things got to — so a round pausing mid-plan skips the leader's turn.
+#
+# Caught by the v0.3.5 release check, which asserted this against the packaged
+# build and found the leader had written 1,564 characters anyway.
+
+
+async def test_a_round_that_pauses_mid_plan_writes_no_leader_summary():
+    budget = BudgetTracker(limits(max_llm_calls=2))
+    items = sequenced(await drain(TeamModel(), roster_of_three(), budget=budget))
+
+    assert budget.stopped_early is not None, "this fixture must stop early"
+    # On the stream, because that is where the runner reads a round's
+    # summary from — the last . A version of this that only
+    # returned the sentence in the node's state left the round reporting
+    # whichever worker spoke last.
+    msgs = [i for i in items if i["type"] == "agent.message"]
+    assert msgs, "the graph emitted no messages at all"
+    last = msgs[-1]["payload"]["content"]
+    assert "Paused" in last, last[:200]
+    assert "on the same plan" in last
+
+
+async def test_a_round_that_finishes_its_plan_still_summarises():
+    """`stopped_early` is not the only condition — there has to be work left.
+
+    A run that spends its budget on the very last task has stopped early and
+    has nothing outstanding, and that is an ending: somebody wants the final
+    answer. Skipping it there would lose the one thing the summary is for.
+    """
+    budget = BudgetTracker(limits())
+    items = sequenced(await drain(TeamModel(), roster_of_three(), budget=budget))
+    msgs = [i for i in items if i["type"] == "agent.message"]
+    assert msgs
+    assert "Paused" not in msgs[-1]["payload"]["content"]

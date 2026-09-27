@@ -1221,15 +1221,32 @@ def _build_graph(
         finished = sum(1 for r in results if r.get("ok"))
         left = planned - finished
         if budget.stopped_early is not None and left > 0:
-            return {
-                "summary": (
-                    f"Paused — {left} task{'' if left == 1 else 's'} of "
-                    f"{planned} still to do, on the same plan. "
-                    "Nothing was re-planned and no summary was written: the "
-                    "plan and its task states are the account of where this "
-                    "got to."
+            # **Emitted, not just returned.** The runner takes a round's
+            # summary from the last `agent.message` on the stream and never
+            # reads this node's state, so the first version of this set a
+            # field nothing consumes — and the round's account became
+            # whichever worker happened to speak last. The release check
+            # caught it saying "A4.md is written: aspect 4 (the gap..." as if
+            # that were the leader's report on the round.
+            #
+            # Skipping the model is the point; skipping the *message* is not.
+            paused = (
+                f"Paused — {left} task{'' if left == 1 else 's'} of "
+                f"{planned} still to do, on the same plan. "
+                "Nothing was re-planned and no summary was written: the plan "
+                "and its task states are the account of where this got to."
+            )
+            await emit(
+                _draft(
+                    "agent.message",
+                    {
+                        "agentId": leader.agent_id,
+                        "messageId": f"paused-{mission_id}",
+                        "content": paused,
+                    },
                 )
-            }
+            )
+            return {"summary": paused}
 
         # A task that produced nothing is reported as such rather than left as a
         # blank the leader has to guess at -- and guessing is how a summary ends
