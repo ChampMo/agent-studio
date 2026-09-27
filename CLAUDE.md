@@ -543,7 +543,7 @@ web tool and a way to change things, and suggests splitting the roles; and
 because the backend on loopback holds the user's keys.
 
 
-**Released: v0.3.4** (2026-09-27). v0.2.0 was the first build that could update
+**Released: v0.3.5** (2026-09-28). v0.2.0 was the first build that could update
 itself and the first that drew no room; it is marked superseded on its own
 release page rather than left to be downloaded.
 
@@ -5119,6 +5119,44 @@ surviving means the tail eventually runs rather than being re-proposed for
 ever; it does not make a round cheaper. The measured driver — each round
 re-reading the whole workspace through the shell — is untouched, and the
 levers for it were refuted in an earlier pass for reasons that still hold.
+
+### v0.3.5, and the check that failed on its own headline
+
+Both stages inside the packaged binary. Stage A, the standing rule: a whole
+mission to `ended`, no internal errors. Stage B, this release's headline,
+which a completing mission proves nothing about — so a round is given a
+budget too small for its plan, then resumed:
+
+    round 1  planned 7, finished 5, paused with 2 left
+    resume   202
+    round 2  ran ["t6","t7"] — the same ids, not the five already done
+             fresh plan messages in the whole run: 1
+
+**And it failed the first time**, on the one assertion the release is for:
+the paused round wrote a **1,564-character leader summary** when the whole
+point is that it writes none.
+
+The skip had fired. The other half had not. `summarise_node` returned the
+pause sentence in the node's state — and the runner does not read that. It
+takes a round's summary from the **last `agent.message` on the stream**
+(`runner.py:1146`), so with no leader message emitted the round's account
+became whichever worker happened to speak last: *"A4.md is written: aspect 4
+(the gap…"*, presented as the leader's report.
+
+That is worse than not making the change at all, and only the packaged check
+would have found it — every unit test passed. Skipping the model is the
+point; skipping the message is not.
+
+**The regression test looked in the wrong place first**, and failed for the
+wrong reason: it asserted on `mission.ended`, which the graph never publishes
+— the runner does. Reading the stream instead, it fails on the old code with
+the round's summary being the *plan text*.
+
+One more thing the check surfaced, working as designed: the rebuild after the
+fix died with `PermissionDenied`, because the app launched for stage B was
+still holding `agent-studio.exe`. Windows locks the image of a running
+process, and the build refusing is the reason a release cannot quietly ship
+yesterday's backend.
 
 ---
 
