@@ -203,3 +203,72 @@ async def test_running_out_of_money_and_running_out_of_ideas_are_told_apart():
     codes = [i["payload"].get("code") for i in items if i.get("type") == "error"]
     assert "tool_rounds_exhausted" in codes
     assert "task_budget_spent" not in codes
+
+
+# ---- the reserve must not be inside what a task may spend ----------------
+#
+# Measured on a clean re-run of the same brief, and the run contains both
+# halves of the experiment:
+#
+#   round 1  stopped at 1,533,389 / 1,500,000  -> no handover at all
+#   round 2  stopped at 1,485,441 / 1,500,000  -> a full 4,195-char handover
+#
+# Round 1 went past the ceiling because one task was handed 1,317,230 tokens
+# (`task_budget_spent` at seq 193). `task_allowance` was being given
+# `remaining_tokens`, which is the raw distance to the ceiling and therefore
+# includes the wrap-up reserve. The task spent it, `work_exhausted` fired
+# after the fact, and `release_reserve` had nothing to release.
+
+
+def tracker(limit, used=0):
+    from agentd.core.budget import BudgetLimits, BudgetTracker
+
+    t = BudgetTracker(BudgetLimits(max_tokens=limit, max_llm_calls=300,
+                                   max_supersteps=300, timeout_sec=7200))
+    t.tokens_used = used
+    return t
+
+
+def test_the_working_remainder_holds_the_reserve_back():
+    from agentd.core.budget import WRAPUP_RATIO, WRAPUP_TOKENS
+
+    t = tracker(1_500_000)
+    held = min(WRAPUP_TOKENS, 1_500_000 * WRAPUP_RATIO)
+    assert t.remaining_tokens == 1_500_000
+    assert t.remaining_working_tokens == 1_500_000 - held
+
+
+def test_a_lone_task_cannot_be_offered_the_reserve():
+    # The shape of the real failure: one task, nothing queued behind it, so
+    # `task_allowance` returns the whole remainder it is given.
+    t = tracker(1_500_000)
+    allowed = task_allowance(t.remaining_working_tokens, queued_after=0)
+    assert allowed < t.remaining_tokens
+    # Spending every token it is allowed still leaves the wrap-up its share.
+    assert t.limits.max_tokens - allowed >= t.remaining_tokens - t.remaining_working_tokens
+
+
+def test_spending_the_whole_allowance_leaves_the_run_under_its_ceiling():
+    """The property that failed: work must stop below the limit, not past it."""
+    t = tracker(1_500_000)
+    allowed = task_allowance(t.remaining_working_tokens, queued_after=0)
+    t.tokens_used = allowed
+    assert t.tokens_used < t.limits.max_tokens, "the ceiling was crossed by one task"
+    assert t.work_exhausted() is not None, "and the work phase should now stop"
+    # And the summary still has something to spend.
+    t.release_reserve()
+    assert t.remaining_tokens > 0
+
+
+def test_a_small_budget_still_leaves_a_task_able_to_run():
+    # WRAPUP_RATIO exists so a tiny ceiling is not almost entirely reserve.
+    t = tracker(40_000)
+    assert task_allowance(t.remaining_working_tokens, queued_after=0) >= MIN_TASK_ALLOWANCE
+
+
+def test_after_the_reserve_is_released_the_two_agree():
+    # The wrap-up is what the reserve was kept for, so it may have it.
+    t = tracker(1_500_000, used=1_400_000)
+    assert t.remaining_working_tokens < t.remaining_tokens
+    t.release_reserve()
+    assert t.remaining_working_tokens == t.remaining_tokens

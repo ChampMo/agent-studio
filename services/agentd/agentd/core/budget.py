@@ -179,6 +179,30 @@ class BudgetTracker:
     def remaining_tokens(self) -> int:
         return max(0, self.limits.max_tokens - self.tokens_used)
 
+    @property
+    def remaining_working_tokens(self) -> int:
+        """What is left for *work*, with the wrap-up reserve taken off.
+
+        `remaining_tokens` is the raw distance to the ceiling, and the reserve
+        sits inside it. Handing that figure to a per-task ceiling therefore
+        offers the task the reserve as well - which is exactly what happened
+        on a real run: one task was granted 1,317,230 of a 1,500,000 budget,
+        spent it, and the round finished at 1,533,389. `work_exhausted` then
+        fired *after* the ceiling had already gone past, `release_reserve`
+        had nothing left to release, and the leader never got to write a
+        handover. The round beside it in the same run stopped at 1,485,441
+        and produced a full one, which is the same mechanism seen from the
+        other side.
+
+        So the reserve is subtracted here, once, and anything sizing a task
+        asks this instead. After `release_reserve` the two are the same
+        number: the wrap-up is the thing the reserve was being kept for.
+        """
+        if not self._holding_back:
+            return self.remaining_tokens
+        held = min(self._reserve()["tokens"], float(self.limits.max_tokens))
+        return max(0, int(self.limits.max_tokens - held - self.tokens_used))
+
     def clamp_max_tokens(self, desired: int) -> int:
         """The per-call ceiling. Never lets one call outspend the mission."""
         return max(0, min(desired, self.remaining_tokens))

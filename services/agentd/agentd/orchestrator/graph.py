@@ -703,7 +703,13 @@ def _build_graph(
                 agent_id=member.agent_id,
                 budget=budget,
                 tools=box,
-                spend_ceiling=task_allowance(budget.remaining_tokens, queued_after),
+                # The *working* remainder, not the raw one: the wrap-up
+                # reserve must not be inside what a task may spend, or the
+                # first big task eats the handover (see
+                # `remaining_working_tokens`).
+                spend_ceiling=task_allowance(
+                    budget.remaining_working_tokens, queued_after
+                ),
             ):
                 await emit(item)
                 if is_ephemeral(item):
