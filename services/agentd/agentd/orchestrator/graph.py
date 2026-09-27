@@ -37,6 +37,7 @@ from ..providers.base import (
 from ..teams.snapshot import RosterSnapshot, SnapshotMember
 from ..tools.execution import ToolBox
 from ..tools.registry import FILE_TOOLS
+from ..tools.team import USER_SENDER
 from .hitl import APPROVE, Ask, PlanRejected, ask_to_approve, new_request_id, pause
 from .planner import _WRITES_A_FILE, PlanningFailed, make_plan
 
@@ -195,6 +196,22 @@ class Paused(Exception):
     def __init__(self, ask: Ask) -> None:
         super().__init__(ask.question)
         self.ask = ask
+
+
+#: How much of a note the "read" event carries.
+#:
+#: A handle, not a copy. Long enough to tell two notes apart at a glance, and
+#: short enough that an append-only table is not storing the same paragraph
+#: twice — the note is already on the log in full as its own `user.message`.
+NOTE_EXCERPT_CHARS = 120
+
+
+def shorten_note(text: str) -> str:
+    """The opening of a note, saying so when there is more of it."""
+    body = " ".join((text or "").split())
+    if len(body) <= NOTE_EXCERPT_CHARS:
+        return body
+    return body[: NOTE_EXCERPT_CHARS - 1].rstrip() + "…"
 
 
 def team_transcript(results: list[dict[str, Any]]) -> str:
@@ -686,6 +703,31 @@ def _build_graph(
                     for sender, content in waiting
                 )
                 instruction = "\n\n".join([delivered, "---", instruction])
+                # **Say that the note landed, and on whom.** The composer tells
+                # the person their note is "waiting for the next step", and
+                # that line used to simply vanish when a task started — which
+                # looks exactly like a note nobody read. The app knew who had
+                # collected it and said nothing, which is the same shape as
+                # everything else this release fixed: under-reporting its own
+                # work.
+                #
+                # One per note rather than one per collection, because two can
+                # be waiting and each is a separate thing the person sent. The
+                # excerpt is a handle, not a copy — the note is already on the
+                # log in full as its own `user.message` (§9.3).
+                for sender, content in waiting:
+                    if sender != USER_SENDER:
+                        continue
+                    await emit(
+                        _draft(
+                            "user.note.read",
+                            {
+                                "agentId": member.agent_id,
+                                "taskId": task["id"],
+                                "excerpt": shorten_note(content),
+                            },
+                        )
+                    )
 
             request = ChatRequest(
                 model=member.model or "",

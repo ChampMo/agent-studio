@@ -371,6 +371,24 @@ class DraftAgentUsage(BaseModel):
     payload: PayloadAgentUsage
 
 
+class PayloadUserNoteRead(BaseModel):
+    agentId: str
+    taskId: Annotated[
+        str | None, Field(description='The task whose start collected it.')
+    ] = None
+    excerpt: Annotated[
+        str,
+        Field(
+            description='The opening of the note, so a reader can tell which one this was without scrolling. Never the whole thing - the note is already on the log as its own user.message.'
+        ),
+    ]
+
+
+class DraftUserNoteRead(BaseModel):
+    type: Literal['user.note.read']
+    payload: PayloadUserNoteRead
+
+
 class EventDraft(
     RootModel[
         DraftMissionStarted
@@ -389,6 +407,7 @@ class EventDraft(
         | DraftBudgetWarning
         | DraftError
         | DraftAttachmentAdded
+        | DraftUserNoteRead
     ]
 ):
     root: Annotated[
@@ -407,7 +426,8 @@ class EventDraft(
         | DraftArtifactCreated
         | DraftBudgetWarning
         | DraftError
-        | DraftAttachmentAdded,
+        | DraftAttachmentAdded
+        | DraftUserNoteRead,
         Field(
             description='What runtime.py yields. The caller — never the runtime — hands this to the bus (§4.1).',
             discriminator='type',

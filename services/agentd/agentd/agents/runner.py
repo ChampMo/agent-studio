@@ -40,7 +40,7 @@ from ..tools import registry as tool_registry
 from ..tools.search import DEFAULT_ENDPOINT as DEFAULT_SEARCH_ENDPOINT
 from ..tools.search import SearchEndpoint
 from ..tools.shell import find_shell
-from ..tools.team import Mailbox
+from ..tools.team import USER_SENDER as _USER_SENDER, Mailbox
 from ..tools.base import ToolContext
 from ..tools.execution import ToolBox
 from ..tools.workspace import WorkspaceRejected, WorkspaceStore
@@ -77,7 +77,8 @@ class RequestNotFound(LookupError):
 #: How the user appears in a teammate's mailbox. A name, not an agent id,
 #: because it is rendered straight into the next agent's instruction and
 #: "user says:" is what an agent needs to read there.
-USER_SENDER = "The user"
+#: Re-exported: it lives beside the Mailbox, which is what reads it.
+USER_SENDER = _USER_SENDER
 
 
 class MissionAlreadyRunning(Exception):

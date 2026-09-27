@@ -48,7 +48,11 @@ describe("the known-type list comes from the contract", () => {
     // those tokens and the log did not, so a run stopped at 200,000 showed
     // 7,540 on its own timeline (§1).
     expect(KNOWN_EVENT_TYPES.has("agent.usage")).toBe(true);
-    expect(KNOWN_EVENT_TYPES.size).toBe(16);
+    // Who picked up a note the person sent mid-run. Added because the
+    // composer said "waiting for the next step" and then went quiet, so a
+    // note that had been read looked exactly like one that had not.
+    expect(KNOWN_EVENT_TYPES.has("user.note.read")).toBe(true);
+    expect(KNOWN_EVENT_TYPES.size).toBe(17);
   });
 });
 

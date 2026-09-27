@@ -125,3 +125,56 @@ async def test_no_mailbox_at_all_is_still_fine():
     items = await drain_with_mailbox(model, roster_of_three(), None, tools_for=lambda _m: None)
     assert any(i["type"] == "agent.message" for i in items)
     assert all("says:" not in p for p in model.prompts)
+
+
+async def test_the_log_says_who_read_the_note():
+    """A delivered note and a forgotten one used to look identical.
+
+    The composer says "waiting for the next step" and then the line simply
+    disappears when a task starts. On a real run the note *was* delivered —
+    the agent grepped the code and filed the defect as a QA case — and the
+    person's honest reading of the screen was that nothing had happened.
+    """
+    roster = roster_of_three()
+    box = mailbox_for(roster)
+    for member in roster.members:
+        box.post(sender="The user", recipient=member.agent_id,
+                 content="the cursor is missing on index.html")
+
+    items = await drain_with_mailbox(Recorder(), roster, box, tools_for=lambda _m: None)
+    read = [i for i in items if i["type"] == "user.note.read"]
+
+    assert read, "nothing on the log says the note was picked up"
+    p = read[0]["payload"]
+    assert p["excerpt"] == "the cursor is missing on index.html"
+    assert p["agentId"], "it has to say who read it"
+    assert p["taskId"], "and which step collected it"
+
+
+async def test_a_teammates_message_is_not_announced_as_the_persons_note():
+    # Only the person's own notes. A teammate's `send_message` is between
+    # agents and has never been something the composer was waiting on.
+    roster = roster_of_three()
+    box = mailbox_for(roster)
+    box.post(sender=roster.members[2].agent_id, recipient=roster.members[1].agent_id,
+             content="check the cart count selector")
+
+    items = await drain_with_mailbox(Recorder(), roster, box, tools_for=lambda _m: None)
+    assert not [i for i in items if i["type"] == "user.note.read"]
+
+
+async def test_a_long_note_is_excerpted_and_says_so():
+    from agentd.orchestrator.graph import NOTE_EXCERPT_CHARS
+
+    roster = roster_of_three()
+    box = mailbox_for(roster)
+    long_note = "please fix " * 60
+    for member in roster.members:
+        box.post(sender="The user", recipient=member.agent_id, content=long_note)
+
+    items = await drain_with_mailbox(Recorder(), roster, box, tools_for=lambda _m: None)
+    excerpt = [i for i in items if i["type"] == "user.note.read"][0]["payload"]["excerpt"]
+    assert len(excerpt) <= NOTE_EXCERPT_CHARS
+    assert excerpt.endswith("…"), "a cut has to say it was cut"
+    # The whole note is on the log already; this is a handle, not a copy.
+    assert len(excerpt) < len(long_note)

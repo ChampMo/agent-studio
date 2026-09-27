@@ -15,6 +15,14 @@ from __future__ import annotations
 
 from .base import ToolContext, ToolFailed, ToolResult
 
+#: The sender name a note from the person is posted under.
+#:
+#: Here rather than in the runner because both sides need it: the runner posts
+#: with it, and the graph has to recognise it when a task collects its mail so
+#: the timeline can say the note was read. Two spellings of one name is how
+#: they come to disagree.
+USER_SENDER = "The user"
+
 MAX_MESSAGE_CHARS = 4000
 MAX_QUESTION_CHARS = 2000
 

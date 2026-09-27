@@ -138,3 +138,53 @@ describe("what the card prints, beside what it offers", () => {
     expect(offered.map((o) => o.marker)).toEqual([null, null]);
   });
 });
+
+describe("a note the person sent, and who read it", () => {
+  // The composer says "waiting for the next step" and then the line simply
+  // vanishes. On a real run the note had been read, investigated and filed as
+  // a QA case, and the honest reading of the screen was that nothing
+  // happened. §7.3: reading a note is something an agent *did*, not said.
+  function rowsFor(payload: Record<string, unknown>) {
+    seq += 1;
+    const entry = {
+      event: {
+        v: 1,
+        id: `e-${seq}`,
+        missionId: "m-1",
+        seq,
+        ts: "2026-09-27T00:00:00Z",
+        draft: { type: "user.note.read", payload },
+      } as unknown as EventEnvelope,
+      known: true,
+      futureVersion: false,
+    };
+    return buildTranscript([entry], {}, (id) => (id === "a-1" ? "Rowan" : id));
+  }
+
+  it("names the agent and quotes the note", () => {
+    const rows = rowsFor({
+      agentId: "a-1",
+      taskId: "t3",
+      excerpt: "the cursor is missing on index.html",
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.kind).toBe("did");
+    const text = (rows[0] as { text: string }).text;
+    expect(text).toContain("Rowan");
+    expect(text).toContain("read your note");
+    expect(text).toContain("the cursor is missing on index.html");
+  });
+
+  it("still says something when the log carries no excerpt", () => {
+    // §8: a row this build cannot fully read is still a row.
+    const rows = rowsFor({ agentId: "a-1" });
+    expect(rows).toHaveLength(1);
+    expect((rows[0] as { text: string }).text).toContain("Rowan");
+  });
+
+  it("is a quiet line, not a speech bubble", () => {
+    // Dressing an action as dialogue is inventing dialogue.
+    const rows = rowsFor({ agentId: "a-1", excerpt: "fix it" });
+    expect(rows[0]!.kind).not.toBe("said");
+  });
+});

@@ -798,6 +798,9 @@
         },
         {
           "$ref": "#/$defs/DraftAttachmentAdded"
+        },
+        {
+          "$ref": "#/$defs/DraftUserNoteRead"
         }
       ]
     },
@@ -960,6 +963,44 @@
         },
         "payload": {
           "$ref": "#/$defs/PayloadAgentUsage"
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ]
+    },
+    "PayloadUserNoteRead": {
+      "title": "PayloadUserNoteRead",
+      "description": "A note the person sent mid-run, collected by the agent it was waiting for. The app knew who picked it up and said nothing, so a delivered note and a forgotten one looked identical: the composer's \"waiting for the next step\" simply vanished.",
+      "type": "object",
+      "properties": {
+        "agentId": {
+          "type": "string"
+        },
+        "taskId": {
+          "type": "string",
+          "description": "The task whose start collected it."
+        },
+        "excerpt": {
+          "type": "string",
+          "description": "The opening of the note, so a reader can tell which one this was without scrolling. Never the whole thing - the note is already on the log as its own user.message."
+        }
+      },
+      "required": [
+        "agentId",
+        "excerpt"
+      ]
+    },
+    "DraftUserNoteRead": {
+      "title": "DraftUserNoteRead",
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "user.note.read"
+        },
+        "payload": {
+          "$ref": "#/$defs/PayloadUserNoteRead"
         }
       },
       "required": [

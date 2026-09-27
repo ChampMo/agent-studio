@@ -40,7 +40,8 @@ export type EventDraft =
   | DraftArtifactCreated
   | DraftBudgetWarning
   | DraftError
-  | DraftAttachmentAdded;
+  | DraftAttachmentAdded
+  | DraftUserNoteRead;
 /**
  * An object, not a magic string, so an agent id can never collide with the literal "user" (§6.2).
  */
@@ -359,6 +360,24 @@ export interface PayloadAttachmentAdded {
    * Identifies the file without reproducing it.
    */
   sha256: string;
+}
+export interface DraftUserNoteRead {
+  type: "user.note.read";
+  payload: PayloadUserNoteRead;
+}
+/**
+ * A note the person sent mid-run, collected by the agent it was waiting for. The app knew who picked it up and said nothing, so a delivered note and a forgotten one looked identical: the composer's "waiting for the next step" simply vanished.
+ */
+export interface PayloadUserNoteRead {
+  agentId: string;
+  /**
+   * The task whose start collected it.
+   */
+  taskId?: string;
+  /**
+   * The opening of the note, so a reader can tell which one this was without scrolling. Never the whole thing - the note is already on the log as its own user.message.
+   */
+  excerpt: string;
 }
 /**
  * The delta channel (§7.1). Never persisted, never given a seq, never routed through the bus — if a delta consumed a seq, a resuming client would see a gap and believe it had missed an event.

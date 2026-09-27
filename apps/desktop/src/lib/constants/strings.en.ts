@@ -773,6 +773,18 @@ export const strings = {
     // about which of the six was the interesting one.
     // An arrow, because a preposition would read as part of the sentence the
     // agent wrote rather than as a label about it.
+    //: Your note reached somebody, and the app knows who. It used to say
+    //: "waiting for the next step" and then go quiet, which reads as a note
+    //: nobody picked up — on a real run the agent had read it, investigated
+    //: and filed the defect, and none of that was visible.
+    //:
+    //: The excerpt is there because two notes a minute apart are otherwise
+    //: indistinguishable, and the agent is named because "your note was read"
+    //: by nobody in particular is barely more than silence.
+    noteRead: (who: string, excerpt: string) =>
+      excerpt
+        ? `${who || "An agent"} read your note — "${excerpt}"`
+        : `${who || "An agent"} read your note`,
     mineOnly: "Only what involves me",
     mineOnlyHint: "Hides the agents talking to each other",
     // Counted, because a filter whose effect you cannot see is one you cannot

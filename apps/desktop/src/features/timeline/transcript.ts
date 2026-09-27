@@ -28,6 +28,7 @@ import type { EventEnvelope } from "../../transport/events.generated";
 import type { SequencedEntry, StreamingMessage } from "../../stores/eventStore";
 import { describe } from "../../transport/decode";
 import { missionLook } from "../../components/ui/status";
+import { strings } from "../../lib/constants/strings.en";
 
 export type Tone = "idle" | "search" | "write" | "wait" | "stop" | "done";
 
@@ -510,6 +511,30 @@ export function buildTranscript(
       openCalls.clear();
       latestStatus.clear();
       latestStatusRow.clear();
+    }
+
+    // **The note landed, and on whom.** The composer says a note is "waiting
+    // for the next step" and that line used to just vanish, which looks the
+    // same as nobody having read it. On the run this came from the note *was*
+    // acted on — the agent grepped the code and filed the defect — and the
+    // honest reading of the screen was still that nothing had happened.
+    //
+    // A quiet line rather than a bubble: reading your note is something the
+    // agent did, not something it said (§7.3).
+    if (type === "user.note.read") {
+      const who = typeof p.agentId === "string" ? p.agentId : null;
+      push({
+        ...base,
+        kind: "did",
+        agentId: who,
+        name: who ? nameOf(who) : "",
+        text: strings.timeline.noteRead(
+          who ? nameOf(who) : "",
+          String(p.excerpt ?? ""),
+        ),
+        tone: "idle",
+      });
+      continue;
     }
 
     if (type === "agent.request" && typeof p.requestId === "string") {
