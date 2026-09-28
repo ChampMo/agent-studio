@@ -552,6 +552,8 @@ export const strings = {
     deleteConfirm: "Delete permanently",
     deleteWarning:
       "This cannot be undone. The agents stay in your roster and the missions this team ran keep their record — what goes is the team itself and its seats.",
+    deleteHint: "Cannot be undone",
+    keep: "Keep it",
     importedBefore:
       "You have imported this team before. A separate copy was made — importing never overwrites what you have edited.",
 
@@ -603,9 +605,21 @@ export const strings = {
     moreFor: (name: string) => `More options for ${name}`,
     duplicateHint: "A copy you can change without touching this one",
     archiveHint: "Out of the way, and reversible",
-    //: Delete is gone from the card. An agent is named in the roster snapshot
-    //: of every mission it ran, so removing the row would leave those replays
-    //: describing someone who is not there (§5.2).
+    delete: "Delete",
+    deleteHint: "Cannot be undone",
+    deleteConfirm: "Delete permanently",
+    //: What actually goes, and what does not. The record is the part people
+    //: are afraid of losing, and it is the part that is safe: a mission froze
+    //: its roster at launch (§5.1), so a replay still shows the name, model
+    //: and avatar that did the work. Asserted by
+    //: test_deleting_an_agent_does_not_rewrite_a_finished_mission.
+    deleteWarning: (name: string) =>
+      `This cannot be undone. ${name} is taken out of every team they sit on ` +
+      `and their notes go with them. Runs they have already done keep their ` +
+      `record — each one holds its own copy of who ran it.`,
+    //: Says what happens to the agent, not to the panel. Same word the run
+    //: list uses to decline the same question.
+    keep: "Keep it",
   },
 
   terminal: {
@@ -620,7 +634,17 @@ export const strings = {
     noWorkspace:
       "This run has no folder, so there is nowhere to open a terminal.",
     running: "running…",
-    timedOut: "stopped — it was still running",
+    //: "stopped — it was still running" was true and answered none of the
+    //: questions it raises. This panel runs one command and waits for it to
+    //: finish, so anything that does not finish — a dev server, a watcher —
+    //: ends here whatever the cap is set to; saying so is the difference
+    //: between a limit to raise and a shape that will not fit. What it printed
+    //: before it was stopped is above it now, and used not to be kept at all.
+    timedOut: (seconds: number, said: boolean) =>
+      `stopped after ${seconds}s — it was still running. ` +
+      (said ? "Above is what it printed first. " : "It had printed nothing. ") +
+      "This panel waits for a command to finish, so a server or a watcher " +
+      "always ends this way — run those in a terminal of your own.",
     truncated: "output was cut",
     exit: (code: number | null, ms: number) =>
       `exit ${code ?? "?"} · ${ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`}`,

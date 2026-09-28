@@ -120,14 +120,25 @@ async def run_command(
     except ShellUnavailable as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from None
     except ShellTimedOut as exc:
+        # What it printed before it was stopped. This used to be dropped, and
+        # the one kind of command that *always* ends up here — a server, a
+        # watcher, anything that does not return — is the kind whose whole
+        # output is the part before the cap. `npm run dev` reported "stopped"
+        # over a dev server that had started perfectly and said so.
+        #
+        # The marker is not in it (the command never reached the `printf`), so
+        # `_split_cwd` falls back to where the shell started — which is right:
+        # a stopped command's `cd` is not something to guess at.
+        shown, cwd = _split_cwd(exc.stdout, start)
         return {
-            "stdout": "",
-            "stderr": f"stopped after {exc.seconds}s",
+            "stdout": shown,
+            "stderr": exc.stderr,
             "exitCode": None,
-            "cwd": start,
+            "cwd": cwd,
             "durationMs": exc.seconds * 1000,
             "timedOut": True,
-            "truncated": False,
+            "timeoutSec": exc.seconds,
+            "truncated": exc.truncated,
         }
 
     stdout, cwd = _split_cwd(outcome.stdout, start)

@@ -5158,6 +5158,99 @@ still holding `agent-studio.exe`. Windows locks the image of a running
 process, and the build refusing is the reason a release cannot quietly ship
 yesterday's backend.
 
+### Delete existed everywhere except where it could be pressed
+
+Asked for a way to remove a team and an agent. The endpoint, the REST client
+and the store action were all there — and for teams so were the strings,
+`delete` / `deleteConfirm` / `deleteWarning`, written and rendered by nothing.
+What was missing was the menu item.
+
+**The card said Delete was impossible, and was wrong about why.** In two
+places, `RosterPanel`'s docstring and a comment in `strings.en.ts`:
+
+> There is no Delete. An agent is named in the `roster_snapshot` of every
+> mission it ran, so removing the row would leave those replays describing
+> someone who is not there.
+
+That is false, and was false when it was written. `AgentService.delete` says
+the opposite in its own docstring, and
+`test_deleting_an_agent_does_not_rewrite_a_finished_mission` asserts it
+directly — a mission froze its roster at launch (§5.1) and nothing reads the
+agents table past that boundary. So the honest fix was to correct the claim
+rather than write a button under a sentence saying the button cannot exist.
+
+Archive stays first and stays the default. Delete is under it in `danger`,
+the tone `Menu` already reserves for something irreversible, so the colour is
+carrying the difference between the reversible one and the other rather than
+decorating the bottom of a list.
+
+**The confirm says what actually goes**, which for an agent is its seats and
+its notes, and what does not, which is the record — that being the part
+people are afraid of losing and the part that is safe. Verified live on a
+throwaway database rather than read off the code: the agent went, its seat
+went with it, the team was left reporting `empty_team`, and the other agent
+was untouched. Deleting the team then left that agent alone, as its own
+warning promises.
+
+**What was deliberately not built: a count of how many teams an agent is on.**
+It is derivable from `teamStore`, and that store has no "loaded" flag — so on
+a page that does not fetch teams the count renders as 0, which is this app's
+own ignorance written down as a fact about the roster. Same distinction as
+`quota` being null rather than empty. A sentence that is true whatever is
+loaded won instead.
+
+### The terminal threw away everything the command had printed
+
+Reported with a screenshot: `npm run dev` in the app's own terminal, and
+
+    stopped after 60s
+    stopped — it was still running
+
+The stop is by design. Losing the output was not: the dev server had printed
+its banner and its port, those bytes were read, and the handler returned
+`"stdout": ""`.
+
+**The contradiction is inside one function.** `bash` returns the output on a
+non-zero exit and says why three lines down — *a non-zero exit is usually the
+most useful thing a command has to say*. The timeout branch above it dropped
+all of it. Same claim about a different ending, applied to one of the two.
+It costs agents as well as people: with nothing but the sentence, a model
+cannot tell a build that was compiling steadily from one that stopped on its
+first line waiting for an answer, and those need opposite next moves.
+
+**The first fix passed a unit test and did not work.** It read the result out
+of `communicate()` after killing the tree, reasoning that every writer was
+then gone and the pipes would reach EOF. True for `echo; sleep`, where bash
+execs the last command and one pid is the whole tree. False for the shape the
+terminal actually sends — the wrapper appends a `printf` to ask where `cd`
+ended up, so bash forks, and a writer survives the moment of the kill:
+
+    plain     partial=True   stdout='AAA\nBBB\n'   3.2s
+    wrapped   partial=False  stdout=''             8.2s   (3 + the whole grace)
+
+Driving the real endpoint is what showed it; the unit test had picked the
+shape that happens to work. So the pipes are **drained as the command runs**
+rather than collected at the end, and what arrived is in hand whether or not
+anything ever closes. That also deleted a flag: the first version carried
+`partial` to distinguish "printed nothing" from "could not be collected", and
+with incremental draining there is no second state, so a field that could only
+hold one value went with it.
+
+**Checked the thing that would have been worse:** the kill tree does work on
+that shape, so a stopped `npm run dev` is not left holding the port.
+
+**And the message now says why it will never work**, which the old one did
+not. This panel runs one command and waits for it to finish, so a server or a
+watcher ends this way whatever the cap is set to — the difference between a
+limit to raise and a shape that will not fit. Verified in the running panel,
+not by reading the string.
+
+**Measured and deliberately not acted on:** the panel's own placeholder
+suggests `npm test`, and `npm run test` here takes **202s** against a 60s cap.
+It is left alone because the terminal opens on the *user's* project rather
+than this repo, where a suite may well finish in time — and the stop now
+explains itself and keeps the output either way.
+
 ---
 
 ## Decisions made while building

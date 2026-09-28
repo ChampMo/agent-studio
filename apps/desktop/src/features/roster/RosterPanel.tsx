@@ -32,14 +32,22 @@ import { AgentCreator } from "../agent-creator/AgentCreator";
  * people actually come here to do was one of them rather than the card itself.
  * Now the card opens the editor and the rest live behind `⋯`.
  *
- * There is no Delete. An agent is named in the `roster_snapshot` of every
- * mission it ran, so removing the row would leave those replays describing
- * someone who is not there — which is why soft delete was chosen in §5.2.
- * Archive is the honest verb for "out of the way", and it is reversible.
+ * Archive is the default and stays first: a team points at this row, and a
+ * half-built team is the normal state (§5.2). Delete is underneath it, in the
+ * alarm colour, behind a confirm.
+ *
+ * The reason once written here for having no Delete at all — that a replay
+ * would describe someone who is not there — is false, and was false when it
+ * was written. A mission froze its roster at launch (§5.1) and nothing reads
+ * the agents table past that boundary, which
+ * `test_deleting_an_agent_does_not_rewrite_a_finished_mission` asserts
+ * directly. The backend has had the endpoint all along; the card was the only
+ * thing claiming it could not exist.
  */
 function AgentCard({ agent, onEdit }: { agent: Agent; onEdit: () => void }) {
-  const { duplicate, archive, restore } = useAgentStore();
+  const { duplicate, archive, restore, remove } = useAgentStore();
   const archived = agent.archivedAt !== null;
+  const [confirming, setConfirming] = useState(false);
 
   // "UX/UI Designer" under "UX/UI Designer" is one fact printed twice. Compared
   // loosely, because "Tester (QA Engineer)" over "QA Engineer" is the same
@@ -68,6 +76,9 @@ function AgentCard({ agent, onEdit }: { agent: Agent; onEdit: () => void }) {
       onClick={(event) => {
         if ((event.target as HTMLElement).closest('button,[role="menu"],a'))
           return;
+        // A question is on the card. Opening the editor over the top of it
+        // would answer nothing and lose the question.
+        if (confirming) return;
         onEdit();
       }}
       // `group` so the menu can appear on hover; it is always reachable by
@@ -142,6 +153,18 @@ function AgentCard({ agent, onEdit }: { agent: Agent; onEdit: () => void }) {
                   hint: strings.roster.archiveHint,
                   onSelect: () => void archive(agent.id),
                 },
+            {
+              label: strings.roster.delete,
+              hint: strings.roster.deleteHint,
+              // `danger` is the tone reserved for something irreversible.
+              // Archive above it is the reversible one and stays plain, so the
+              // colour is carrying the difference between them rather than
+              // decorating the bottom of the list.
+              tone: "danger",
+              // Opens the question; it does not delete. The menu closes on
+              // select, so the confirm has to live on the card.
+              onSelect: () => setConfirming(true),
+            },
           ]}
         />
       </div>
@@ -173,6 +196,31 @@ function AgentCard({ agent, onEdit }: { agent: Agent; onEdit: () => void }) {
             against and the model id pushes the row wider than the card. */}
         <span className="min-w-0 truncate font-mono">{agent.model ?? "—"}</span>
       </div>
+
+      {/* A fourth row, only while it is being asked. The card declares three
+          rows and this lands in an implicit one, so the grid above it keeps
+          the alignment it had — the facts line does not move up. */}
+      {confirming ? (
+        <div className="space-y-2 rounded-md border border-stop/40 bg-stop/10 p-3">
+          <p className="text-xs text-stop">
+            {strings.roster.deleteWarning(agent.name)}
+          </p>
+          <div className="flex gap-2">
+            <Button
+              variant="danger"
+              onClick={async () => {
+                await remove(agent.id);
+                setConfirming(false);
+              }}
+            >
+              {strings.roster.deleteConfirm}
+            </Button>
+            <Button variant="ghost" onClick={() => setConfirming(false)}>
+              {strings.roster.keep}
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

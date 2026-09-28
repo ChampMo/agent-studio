@@ -33,6 +33,8 @@ interface Entry {
   durationMs: number;
   timedOut: boolean;
   truncated: boolean;
+  /** Present only on a stop, so the line can name the cap it hit. */
+  timeoutSec?: number;
 }
 
 export function TerminalPanel() {
@@ -147,7 +149,11 @@ export function TerminalPanel() {
               {entry.timedOut || entry.exitCode !== 0 || !entry.stdout ? (
                 <div className="text-[11px] text-faint">
                   {entry.timedOut
-                    ? strings.terminal.timedOut
+                    ? strings.terminal.timedOut(
+                        entry.timeoutSec ??
+                          Math.round(entry.durationMs / 1000),
+                        Boolean(entry.stdout || entry.stderr),
+                      )
                     : strings.terminal.exit(entry.exitCode, entry.durationMs)}
                   {entry.truncated ? ` · ${strings.terminal.truncated}` : ""}
                 </div>

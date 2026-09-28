@@ -63,6 +63,10 @@ KILL_GRACE_SEC = 5
 #: Output kept per stream. Enough for a test run or a build log's tail.
 MAX_OUTPUT_CHARS = 30_000
 
+#: Read size while draining the pipes. Only the draining-as-it-goes matters,
+#: not the number.
+_READ_CHUNK = 8192
+
 #: Where Git for Windows puts its shell. Tried *before* PATH, because the
 #: `bash` on PATH is usually `C:\Windows\System32\bash.exe` — WSL's launcher.
 WINDOWS_CANDIDATES = (
@@ -167,9 +171,39 @@ class ShellUnavailable(RuntimeError):
 
 
 class ShellTimedOut(RuntimeError):
-    def __init__(self, seconds: int) -> None:
+    """Stopped at the cap — and carrying what it printed before it was.
+
+    It used to carry only the number. `bash` states the reasoning for the
+    neighbouring case a few lines down — a non-zero exit reports a failure and
+    returns the output anyway, because what it printed is the evidence — and a
+    timeout is the same claim about a different ending, so the one thing a slow
+    command had to say was being dropped. For the shape that *always* ends here
+    — a server, a watcher — that was all of it: the panel said "stopped" over a
+    process that had started perfectly and printed its port.
+
+    The output is in hand because `run_shell` drains the pipes as the command
+    runs. That is load-bearing rather than incidental, and the first version of
+    this got it wrong: it read the result out of `communicate()` after killing
+    the tree, on the reasoning that every writer was then gone and the pipes
+    would reach EOF. True often enough to pass a unit test, and false for the
+    terminal's own wrapped command, which leaves bash forked so a writer
+    survives the moment of the kill. So there is deliberately no "could not be
+    collected" state here: whatever arrived is already in the buffers.
+    """
+
+    def __init__(
+        self,
+        seconds: int,
+        *,
+        stdout: str = "",
+        stderr: str = "",
+        truncated: bool = False,
+    ) -> None:
         super().__init__(seconds)
         self.seconds = seconds
+        self.stdout = stdout
+        self.stderr = stderr
+        self.truncated = truncated
 
 
 async def run_shell(command: str, *, cwd: str, timeout: int | None = None) -> ShellOutcome:
@@ -212,30 +246,62 @@ async def run_shell(command: str, *, cwd: str, timeout: int | None = None) -> Sh
     except OSError as exc:
         raise ShellUnavailable(f"could not start a shell: {exc}") from exc
 
+    # Drained into buffers as it arrives, rather than collected at the end with
+    # `communicate()`. The difference only shows on a timeout, and it is the
+    # whole difference: `communicate()` returns when the pipes reach EOF, so
+    # what the command said is only in hand if every writer has gone — and the
+    # one shape of command that always times out is a server, which is exactly
+    # the shape that still has a writer. Measured on the terminal's own wrapped
+    # command: `communicate()` never returned, the full grace was spent waiting
+    # for it, and a dev server that had printed its banner and its port
+    # reported nothing at all. Read as it goes, those bytes are already here.
+    out_chunks: list[bytes] = []
+    err_chunks: list[bytes] = []
+
+    async def drain(stream: asyncio.StreamReader | None, into: list[bytes]) -> None:
+        if stream is None:  # pragma: no cover - both pipes are always asked for
+            return
+        while True:
+            chunk = await stream.read(_READ_CHUNK)
+            if not chunk:
+                return
+            into.append(chunk)
+
     # Shielded, and deliberately. `wait_for` would otherwise cancel this task on
-    # expiry — and the cancellation is itself what blocks, because the pending
+    # expiry — and the cancellation is itself what blocks, because a pending
     # read cannot finish while a surviving child holds the pipe open. So the
-    # order is: stop waiting, kill the tree, *then* collect what was read.
-    reading = asyncio.ensure_future(process.communicate())
+    # order is: stop waiting, kill the tree, *then* collect.
+    reading = asyncio.ensure_future(
+        asyncio.gather(drain(process.stdout, out_chunks), drain(process.stderr, err_chunks))
+    )
     try:
-        stdout, stderr = await asyncio.wait_for(asyncio.shield(reading), timeout=seconds)
+        await asyncio.wait_for(asyncio.shield(reading), timeout=seconds)
+        await process.wait()
     except TimeoutError:
         _kill_tree(process)
-        # With every writer gone the read completes on its own; the cap is
+        # With every writer gone the readers finish on their own; the cap is
         # there so that even a child this process may not kill — one that
         # escaped into another session — cannot hold things open. Past it, the
         # task is abandoned rather than awaited.
         with contextlib.suppress(TimeoutError, asyncio.CancelledError, OSError):
-            await asyncio.wait_for(reading, timeout=KILL_GRACE_SEC)
+            await asyncio.wait_for(asyncio.shield(reading), timeout=KILL_GRACE_SEC)
+        reading.cancel()
         # Reap it, so the transport closes here rather than being collected
         # after the loop has shut down (which surfaces as an unraisable
         # "Event loop is closed" somewhere unrelated).
         with contextlib.suppress(TimeoutError, asyncio.CancelledError, OSError):
             await asyncio.wait_for(process.wait(), timeout=KILL_GRACE_SEC)
-        raise ShellTimedOut(seconds) from None
+        cut_out = _clip(b"".join(out_chunks).decode("utf-8", errors="replace"), "stdout")
+        cut_err = _clip(b"".join(err_chunks).decode("utf-8", errors="replace"), "stderr")
+        raise ShellTimedOut(
+            seconds,
+            stdout=cut_out,
+            stderr=cut_err,
+            truncated=len(cut_out) >= MAX_OUTPUT_CHARS or len(cut_err) >= MAX_OUTPUT_CHARS,
+        ) from None
 
-    out = _clip(stdout.decode("utf-8", errors="replace"), "stdout")
-    err = _clip(stderr.decode("utf-8", errors="replace"), "stderr")
+    out = _clip(b"".join(out_chunks).decode("utf-8", errors="replace"), "stdout")
+    err = _clip(b"".join(err_chunks).decode("utf-8", errors="replace"), "stderr")
     return ShellOutcome(
         stdout=out,
         stderr=err,
@@ -243,6 +309,17 @@ async def run_shell(command: str, *, cwd: str, timeout: int | None = None) -> Sh
         duration_ms=int((time.monotonic() - started) * 1000),
         truncated=len(out) >= MAX_OUTPUT_CHARS or len(err) >= MAX_OUTPUT_CHARS,
     )
+
+
+def _said(stdout: str, stderr: str) -> str:
+    """Both streams, labelled, or "" when it said nothing at all.
+
+    One joiner rather than two, so a command that was stopped and a command
+    that failed are quoted back in the same shape.
+    """
+    if stderr.strip():
+        return f"{stdout}\n[stderr]\n{stderr}" if stdout.strip() else f"[stderr]\n{stderr}"
+    return stdout if stdout.strip() else ""
 
 
 async def bash(
@@ -258,20 +335,20 @@ async def bash(
     except ShellUnavailable as exc:
         raise ToolFailed("no_shell", str(exc)) from None
     except ShellTimedOut as exc:
+        # The output goes back for the same reason it goes back on a non-zero
+        # exit below: what it printed is the evidence. Without it the model
+        # cannot tell a build that was compiling steadily from one that stopped
+        # on its first line waiting for an answer, and those need opposite next
+        # moves.
+        said = _said(exc.stdout, exc.stderr)
+        tail = f" What it printed first:\n{said}" if said else " It had printed nothing."
         raise ToolFailed(
             "timed_out",
-            f"the command was still running after {exc.seconds}s and was stopped",
+            f"the command was still running after {exc.seconds}s and was stopped."
+            + tail,
         ) from None
 
-    body = outcome.stdout
-    if outcome.stderr.strip():
-        body = (
-            f"{body}\n[stderr]\n{outcome.stderr}"
-            if body.strip()
-            else f"[stderr]\n{outcome.stderr}"
-        )
-    if not body.strip():
-        body = "[the command produced no output]"
+    body = _said(outcome.stdout, outcome.stderr) or "[the command produced no output]"
     body = f"[exit code {outcome.exit_code}]\n{body}"
 
     if outcome.exit_code != 0:

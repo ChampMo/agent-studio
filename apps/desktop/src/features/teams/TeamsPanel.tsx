@@ -16,8 +16,9 @@ import type { Team } from "../../transport/rest";
 import { TeamBuilder } from "./TeamBuilder";
 
 function TeamCard({ team, onEdit }: { team: Team; onEdit: () => void }) {
-  const { duplicate, archive, restore, exportTeam } = useTeamStore();
+  const { duplicate, archive, restore, exportTeam, remove } = useTeamStore();
   const archived = team.archivedAt !== null;
+  const [confirming, setConfirming] = useState(false);
   const errors = team.findings.filter((f) => f.severity === "error");
   const warnings = team.findings.filter((f) => f.severity === "warn");
 
@@ -55,6 +56,9 @@ function TeamCard({ team, onEdit }: { team: Team; onEdit: () => void }) {
       onClick={(event) => {
         if ((event.target as HTMLElement).closest('button,[role="menu"],a'))
           return;
+        // A question is on the card. Opening the builder over the top of it
+        // would answer nothing and lose the question.
+        if (confirming) return;
         onEdit();
       }}
       // Same three rows as an agent card, for the same reason: grid stretches
@@ -130,6 +134,17 @@ function TeamCard({ team, onEdit }: { team: Team; onEdit: () => void }) {
                   hint: strings.teams.archiveHint,
                   onSelect: () => void archive(team.id),
                 },
+            {
+              label: strings.teams.delete,
+              hint: strings.teams.deleteHint,
+              // Archive above it is the reversible one, so the colour carries
+              // the difference between the two rather than decorating the
+              // bottom of the list.
+              tone: "danger",
+              // Opens the question. The menu closes on select, so the confirm
+              // lives on the card.
+              onSelect: () => setConfirming(true),
+            },
           ]}
         />
       </div>
@@ -178,6 +193,28 @@ function TeamCard({ team, onEdit }: { team: Team; onEdit: () => void }) {
       <div className="flex items-baseline justify-between gap-2 text-[11px] text-faint">
         <span>{strings.teams.memberCount(team.members.length)}</span>
       </div>
+
+      {/* Only while it is being asked, in an implicit row, so the card above
+          keeps the alignment it had. */}
+      {confirming ? (
+        <div className="space-y-2 rounded-md border border-stop/40 bg-stop/10 p-3">
+          <p className="text-xs text-stop">{strings.teams.deleteWarning}</p>
+          <div className="flex gap-2">
+            <Button
+              variant="danger"
+              onClick={async () => {
+                await remove(team.id);
+                setConfirming(false);
+              }}
+            >
+              {strings.teams.deleteConfirm}
+            </Button>
+            <Button variant="ghost" onClick={() => setConfirming(false)}>
+              {strings.teams.keep}
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -230,6 +230,77 @@ async def test_a_timed_out_command_leaves_nothing_running(ctx: ToolContext):
 
 
 @pytest.mark.skipif(find_shell() is None, reason="no POSIX shell on this machine")
+async def test_a_stopped_command_still_reports_what_it_printed(ctx: ToolContext):
+    """The half the neighbouring case already had and this one did not.
+
+    `command_failed` returns the output with the failure, and says why three
+    lines above: what it printed is the evidence. A timeout is the same claim
+    about a different ending and was dropping all of it — so a build that had
+    been compiling steadily for 60s and one that stopped on its first line
+    waiting for an answer came back as the identical sentence.
+
+    The bytes were never missing. Killing the tree removes every writer, the
+    pipes reach EOF, and the shielded read completes on its own before the
+    raise; the result was simply not attached to it.
+    """
+    with pytest.raises(ToolFailed) as caught:
+        await bash(
+            ctx,
+            command="echo compiling-page-1; echo warn-one >&2; sleep 30",
+            timeout=2,
+        )
+
+    assert caught.value.code == "timed_out"
+    assert "still running after 2s" in caught.value.message
+    assert "compiling-page-1" in caught.value.message
+    assert "warn-one" in caught.value.message
+
+
+@pytest.mark.skipif(find_shell() is None, reason="no POSIX shell on this machine")
+async def test_output_survives_when_the_pipes_never_close(ctx: ToolContext):
+    """The shape the terminal actually sends, and the reason draining is not a
+    detail.
+
+    The first fix read the output out of `communicate()` after killing the
+    tree. That passed against `echo; sleep`, where bash execs the last command
+    and killing one pid closes the pipes — and failed against the terminal's
+    own wrapper, which has trailing work after the command, so bash forks, a
+    writer survives the moment of the kill and `communicate()` does not return
+    inside the grace. The endpoint went on reporting nothing over a dev server
+    that had printed its banner and its port; only driving the real endpoint
+    showed it, because the unit test used the shape that happened to work.
+
+    Here the command keeps a second writer alive on purpose. Draining as it
+    goes is what makes the output present regardless.
+    """
+    with pytest.raises(ToolFailed) as caught:
+        await bash(
+            ctx,
+            command=(
+                "echo listening-on-5173\n"
+                "sleep 30 | cat\n"
+                "echo never-reached"
+            ),
+            timeout=2,
+        )
+
+    assert caught.value.code == "timed_out"
+    assert "listening-on-5173" in caught.value.message
+
+
+@pytest.mark.skipif(find_shell() is None, reason="no POSIX shell on this machine")
+async def test_a_stopped_command_that_said_nothing_says_so(ctx: ToolContext):
+    """Silence is reported as silence, and it is a real reading rather than a
+    gap: the pipes are drained as the command runs, so an empty buffer means
+    nothing was printed rather than nothing was collected."""
+    with pytest.raises(ToolFailed) as caught:
+        await bash(ctx, command="sleep 30", timeout=2)
+
+    assert caught.value.code == "timed_out"
+    assert "It had printed nothing." in caught.value.message
+
+
+@pytest.mark.skipif(find_shell() is None, reason="no POSIX shell on this machine")
 async def test_a_command_waiting_for_input_does_not_hang(ctx: ToolContext):
     # stdin is closed, so `read` returns immediately instead of holding the
     # mission until the timeout with nothing on screen to explain it. Returning
