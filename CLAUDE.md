@@ -543,7 +543,7 @@ web tool and a way to change things, and suggests splitting the roles; and
 because the backend on loopback holds the user's keys.
 
 
-**Released: v0.3.5** (2026-09-28). v0.2.0 was the first build that could update
+**Released: v0.3.6** (2026-09-28). v0.2.0 was the first build that could update
 itself and the first that drew no room; it is marked superseded on its own
 release page rather than left to be downloaded.
 
@@ -5251,6 +5251,33 @@ It is left alone because the terminal opens on the *user's* project rather
 than this repo, where a suite may well finish in time — and the stop now
 explains itself and keeps the output either way.
 
+### v0.3.6, and a `failed` that was worth reading rather than re-rolling
+
+11 of 11 checks inside the packaged binary. Stage A, the standing rule: a
+whole mission to `ended`, 72 events, no internal errors, `DESIGN.md` on disk
+with the colour and font read out of the workspace. Stage B, the two
+headlines, because a completing mission proves nothing about either — a
+stopped command came back with `BANNER-ready-in-412ms\nPORT-5173\n` beside
+`timedOut`, and delete removed an agent and a team for real. The delete check
+**creates what it deletes**, so it is net-zero against the real database and
+asserts the counts return: 19 agents and 6 teams before and after.
+
+Stage A's mission was recorded **`failed`**, where the last several releases
+reported `completed`, and the tempting move was to run it again until the
+word came back green. Reading it instead: the plan gave a task named
+*"Shell-verify DESIGN.md contents"* to seat 1, who holds no `bash`, while
+seat 2 carries it. Two of three tasks finished, and since v0.3.4 that cannot
+be called complete.
+
+Establishing it was not this release took one number: **zero `bash` calls in
+the whole mission**, so none of the changed code ran in it — and the changed
+path was exercised directly in stage B and passed. What it did find is an
+older gap, now an open item: `_check_tools` repairs an assignee who cannot
+*write*, and says nothing about one who cannot do anything else the task
+names. This file already records the ancestor of that — *"the leader was
+choosing assignees blind"*, fixed by listing each member's tools in
+`_roster_text` — and a task that names a shell is the next instance of it.
+
 ---
 
 ## Decisions made while building
@@ -5565,6 +5592,19 @@ the forward-compat test points.
 - **`recall` is keyword search, not semantic.** `sqlite-vec` is in the stack and nothing
   embeds anything yet. The tool description says so, so a model that finds nothing knows
   to try other words rather than concluding it never knew the thing.
+- **The plan repair only covers writing.** `_check_tools` catches a task that
+  writes a file handed to someone with no `write_file`, and repairs it when
+  exactly one teammate can. It says nothing about any other tool a task
+  names. Found by the v0.3.6 release check, whose stage-A mission was
+  recorded `failed` because a task called *"Shell-verify DESIGN.md
+  contents"* went to seat 1, who holds no `bash`, while seat 2 carries it —
+  and the assignee then reported that "the workspace exposes no shell",
+  which reads as a broken app rather than a misassigned task. The general
+  form is already solved once for writing and once in the prompt (§the
+  leader was choosing assignees blind), so the shape is known; what is not
+  decided is whether a task's required tools can be inferred from its title
+  at all beyond the file case, or whether the planner should be made to
+  declare them.
 - **A tool approval does not survive a restart**, unlike a plan approval (§16.4). There
   is no checkpoint mid-turn: the mission is reaped as `crashed` and the tool never ran.
   Seen live and documented rather than fixed — fixing it means checkpointing inside a
