@@ -543,7 +543,7 @@ web tool and a way to change things, and suggests splitting the roles; and
 because the backend on loopback holds the user's keys.
 
 
-**Released: v0.3.6** (2026-09-28). v0.2.0 was the first build that could update
+**Released: v0.3.7** (2026-09-28). v0.2.0 was the first build that could update
 itself and the first that drew no room; it is marked superseded on its own
 release page rather than left to be downloaded.
 
@@ -5344,6 +5344,28 @@ with read-only Sorrel and was accepted as `done` without writing anything.
     before   failed  1/3   shell task to the teammate with no shell,
                           two correct tasks failed for not writing a file
     after    completed 3/3  plan_repaired 0, corrections 0
+
+### v0.3.7, and a checker that reported success over a crash
+
+16 of 16 inside the packaged binary, and the headline proved itself on the
+brief that failed last time — **`completed` 3 of 3** where v0.3.6 gave
+`failed` 1 of 3, the shell task on seat 2 (the only seat holding `bash`),
+three `bash` calls, and **zero repairs**. Nothing needed correcting: the
+leader put all three tasks in the right place itself, which is the prompt
+half of the change doing the work and the check being the net.
+
+**The first attempt did not run at all**, and the way it reported that is
+the thing worth keeping. A heredoc ate the backslash in `console.log("
+===")`
+— the gotcha already in this file, third time in one session — so the script
+died on a syntax error. It printed `check exit: 0`, because the command was
+piped to `tail` and `$?` is the last process in a pipe.
+
+That is the same family as the v0.2.7 rehearsal matching a payload it had
+truncated, the `themeTokens` test matching a comment, and the v0.3.3 harness
+matching its own starting element: **four times now a checker has said
+something reassuring about a measurement it never made.** The pipe is gone
+and the script is syntax-checked before it is trusted.
 
 ---
 
