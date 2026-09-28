@@ -5278,6 +5278,73 @@ names. This file already records the ancestor of that — *"the leader was
 choosing assignees blind"*, fixed by listing each member's tools in
 `_roster_text` — and a task that names a shell is the next instance of it.
 
+### A task says what it needs, because no regex over prose can
+
+The v0.3.6 release check left this as an open item: `_check_tools` repairs an
+assignee who cannot *write* and says nothing about one who cannot do anything
+else. Its own failure was a task titled *"Shell-verify DESIGN.md contents"*
+handed to the one teammate with no `bash` while another carried it — and the
+assignee then reported that *"the workspace exposes no shell"*, which reads
+as a broken app rather than a misassigned task.
+
+The tempting fix is more regex. It cannot work, and the reason is the same
+one this file records twice already — `is_secret_key` matching substrings and
+destroying `inputTokens`, a shell splitter flagging `.git` inside a path.
+Nothing in "Shell-verify DESIGN.md contents" distinguishes *needs a shell*
+from *needs a reader*.
+
+So `Task.needs_tools`, and the move is exactly `depends_on`'s: **the plan is
+the only thing that knows, so the plan says.** Requirements are any-of
+groups — one per declared tool, since each is separately required — and a
+seat qualifies by meeting every group, which is what makes "needs `bash` and
+`write_file`" a different question from "needs either file tool". The
+existing three-way response is unchanged and now per task rather than per
+team: exactly one candidate is repaired silently, two or more goes back to
+the leader, nobody at all stays quiet because a correction that cannot be
+obeyed burns every attempt.
+
+An unrecognised tool id is a correction rather than a silent drop. Dropping
+it would switch the check off for that task with nobody told, which is the
+quiet half of the very failure the field exists to fix.
+
+### The first version guessed on top of the answer
+
+Verified live, and the live run is the only reason this was caught. Routing
+worked on the first try — the shell task went to Moss, who ran `bash` — and
+**the round was still recorded `failed`**, both remaining tasks reported
+`task_produced_nothing` over work they had done correctly.
+
+`_WRITES_A_FILE` is asked a second question elsewhere: does this task owe a
+file? Run against the real instructions it answered:
+
+    t2 -> 'edit DESIGN.md'
+    t3 -> 'edit either file. Report back: what NOTES.md'
+
+Both matched inside a **prohibition** — *"do not edit DESIGN.md"*, *"Do not
+edit either file."* A review told explicitly not to write was recorded as
+owing a file and failed for not producing one.
+
+My own `_needed_by` had the same shape: it added the prose guess *on top of*
+what the model declared, so a review that correctly declared `read_file` was
+moved to the only teammate who could write, for a job that must not write.
+The declaration now wins and the prose is consulted only when nothing was
+declared — the same "absent and empty mean the same thing" the field's own
+comment sets out, applied to the thing reading it.
+
+`owes_a_file` is one function both readers share, taking a `Task` or the
+plain dict the graph holds by then, so routing and the done/failed decision
+cannot disagree about which tasks owe a file (§2.1).
+
+**Re-run, same brief, same team:** `completed 3/3`, all three tasks assigned
+correctly by the model on the **first attempt with no repair at all** — the
+prompt asking for `needs_tools` made it think about tools while assigning,
+and the check is the backstop rather than the mechanism. The review stayed
+with read-only Sorrel and was accepted as `done` without writing anything.
+
+    before   failed  1/3   shell task to the teammate with no shell,
+                          two correct tasks failed for not writing a file
+    after    completed 3/3  plan_repaired 0, corrections 0
+
 ---
 
 ## Decisions made while building
@@ -5592,19 +5659,14 @@ the forward-compat test points.
 - **`recall` is keyword search, not semantic.** `sqlite-vec` is in the stack and nothing
   embeds anything yet. The tool description says so, so a model that finds nothing knows
   to try other words rather than concluding it never knew the thing.
-- **The plan repair only covers writing.** `_check_tools` catches a task that
-  writes a file handed to someone with no `write_file`, and repairs it when
-  exactly one teammate can. It says nothing about any other tool a task
-  names. Found by the v0.3.6 release check, whose stage-A mission was
-  recorded `failed` because a task called *"Shell-verify DESIGN.md
-  contents"* went to seat 1, who holds no `bash`, while seat 2 carries it —
-  and the assignee then reported that "the workspace exposes no shell",
-  which reads as a broken app rather than a misassigned task. The general
-  form is already solved once for writing and once in the prompt (§the
-  leader was choosing assignees blind), so the shape is known; what is not
-  decided is whether a task's required tools can be inferred from its title
-  at all beyond the file case, or whether the planner should be made to
-  declare them.
+- **`needs_tools` is not on the event log.** A task declares the tools it
+  needs and the planner routes on it, but `mission.progress` carries only
+  the instruction, the seat and `dependsOn`, so `carried_plan` rebuilds a
+  resumed round without it. Harmless today — the seats on the log are the
+  repaired ones, so routing has already happened — and it means the plan
+  panel cannot show what a task needed, and a future reader of the record
+  cannot see why a task went where it did. Adding it is a schema change and
+  §8 makes it safe to do later.
 - **A tool approval does not survive a restart**, unlike a plan approval (§16.4). There
   is no checkpoint mid-turn: the mission is reaped as `crashed` and the tool never ran.
   Seen live and documented rather than fixed — fixing it means checkpointing inside a

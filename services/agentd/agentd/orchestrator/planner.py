@@ -85,6 +85,27 @@ class Task(BaseModel):
     #: and parallelism only happens where someone said so.
     depends_on: list[str] | None = None
 
+    #: Tool ids this task cannot be done without, so it can be routed to
+    #: somebody who holds them.
+    #:
+    #: Unlike `depends_on`, absent and empty mean the same thing — nothing
+    #: declared, nothing checked — because there is no third state to
+    #: distinguish: a task that needs no particular tool and a task whose
+    #: needs were not stated both route the same way.
+    #:
+    #: This exists because the alternative is reading prose. `_WRITES_A_FILE`
+    #: does that for the one case worth guessing at and stays as the backstop
+    #: for a model that ignores this field, but it cannot be extended: a
+    #: release check failed on a task titled "Shell-verify DESIGN.md
+    #: contents", handed to the one teammate with no `bash` while another
+    #: carried it, and no regex over that sentence tells you it needs a shell
+    #: rather than a reader. This project has twice paid for loose matching
+    #: — `is_secret_key` eating `inputTokens`, a shell splitter flagging
+    #: `.git` inside a path — so the answer is to be told rather than to
+    #: guess harder. Same move as `depends_on`: the plan is the only thing
+    #: that knows, so the plan says.
+    needs_tools: list[str] | None = None
+
 
 class Plan(BaseModel):
     tasks: list[Task] = Field(min_length=1, max_length=MAX_TASKS)
@@ -143,9 +164,13 @@ Rules:
 - If the message hands you an instruction from an earlier round, reuse its
   wording as it stands. Do not restate the goal around it — it was written to
   stand alone already, and rewriting it is what pushes it over the limit.
-- Give a task to someone who can do it. A task that writes a file goes to a
-  teammate with write_file or edit_file; one that runs a command goes to one
-  with bash. They cannot borrow each other's tools.
+- Give a task to someone who can do it, and say what it needs with
+  `"needs_tools"`, using the ids listed beside each teammate above:
+  `{{"needs_tools": ["bash"]}}` for a task that runs a command,
+  `["write_file"]` for one that saves a file, `["web_search", "web_fetch"]`
+  for one that has to look something up. Leave it out when the task needs
+  nothing in particular. Teammates cannot borrow each other's tools, and a
+  task sent to someone without them gets nothing done.
 - List them in the order they make sense; `depends_on` decides what waits.
 """
 
@@ -310,14 +335,92 @@ _WRITES_A_FILE = re.compile(
 )
 
 
-def _writers(snapshot: RosterSnapshot) -> set[int]:
-    """Seats that can be given a task *and* can write a file."""
+def _needed_by(task: Task) -> list[set[str]]:
+    """What a seat must hold to be given this task, as any-of groups.
+
+    A seat qualifies when its toolbox meets **every** group. One group per
+    declared tool, because each is separately required; one group of
+    `FILE_TOOLS` when the instruction reads like it writes a file, because
+    either of them will do.
+
+    **The regex is a fallback, not an addition.** A plan that declared its
+    needs has already answered the question, and guessing on top of the
+    answer is how the first version of this got it wrong: a review task
+    correctly declaring `read_file`, whose instruction said *"Do not edit
+    either file"*, had a write requirement added from the word `edit` inside
+    the prohibition — and was moved to the one teammate who could write, for
+    a job that must not write. The prose is consulted only when nobody said.
+    """
+    declared = list(dict.fromkeys(t for t in (task.needs_tools or []) if t))
+    if declared:
+        return [{tool} for tool in declared]
+    if _WRITES_A_FILE.search(task.instruction or ""):
+        return [set(FILE_TOOLS)]
+    return []
+
+
+def _can_do(tools: set[str], groups: list[set[str]]) -> bool:
+    return all(tools & g for g in groups)
+
+
+def owes_a_file(task: Task | dict[str, Any]) -> bool:
+    """Whether finishing this task means a file exists afterwards.
+
+    Two places ask: routing, to find an assignee who can write, and the
+    runtime, to refuse `done` to a turn that described a file instead of
+    writing one. One function, so they cannot disagree — and it takes a
+    plain dict as well, because by the time the graph asks, the task is one.
+    """
+    if isinstance(task, dict):
+        declared = [t for t in (task.get("needs_tools") or []) if t]
+        instruction = str(task.get("instruction") or "")
+    else:
+        declared = [t for t in (task.needs_tools or []) if t]
+        instruction = task.instruction or ""
+    if declared:
+        return bool(set(declared) & set(FILE_TOOLS))
+    return bool(_WRITES_A_FILE.search(instruction))
+
+
+def _candidates(snapshot: RosterSnapshot, groups: list[set[str]]) -> set[int]:
+    """Seats that can be given a task *and* hold everything it needs."""
+    assignable = _assignable(snapshot)
     return {
         m.seat_index
         for m in snapshot.members
-        if m.seat_index in _assignable(snapshot)
-        and set(m.tools or ()) & set(FILE_TOOLS)
+        if m.seat_index in assignable and _can_do(set(m.tools or ()), groups)
     }
+
+
+def _short(groups: list[set[str]]) -> str:
+    """The requirement, in the ids the roster uses."""
+    return " and ".join(" or ".join(sorted(g)) for g in groups)
+
+
+def _unknown_tools(plan: Plan, snapshot: RosterSnapshot) -> str | None:
+    """A declared tool has to be a real one, or it routes nothing.
+
+    Silently dropping a name the registry does not know would turn the whole
+    check off for that task without anybody being told, which is the quiet
+    half of the failure this field exists to fix. Same treatment the avatar
+    catalogue and the agent generator's tool list already get: name what was
+    wrong, list what is real, let the model correct it.
+    """
+    from ..tools.registry import all_specs
+
+    real = {spec.id for spec in all_specs()}
+    held = sorted({t for m in snapshot.members for t in (m.tools or ())})
+    for task in plan.tasks:
+        for tool in task.needs_tools or []:
+            if tool in real:
+                continue
+            return (
+                f"task {task.id} lists {tool!r} in needs_tools, which is not a "
+                f"tool. Use the ids from the roster above — this team holds "
+                f"{', '.join(held) if held else 'none'} — or leave needs_tools "
+                f"out when the task needs nothing in particular."
+            )
+    return None
 
 
 def _repair_tools(plan: Plan, snapshot: RosterSnapshot) -> list[str]:
@@ -340,27 +443,34 @@ def _repair_tools(plan: Plan, snapshot: RosterSnapshot) -> list[str]:
     without this — but "Sorrel was handed a writing task and cannot write" is
     worth knowing about your own team, and the person who composed it is the
     only one who can fix that.
+
+    **Decided per task, not per team.** The first version asked whether the
+    team had exactly one writer and repaired everything if so, which only
+    ever worked because there was one requirement. With a task naming its own
+    tools, two tasks in one plan can each have a single — and different —
+    legal assignee.
     """
-    writers = _writers(snapshot)
-    if len(writers) != 1:
-        return []
-    only = next(iter(writers))
     by_seat = {m.seat_index: m for m in snapshot.members}
     moved: list[str] = []
 
     for task in plan.tasks:
-        if task.assignee_seat == only:
-            continue
-        if not _WRITES_A_FILE.search(task.instruction or ""):
+        groups = _needed_by(task)
+        if not groups:
             continue
         was = by_seat.get(task.assignee_seat)
+        if was is not None and _can_do(set(was.tools or ()), groups):
+            continue
+        able = _candidates(snapshot, groups)
+        if len(able) != 1:
+            continue
+        only = next(iter(able))
         now = by_seat.get(only)
         task.assignee_seat = only
         moved.append(
-            f"{task.id} writes a file and went to "
-            f"{was.name if was else f'seat {task.assignee_seat}'}, who cannot; "
-            f"it was given to {now.name if now else f'seat {only}'}, the only "
-            f"teammate on this team who can write files"
+            f"{task.id} needs {_short(groups)} and went to "
+            f"{was.name if was else f'seat {task.assignee_seat}'}, who does not "
+            f"carry that; it was given to {now.name if now else f'seat {only}'}, "
+            f"the only teammate on this team who does"
         )
     return moved
 
@@ -391,29 +501,37 @@ def _check_tools(plan: Plan, snapshot: RosterSnapshot) -> str | None:
     read-only cannot satisfy this correction, and a check that cannot be
     obeyed would burn every attempt and fail the mission outright -- worse than
     the problem. So it fires only when some other assignable seat can actually
-    write, which is exactly when reassigning is the fix.
-    """
-    writers = _writers(snapshot)
-    # One writer is repaired rather than argued about; see `_repair_tools`.
-    if len(writers) < 2:
-        return None
+    do the work, which is exactly when reassigning is the fix.
 
+    **It is no longer only about writing.** A task declares what it needs,
+    so this covers `bash`, the web tools and anything else a team carries.
+    The release check that prompted it had a task called "Shell-verify
+    DESIGN.md contents" go to the one teammate without a shell while another
+    held it: the run did the work, reported that "the workspace exposes no
+    shell", and was recorded `failed` — a misassignment reading as a broken
+    app.
+    """
     by_seat = {m.seat_index: m for m in snapshot.members}
     for task in plan.tasks:
-        if task.assignee_seat in writers:
-            continue
-        found = _WRITES_A_FILE.search(task.instruction or "")
-        if not found:
+        groups = _needed_by(task)
+        if not groups:
             continue
         member = by_seat.get(task.assignee_seat)
+        if member is not None and _can_do(set(member.tools or ()), groups):
+            continue
+        able = _candidates(snapshot, groups)
+        # Nobody can: saying so would burn every attempt on an instruction
+        # that cannot be followed. Exactly one: repaired above, not argued
+        # about. So the correction is for a real choice between people.
+        if len(able) < 2:
+            continue
         who = member.name if member else f"seat {task.assignee_seat}"
         has = ", ".join(member.tools) if member and member.tools else "no tools"
         return (
-            f"task {task.id} writes a file ({found.group(0).strip()!r}) but "
-            f"seat {task.assignee_seat} ({who}) cannot: it has {has}. "
-            f"Give it to one of seats {sorted(writers)}, who hold "
-            f"{' or '.join(FILE_TOOLS)}. Teammates cannot borrow each "
-            f"other's tools."
+            f"task {task.id} needs {_short(groups)} but seat "
+            f"{task.assignee_seat} ({who}) cannot do it: it has {has}. "
+            f"Give it to one of seats {sorted(able)}. Teammates cannot borrow "
+            f"each other's tools."
         )
     return None
 
@@ -512,7 +630,14 @@ async def make_plan(
                 else:
                     # Seats and dependencies first: a task pointed at a seat
                     # nobody occupies cannot be repaired, only rejected.
-                    problem = _check_seats(plan, snapshot) or _check_deps(plan)
+                    problem = (
+                        _check_seats(plan, snapshot)
+                        or _check_deps(plan)
+                        # Before routing: a tool id nothing recognises cannot
+                        # be routed on, and dropping it would turn the check
+                        # off without saying so.
+                        or _unknown_tools(plan, snapshot)
+                    )
                     repaired: list[str] = []
                     if problem is None:
                         repaired = _repair_tools(plan, snapshot)

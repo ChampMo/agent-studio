@@ -39,7 +39,7 @@ from ..tools.execution import ToolBox
 from ..tools.registry import FILE_TOOLS
 from ..tools.team import USER_SENDER
 from .hitl import APPROVE, Ask, PlanRejected, ask_to_approve, new_request_id, pause
-from .planner import _WRITES_A_FILE, PlanningFailed, make_plan
+from .planner import PlanningFailed, make_plan, owes_a_file
 
 #: Resolves a snapshot member to a live provider + capabilities. Injected so the
 #: graph never learns which vendor anything is (§3.1).
@@ -934,11 +934,17 @@ def _build_graph(
             # workspace"), the leader's own summary was honest ("nothing was
             # built"), and the row said `completed` over both.
             #
-            # `_WRITES_A_FILE` is the planner's own test for "this task writes
-            # a file", already used to check the assignee holds `write_file`.
-            # Asking it a second question here costs one regex and is the same
-            # answer, so the two cannot disagree about which tasks owe a file.
-            owed_a_file = bool(_WRITES_A_FILE.search(str(task.get("instruction") or "")))
+            # `owes_a_file` is the planner's own test, so routing and this
+            # cannot disagree about which tasks owe one. It prefers what the
+            # plan declared and reads the prose only when nothing was.
+            #
+            # That preference is not a nicety. Reading the prose alone marked
+            # two correct tasks `failed` on a real run, both from a *negated*
+            # sentence: "do not edit DESIGN.md" and "Do not edit either file"
+            # each put a writing verb next to a filename, so a review told
+            # explicitly not to write was recorded as a task that owed a file
+            # and did not produce it. The agents had done the work.
+            owed_a_file = owes_a_file(task)
             produced = (
                 bool(answer.strip())
                 and (wrote or not (cut_off or lost_a_call))
@@ -959,7 +965,7 @@ def _build_graph(
             # call the run `completed`, and `unfinished_note` still names the
             # task. Only the word changes, and it changes to the true one.
             #
-            # What stays `failed` is the case the `_WRITES_A_FILE` rule above
+            # What stays `failed` is the case the `owes_a_file` rule above
             # exists for: a turn that had the room, answered, and did not do
             # what it was asked. That one is the agent's, and this must not
             # launder it.
